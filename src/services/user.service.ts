@@ -1,0 +1,119 @@
+import "server-only";
+import type { Prisma } from "@prisma/client";
+
+import { prisma } from "@/lib/prisma";
+import { hashPassword } from "@/lib/auth/password";
+import { revokeAllUserSessions } from "@/lib/auth/session";
+import { recordAudit } from "@/lib/audit";
+import { AppError, NotFoundError } from "@/lib/errors";
+import type { CreateUserInput, UpdateUserInput } from "@/validators/user.schema";
+import type { PaginationInput } from "@/validators/pagination.schema";
+import { paginationMeta } from "@/validators/pagination.schema";
+
+type ActorContext = { userId: string; role: string | null };
+
+const listInclude = {
+  roles: { include: { role: true } },
+} satisfies Prisma.UserInclude;
+
+export async function listUsers(pagination: PaginationInput) {
+  const { page, pageSize, search } = pagination;
+
+  const where: Prisma.UserWhereInput = {
+    deletedAt: null,
+    ...(search
+      ? {
+          OR: [
+            { firstName: { contains: search, mode: "insensitive" } },
+            { lastName: { contains: search, mode: "insensitive" } },
+            { email: { contains: search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      include: listInclude,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.user.count({ where }),
+  ]);
+
+  return { rows, meta: paginationMeta(total, { page, pageSize }) };
+}
+
+export async function createUser(input: CreateUserInput, actor: ActorContext) {
+  const existing = await prisma.user.findUnique({ where: { email: input.email } });
+  if (existing) throw new AppError("A user with this email already exists.", "EMAIL_TAKEN", 409);
+
+  const role = await prisma.role.findUnique({ where: { id: input.roleId } });
+  if (!role) throw new NotFoundError("Role not found.");
+
+  const passwordHash = await hashPassword(input.password);
+
+  const user = await prisma.user.create({
+    data: {
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+      passwordHash,
+      roles: { create: { roleId: input.roleId } },
+    },
+    include: listInclude,
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "CREATE",
+    module: "users",
+    recordId: user.id,
+    newValue: { email: user.email, role: role.name },
+  });
+
+  return user;
+}
+
+export async function updateUser(id: string, input: UpdateUserInput, actor: ActorContext) {
+  const existing = await prisma.user.findUnique({ where: { id, deletedAt: null }, include: listInclude });
+  if (!existing) throw new NotFoundError("User not found.");
+
+  const user = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id },
+      data: {
+        firstName: input.firstName ?? undefined,
+        lastName: input.lastName ?? undefined,
+        isActive: input.isActive ?? undefined,
+      },
+    });
+
+    if (input.roleId) {
+      await tx.userRole.deleteMany({ where: { userId: id } });
+      await tx.userRole.create({ data: { userId: id, roleId: input.roleId } });
+    }
+
+    return tx.user.findUniqueOrThrow({ where: { id }, include: listInclude });
+  });
+
+  // Deactivating a user must immediately invalidate any session they're using.
+  if (input.isActive === false) {
+    await revokeAllUserSessions(id);
+  }
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: input.isActive === false ? "UPDATE" : "ROLE_CHANGED",
+    module: "users",
+    recordId: id,
+    previousValue: { isActive: existing.isActive, roles: existing.roles.map((r) => r.role.name) },
+    newValue: input,
+  });
+
+  return user;
+}

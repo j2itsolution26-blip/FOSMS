@@ -1,0 +1,877 @@
+// Front Office Servicing NC II — full domain schema
+// Phase 1 fully wires: User/Role/Permission/Session, Room/RoomType, Guest, Reservation, AuditLog
+// Remaining models are defined now (per architecture decision) so later phases need no schema churn,
+// but are not yet exposed through API/UI.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Enums ----------
+
+enum RoleName {
+  SUPER_ADMIN
+  ADMINISTRATOR
+  FRONT_OFFICE_STAFF
+  INSTRUCTOR
+  ASSESSOR
+  TRAINEE
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReservationSource {
+  WALK_IN
+  PHONE
+  EMAIL
+  ONLINE
+  TRAVEL_AGENT
+  OTHER
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_ORDER
+}
+
+enum IdentificationType {
+  PASSPORT
+  DRIVER_LICENSE
+  NATIONAL_ID
+  OTHER
+}
+
+enum TraineeStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  WITHDRAWN
+  SUSPENDED
+  GRADUATED
+}
+
+enum CompetencyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TraineeCompetencyStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  FOR_ASSESSMENT
+  COMPETENT
+  NOT_YET_COMPETENT
+  COMPLETED
+}
+
+enum AssessmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum AssessmentResult {
+  PENDING
+  COMPETENT
+  NOT_YET_COMPETENT
+}
+
+enum EvidenceType {
+  PRACTICAL_DEMONSTRATION
+  OBSERVATION
+  WRITTEN_WORK
+  SIMULATION
+  PERFORMANCE_EVIDENCE
+  DOCUMENT
+}
+
+enum ServiceRequestType {
+  LUGGAGE
+  TRANSPORTATION
+  WAKE_UP_CALL
+  LOCAL_INFO
+  RESTAURANT_RECOMMENDATION
+  TOUR
+  DELIVERY
+  OTHER
+}
+
+enum ServiceRequestStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum CashierSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum TransactionType {
+  CHARGE
+  PAYMENT
+  REFUND
+  DISCOUNT
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+enum NightAuditStatus {
+  OPEN
+  IN_REVIEW
+  FINALIZED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  CANCEL
+  CHECK_IN
+  CHECK_OUT
+  ROOM_TRANSFER
+  GUEST_VERIFICATION
+  WALK_IN
+  CLUB_REGISTRATION
+  CLUB_CHECK_OUT
+  SERVICE_REQUEST_CREATED
+  SERVICE_REQUEST_ASSIGNED
+  SERVICE_REQUEST_COMPLETED
+  PAYMENT_RECEIVED
+  REFUND_CREATED
+  CASHIER_OPENED
+  CASHIER_CLOSED
+  ASSESSMENT_SUBMITTED
+  ASSESSMENT_REVIEWED
+  ASSESSMENT_FINALIZED
+  ASSESSMENT_CORRECTED
+  EVIDENCE_UPLOADED
+  ATTENDANCE_RECORDED
+  REPORT_GENERATED
+  REPORT_EXPORTED
+  NIGHT_AUDIT_FINALIZED
+  ROLE_CHANGED
+  PERMISSION_CHANGED
+  TRAINEE_CREATED
+  TRAINEE_UPDATED
+  TRAINEE_ARCHIVED
+  TRAINING_ACTIVITY_CREATED
+  TRAINING_ACTIVITY_ASSIGNED
+  TRAINING_ACTIVITY_SUBMITTED
+  TRAINING_ACTIVITY_GRADED
+  NIGHT_AUDIT_OPENED
+  SETTINGS_UPDATED
+}
+
+enum TrainingActivityStatus {
+  DRAFT
+  ASSIGNED
+  ARCHIVED
+}
+
+enum SubmissionStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  REVIEWED
+  COMPLETED
+  OVERDUE
+}
+
+// ---------- Identity / RBAC ----------
+
+model Role {
+  id          String   @id @default(cuid())
+  name        RoleName @unique
+  label       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g. "reservations:create"
+  module      String // e.g. "reservations"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  phone            String?
+  avatarUrl        String?
+  isActive         Boolean   @default(true)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  passwordResetAt  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  roles                    UserRole[]
+  sessions                 Session[]
+  auditLogs                AuditLog[]
+  instructor               Instructor?
+  trainee                  Trainee?
+  reservationsCreated      Reservation[]        @relation("ReservationCreatedBy")
+  cashierSessions          CashierSession[]
+  transactions             CashierTransaction[]
+  serviceRequestsAssigned  ServiceRequest[]     @relation("ServiceAssignedTo")
+  serviceRequestsCreated   ServiceRequest[]     @relation("ServiceRequestCreatedBy")
+  clubReceptionsRegistered ClubReception[]      @relation("ClubReceptionRegisteredBy")
+  assessmentsAssessed      Assessment[]         @relation("AssessmentAssessor")
+  assessmentsReviewed      Assessment[]         @relation("AssessmentReviewedBy")
+  assessmentsFinalized     Assessment[]         @relation("AssessmentFinalizedBy")
+  assessmentsCreated       Assessment[]         @relation("AssessmentCreatedBy")
+  evidenceUploaded         AssessmentEvidence[] @relation("AssessmentEvidenceUploadedBy")
+  traineeDocumentsUploaded TraineeDocument[]    @relation("TraineeDocumentUploadedBy")
+  submissionsGraded        TrainingActivitySubmission[] @relation("SubmissionGradedBy")
+  nightAuditsOpened        NightAudit[]         @relation("NightAuditOpenedBy")
+  nightAuditsFinalized     NightAudit[]         @relation("NightAuditFinalizedBy")
+  notifications            Notification[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------- Training domain ----------
+
+model Program {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  batches  TrainingBatch[]
+  trainees Trainee[]
+
+  @@map("programs")
+}
+
+model TrainingBatch {
+  id        String    @id @default(cuid())
+  programId String
+  code      String    @unique
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  program  Program   @relation(fields: [programId], references: [id])
+  trainees Trainee[]
+
+  @@map("training_batches")
+}
+
+model Instructor {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  specialty String?
+  createdAt DateTime @default(now())
+
+  user       User               @relation(fields: [userId], references: [id])
+  trainees   Trainee[]
+  activities TrainingActivity[]
+
+  @@map("instructors")
+}
+
+model Trainee {
+  id             String        @id @default(cuid())
+  userId         String        @unique
+  studentNumber  String        @unique
+  programId      String?
+  batchId        String?
+  instructorId   String?
+  enrollmentDate DateTime      @default(now())
+  status         TraineeStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  user                User                         @relation(fields: [userId], references: [id])
+  program             Program?                     @relation(fields: [programId], references: [id])
+  batch               TrainingBatch?               @relation(fields: [batchId], references: [id])
+  instructor          Instructor?                  @relation(fields: [instructorId], references: [id])
+  competencies        TraineeCompetency[]
+  assessments         Assessment[]
+  attendance          Attendance[]
+  activitySubmissions TrainingActivitySubmission[]
+  documents           TraineeDocument[]
+
+  @@index([status])
+  @@map("trainees")
+}
+
+model Competency {
+  id                  String           @id @default(cuid())
+  code                String           @unique
+  title               String
+  description         String?
+  learningOutcomes    String?
+  performanceCriteria String?
+  requiredActivities  String?
+  assessmentCriteria  String?
+  status              CompetencyStatus @default(ACTIVE)
+  displayOrder        Int              @default(0)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  traineeProgress TraineeCompetency[]
+  assessments     Assessment[]
+  activities      TrainingActivity[]
+
+  @@index([status, displayOrder])
+  @@map("competencies")
+}
+
+model TraineeCompetency {
+  id           String                  @id @default(cuid())
+  traineeId    String
+  competencyId String
+  status       TraineeCompetencyStatus @default(NOT_STARTED)
+  progress     Int                     @default(0)
+  updatedAt    DateTime                @updatedAt
+  createdAt    DateTime                @default(now())
+
+  trainee    Trainee    @relation(fields: [traineeId], references: [id], onDelete: Cascade)
+  competency Competency @relation(fields: [competencyId], references: [id], onDelete: Cascade)
+
+  @@unique([traineeId, competencyId])
+  @@map("trainee_competencies")
+}
+
+model Assessment {
+  id             String           @id @default(cuid())
+  assessmentNo   String           @unique
+  traineeId      String
+  competencyId   String
+  assessorId     String
+  status         AssessmentStatus @default(SCHEDULED)
+  result         AssessmentResult @default(PENDING)
+  scheduledDate  DateTime?
+  observations   String?
+  remarks        String?
+  score          Int?
+  submittedAt    DateTime?
+  reviewedAt     DateTime?
+  reviewedById   String?
+  finalizedAt    DateTime?
+  finalizedById  String?
+  correctionOfId String?          @unique
+  createdById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  trainee      Trainee              @relation(fields: [traineeId], references: [id])
+  competency   Competency           @relation(fields: [competencyId], references: [id])
+  assessor     User                 @relation("AssessmentAssessor", fields: [assessorId], references: [id])
+  reviewedBy   User?                @relation("AssessmentReviewedBy", fields: [reviewedById], references: [id])
+  finalizedBy  User?                @relation("AssessmentFinalizedBy", fields: [finalizedById], references: [id])
+  createdBy    User?                @relation("AssessmentCreatedBy", fields: [createdById], references: [id])
+  correctionOf Assessment?          @relation("AssessmentCorrection", fields: [correctionOfId], references: [id])
+  correction   Assessment?          @relation("AssessmentCorrection")
+  evidence     AssessmentEvidence[]
+
+  @@index([traineeId, competencyId])
+  @@index([status])
+  @@index([assessorId])
+  @@map("assessments")
+}
+
+model AssessmentEvidence {
+  id           String       @id @default(cuid())
+  assessmentId String
+  type         EvidenceType
+  description  String?
+  fileName     String?
+  storedName   String?
+  mimeType     String?
+  sizeBytes    Int?
+  uploadedById String
+  createdAt    DateTime     @default(now())
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  uploadedBy User       @relation("AssessmentEvidenceUploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([assessmentId])
+  @@map("assessment_evidence")
+}
+
+model TraineeDocument {
+  id           String   @id @default(cuid())
+  traineeId    String
+  label        String
+  fileName     String
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  trainee    Trainee @relation(fields: [traineeId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation("TraineeDocumentUploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([traineeId])
+  @@map("trainee_documents")
+}
+
+model TrainingActivity {
+  id           String                 @id @default(cuid())
+  instructorId String
+  competencyId String?
+  title        String
+  description  String?
+  instructions String?
+  status       TrainingActivityStatus @default(DRAFT)
+  assignedDate DateTime               @default(now())
+  dueDate      DateTime?
+
+  attachmentFileName   String?
+  attachmentStoredName String?
+  attachmentMimeType   String?
+  attachmentSizeBytes  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instructor  Instructor                   @relation(fields: [instructorId], references: [id])
+  competency  Competency?                  @relation(fields: [competencyId], references: [id])
+  submissions TrainingActivitySubmission[]
+
+  @@index([status])
+  @@map("training_activities")
+}
+
+model TrainingActivitySubmission {
+  id          String            @id @default(cuid())
+  activityId  String
+  traineeId   String
+  status      SubmissionStatus  @default(ASSIGNED)
+  submittedAt DateTime?
+  score       Int?
+  remarks     String?
+  gradedAt    DateTime?
+  gradedById  String?
+
+  fileName   String?
+  storedName String?
+  mimeType   String?
+  sizeBytes  Int?
+
+  activity TrainingActivity @relation(fields: [activityId], references: [id])
+  trainee  Trainee          @relation(fields: [traineeId], references: [id])
+  gradedBy User?            @relation("SubmissionGradedBy", fields: [gradedById], references: [id])
+
+  @@unique([activityId, traineeId])
+  @@index([status])
+  @@map("training_activity_submissions")
+}
+
+model Attendance {
+  id        String           @id @default(cuid())
+  traineeId String
+  date      DateTime         @db.Date
+  status    AttendanceStatus
+  remarks   String?
+  createdAt DateTime         @default(now())
+
+  trainee Trainee @relation(fields: [traineeId], references: [id])
+
+  @@unique([traineeId, date])
+  @@map("attendance")
+}
+
+// ---------- Front office domain ----------
+
+model RoomType {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  description  String?
+  baseRate     Decimal  @db.Decimal(10, 2)
+  maxOccupancy Int      @default(2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  rooms Room[]
+
+  @@map("room_types")
+}
+
+model Room {
+  id         String     @id @default(cuid())
+  number     String     @unique
+  roomTypeId String
+  floor      Int
+  status     RoomStatus @default(AVAILABLE)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  roomType      RoomType            @relation(fields: [roomTypeId], references: [id])
+  reservations  Reservation[]
+  statusHistory RoomStatusHistory[]
+
+  @@index([status])
+  @@map("rooms")
+}
+
+model RoomStatusHistory {
+  id        String     @id @default(cuid())
+  roomId    String
+  status    RoomStatus
+  changedAt DateTime   @default(now())
+  note      String?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("room_status_history")
+}
+
+model Guest {
+  id                 String              @id @default(cuid())
+  firstName          String
+  lastName           String
+  email              String?
+  phone              String?
+  address            String?
+  identificationType IdentificationType?
+  identificationNo   String?
+  nationality        String?
+  dateOfBirth        DateTime?           @db.Date
+  preferences        String?
+  emergencyContact   String?
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
+
+  reservations    Reservation[]
+  documents       GuestDocument[]
+  serviceRequests ServiceRequest[]
+
+  @@index([lastName, firstName])
+  @@map("guests")
+}
+
+model GuestDocument {
+  id         String   @id @default(cuid())
+  guestId    String
+  label      String
+  fileUrl    String
+  mimeType   String
+  sizeBytes  Int
+  uploadedAt DateTime @default(now())
+
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@map("guest_documents")
+}
+
+model Reservation {
+  id              String            @id @default(cuid())
+  reservationNo   String            @unique // FO-2026-000001
+  guestId         String
+  roomId          String
+  status          ReservationStatus @default(PENDING)
+  source          ReservationSource @default(WALK_IN)
+  arrivalDate     DateTime          @db.Date
+  departureDate   DateTime          @db.Date
+  numGuests       Int               @default(1)
+  specialRequests String?
+  notes           String?
+  createdById     String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  cancelledAt     DateTime?
+
+  guest        Guest                @relation(fields: [guestId], references: [id])
+  room         Room                 @relation(fields: [roomId], references: [id])
+  createdBy    User                 @relation("ReservationCreatedBy", fields: [createdById], references: [id])
+  checkIn      CheckIn?
+  checkOut     CheckOut?
+  transactions CashierTransaction[]
+
+  @@index([roomId, arrivalDate, departureDate])
+  @@index([status])
+  @@map("reservations")
+}
+
+model CheckIn {
+  id            String   @id @default(cuid())
+  reservationId String   @unique
+  checkedInAt   DateTime @default(now())
+  keyCardStatus String?
+  earlyCheckIn  Boolean  @default(false)
+  notes         String?
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+
+  @@map("check_ins")
+}
+
+model CheckOut {
+  id            String   @id @default(cuid())
+  reservationId String   @unique
+  checkedOutAt  DateTime @default(now())
+  lateCheckOut  Boolean  @default(false)
+  notes         String?
+
+  reservation Reservation @relation(fields: [reservationId], references: [id])
+
+  @@map("check_outs")
+}
+
+model ClubReception {
+  id             String    @id @default(cuid())
+  guestName      String
+  memberNumber   String?
+  isVisitor      Boolean   @default(false)
+  purpose        String?
+  registeredById String?
+  checkedInAt    DateTime  @default(now())
+  checkedOutAt   DateTime?
+
+  registeredBy User? @relation("ClubReceptionRegisteredBy", fields: [registeredById], references: [id])
+
+  @@index([checkedInAt])
+  @@map("club_receptions")
+}
+
+model ServiceRequest {
+  id           String                 @id @default(cuid())
+  requestNo    String                 @unique
+  type         ServiceRequestType
+  priority     ServiceRequestPriority @default(NORMAL)
+  guestId      String?
+  roomNumber   String?
+  description  String?
+  status       ServiceRequestStatus   @default(PENDING)
+  assignedToId String?
+  createdById  String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  completedAt  DateTime?
+
+  assignedTo User?  @relation("ServiceAssignedTo", fields: [assignedToId], references: [id])
+  createdBy  User?  @relation("ServiceRequestCreatedBy", fields: [createdById], references: [id])
+  guest      Guest? @relation(fields: [guestId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("service_requests")
+}
+
+model CashierSession {
+  id          String               @id @default(cuid())
+  cashierId   String
+  openingCash Decimal              @db.Decimal(10, 2)
+  closingCash Decimal?             @db.Decimal(10, 2)
+  status      CashierSessionStatus @default(OPEN)
+  openedAt    DateTime             @default(now())
+  closedAt    DateTime?
+
+  cashier      User                 @relation(fields: [cashierId], references: [id])
+  transactions CashierTransaction[]
+
+  @@map("cashier_sessions")
+}
+
+model CashierTransaction {
+  id            String          @id @default(cuid())
+  transactionNo String          @unique
+  sessionId     String
+  reservationId String?
+  type          TransactionType
+  amount        Decimal         @db.Decimal(10, 2)
+  paymentMethod PaymentMethod?
+  reference     String?
+  reversedById  String?
+  userId        String
+  createdAt     DateTime        @default(now())
+
+  session     CashierSession @relation(fields: [sessionId], references: [id])
+  reservation Reservation?   @relation(fields: [reservationId], references: [id])
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@map("cashier_transactions")
+}
+
+model NightAudit {
+  id            String           @id @default(cuid())
+  auditDate     DateTime         @unique @db.Date
+  status        NightAuditStatus @default(OPEN)
+  openedAt      DateTime         @default(now())
+  openedById    String?
+  finalizedAt   DateTime?
+  finalizedById String?
+  summary       Json?
+
+  openedBy    User? @relation("NightAuditOpenedBy", fields: [openedById], references: [id])
+  finalizedBy User? @relation("NightAuditFinalizedBy", fields: [finalizedById], references: [id])
+
+  @@map("night_audits")
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  userId        String?
+  role          String?
+  action        AuditAction
+  module        String
+  recordId      String?
+  ipAddress     String?
+  userAgent     String?
+  previousValue Json?
+  newValue      Json?
+  result        String      @default("SUCCESS")
+  createdAt     DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([module, action])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  relatedId String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// Atomic per-year counter backing human-readable reservation numbers (FO-2026-000001).
+// Incremented via a single UPDATE ... RETURNING inside a transaction to avoid races.
+model ReservationSequence {
+  year       Int @id
+  lastNumber Int @default(0)
+
+  @@map("reservation_sequences")
+}
+
+// Generalized atomic per-year counter for other numbered records (service requests,
+// cashier transactions, ...) so each new numbered entity doesn't need its own table.
+model NumberSequence {
+  kind       String
+  year       Int
+  lastNumber Int    @default(0)
+
+  @@id([kind, year])
+  @@map("number_sequences")
+}
