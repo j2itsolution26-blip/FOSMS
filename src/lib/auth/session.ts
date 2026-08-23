@@ -57,17 +57,38 @@ export async function clearSessionCookie() {
   store.delete(SESSION_COOKIE_NAME);
 }
 
-async function loadUserWithAccess(userId: string): Promise<SessionUser | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId, deletedAt: null },
+/**
+ * Validates a raw session token against the DB and returns the authorized
+ * user, or null if the token is missing, expired, revoked, or the account
+ * was deactivated/deleted. Memoized per-request via React `cache` so
+ * multiple `getCurrentUser()` calls in one request (layout, page, API
+ * helpers) only hit the database once.
+ */
+export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return null;
+
+  const tokenHash = hashToken(token);
+  const session = await prisma.session.findUnique({
+    where: { tokenHash },
     include: {
-      roles: {
-        include: { role: { include: { permissions: { include: { permission: true } } } } },
+      user: {
+        include: {
+          roles: {
+            include: { role: { include: { permissions: { include: { permission: true } } } } },
+          },
+        },
       },
     },
   });
 
-  if (!user) return null;
+  if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    return null;
+  }
+
+  const user = session.user;
+  if (!user || !user.isActive || user.deletedAt) return null;
 
   const roles: RoleName[] = user.roles.map((ur) => ur.role.name);
   const permissions = new Set<PermissionKey>();
@@ -86,31 +107,6 @@ async function loadUserWithAccess(userId: string): Promise<SessionUser | null> {
     roles,
     permissions,
   };
-}
-
-/**
- * Validates a raw session token against the DB and returns the authorized
- * user, or null if the token is missing, expired, revoked, or the account
- * was deactivated/deleted. Memoized per-request via React `cache` so
- * multiple `getCurrentUser()` calls in one request (layout, page, API
- * helpers) only hit the database once.
- */
-export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
-  const store = await cookies();
-  const token = store.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) return null;
-
-  const tokenHash = hashToken(token);
-  const session = await prisma.session.findUnique({ where: { tokenHash } });
-
-  if (!session || session.revokedAt || session.expiresAt < new Date()) {
-    return null;
-  }
-
-  const user = await loadUserWithAccess(session.userId);
-  if (!user || !user.isActive) return null;
-
-  return user;
 });
 
 export async function getCurrentSessionId(): Promise<string | null> {

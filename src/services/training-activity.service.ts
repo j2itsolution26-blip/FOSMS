@@ -174,11 +174,10 @@ export async function assignTrainees(activityId: string, traineeIds: string[], a
   }
 
   await prisma.$transaction(async (tx) => {
-    for (const traineeId of traineeIds) {
-      await tx.trainingActivitySubmission.upsert({
-        where: { activityId_traineeId: { activityId, traineeId } },
-        update: {},
-        create: { activityId, traineeId, status: "ASSIGNED" },
+    if (traineeIds.length > 0) {
+      await tx.trainingActivitySubmission.createMany({
+        data: traineeIds.map((traineeId) => ({ activityId, traineeId, status: "ASSIGNED" })),
+        skipDuplicates: true,
       });
     }
     if (activity.status === "DRAFT") {

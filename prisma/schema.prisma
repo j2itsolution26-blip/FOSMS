@@ -395,6 +395,9 @@ model Trainee {
   documents           TraineeDocument[]
 
   @@index([status])
+  @@index([deletedAt, status])
+  @@index([batchId])
+  @@index([instructorId])
   @@map("trainees")
 }
 
@@ -559,6 +562,8 @@ model TrainingActivitySubmission {
   gradedBy User?            @relation("SubmissionGradedBy", fields: [gradedById], references: [id])
 
   @@unique([activityId, traineeId])
+  @@index([traineeId, status])
+  @@index([traineeId])
   @@index([status])
   @@map("training_activity_submissions")
 }
@@ -574,6 +579,7 @@ model Attendance {
   trainee Trainee @relation(fields: [traineeId], references: [id])
 
   @@unique([traineeId, date])
+  @@index([date])
   @@map("attendance")
 }
 
@@ -689,6 +695,10 @@ model Reservation {
   transactions CashierTransaction[]
 
   @@index([roomId, arrivalDate, departureDate])
+  @@index([arrivalDate])
+  @@index([departureDate])
+  @@index([createdAt])
+  @@index([guestId])
   @@index([status])
   @@map("reservations")
 }
@@ -703,6 +713,7 @@ model CheckIn {
 
   reservation Reservation @relation(fields: [reservationId], references: [id])
 
+  @@index([checkedInAt])
   @@map("check_ins")
 }
 
@@ -715,6 +726,7 @@ model CheckOut {
 
   reservation Reservation @relation(fields: [reservationId], references: [id])
 
+  @@index([checkedOutAt])
   @@map("check_outs")
 }
 
@@ -791,6 +803,8 @@ model CashierTransaction {
   user        User           @relation(fields: [userId], references: [id])
 
   @@index([sessionId])
+  @@index([createdAt])
+  @@index([type, createdAt])
   @@map("cashier_transactions")
 }
 
@@ -844,7 +858,7 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id])
 
-  @@index([userId, isRead])
+  @@index([userId, isRead, createdAt])
   @@map("notifications")
 }
 

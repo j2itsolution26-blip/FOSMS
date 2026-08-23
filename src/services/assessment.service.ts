@@ -28,8 +28,7 @@ export async function getAssessmentKpis() {
     prisma.assessment.count({ where: { status: "COMPLETED", result: "COMPETENT" } }),
   ]);
 
-  const completedForRate = await prisma.assessment.count({ where: { status: "COMPLETED" } });
-  const competentRate = completedForRate > 0 ? Math.round((competent / completedForRate) * 100) : 0;
+  const competentRate = completed > 0 ? Math.round((competent / completed) * 100) : 0;
 
   return { total, pending, inProgress, completed, competentRate };
 }
