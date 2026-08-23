@@ -15,10 +15,18 @@ export async function GET(req: NextRequest) {
   const statusParam = searchParams.get("status");
   const status = statusParam ? roomStatusEnum.safeParse(statusParam) : undefined;
 
+  const includeSummary = searchParams.get("includeSummary") === "true";
+
   const rooms = await listRooms({
     status: status?.success ? status.data : undefined,
     search: searchParams.get("search") ?? undefined,
   });
+
+  if (includeSummary) {
+    const { listRoomTypes } = await import("@/services/room.service");
+    const roomTypes = await listRoomTypes();
+    return apiSuccess({ rooms, roomTypes });
+  }
 
   return apiSuccess(rooms);
 }

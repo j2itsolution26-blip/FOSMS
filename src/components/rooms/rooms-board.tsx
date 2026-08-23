@@ -45,16 +45,16 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({ includeSummary: "true" });
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
 
-    const [roomsRes, typesRes] = await Promise.all([
-      apiFetch<RoomRow[]>(`/api/rooms?${params.toString()}`),
-      apiFetch<RoomTypeRow[]>("/api/room-types"),
-    ]);
-    if (roomsRes.success) setRooms(roomsRes.data);
-    if (typesRes.success) setRoomTypes(typesRes.data);
+    type ConsolidatedData = { rooms: RoomRow[]; roomTypes: RoomTypeRow[] };
+    const res = await apiFetch<ConsolidatedData>(`/api/rooms?${params.toString()}`);
+    if (res.success) {
+      if (res.data.rooms) setRooms(res.data.rooms);
+      if (res.data.roomTypes) setRoomTypes(res.data.roomTypes);
+    }
     setLoading(false);
   }, [debouncedSearch, statusFilter]);
 

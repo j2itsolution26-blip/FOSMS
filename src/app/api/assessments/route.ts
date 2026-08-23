@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
   const resultParam = searchParams.get("result");
   const result = resultParam ? assessmentResultEnum.safeParse(resultParam) : undefined;
 
+  const includeSummary = searchParams.get("includeSummary") === "true";
+
   const { rows, meta } = await listAssessments(pagination, {
     competencyId: searchParams.get("competencyId") ?? undefined,
     assessorId: searchParams.get("assessorId") ?? undefined,
@@ -28,6 +30,24 @@ export async function GET(req: NextRequest) {
     dateFrom: searchParams.get("dateFrom") ?? undefined,
     dateTo: searchParams.get("dateTo") ?? undefined,
   });
+
+  if (includeSummary) {
+    const { getAssessmentKpis, listAssessors } = await import("@/services/assessment.service");
+    const { listCompetencies } = await import("@/services/competency.service");
+
+    const [kpis, competencies, assessors] = await Promise.all([
+      getAssessmentKpis(),
+      listCompetencies(),
+      listAssessors(),
+    ]);
+
+    const metaOptions = {
+      competencies: competencies.map((c) => ({ id: c.id, title: c.title })),
+      assessors: assessors.map((a) => ({ id: a.id, firstName: a.firstName, lastName: a.lastName })),
+    };
+
+    return apiSuccess({ rows, kpis, metaOptions }, meta);
+  }
 
   return apiSuccess(rows, meta);
 }

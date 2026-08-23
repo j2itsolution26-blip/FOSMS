@@ -61,27 +61,27 @@ export function TrainingActivitiesClient({ canManage }: { canManage: boolean }) 
       if (showSpinner) setRefreshing(true);
       else setLoading(true);
 
-      const params = new URLSearchParams({ page: String(page), pageSize: "10" });
+      const params = new URLSearchParams({ page: String(page), pageSize: "10", includeSummary: "true" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter) params.set("status", statusFilter);
       if (competencyFilter) params.set("competencyId", competencyFilter);
 
-      const [listResult, kpisResult, activityResult, metaResult] = await Promise.all([
-        apiFetch<ActivityRow[]>(`/api/training-activities?${params.toString()}`),
-        apiFetch<Kpis>("/api/training-activities/kpis"),
-        apiFetch<{ id: string; time: string; label: string }[]>("/api/training-activities/activity"),
-        apiFetch<{ instructors: MetaOption[]; competencies: MetaOption[]; trainees: TraineeOption[] }>(
-          "/api/training-activities/meta"
-        ),
-      ]);
+      type ConsolidatedData = {
+        rows: ActivityRow[];
+        kpis: Kpis;
+        activity: { id: string; time: string; label: string }[];
+        metaOptions: { instructors: MetaOption[]; competencies: MetaOption[]; trainees: TraineeOption[] };
+      };
 
-      if (listResult.success) {
-        setRows(listResult.data);
-        setMeta(listResult.meta ?? null);
+      const res = await apiFetch<ConsolidatedData>(`/api/training-activities?${params.toString()}`);
+
+      if (res.success) {
+        setRows(res.data.rows);
+        setMeta(res.meta ?? null);
+        if (res.data.kpis) setKpis(res.data.kpis);
+        if (res.data.activity) setActivity(res.data.activity);
+        if (res.data.metaOptions) setMetaOptions(res.data.metaOptions);
       }
-      if (kpisResult.success) setKpis(kpisResult.data);
-      if (activityResult.success) setActivity(activityResult.data);
-      if (metaResult.success) setMetaOptions(metaResult.data);
 
       setLoading(false);
       setRefreshing(false);

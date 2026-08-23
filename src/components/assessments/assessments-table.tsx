@@ -76,22 +76,26 @@ export function AssessmentsTable({
     if (showSpinner) setRefreshing(true);
     else setLoading(true);
 
-    const params = new URLSearchParams({ page: String(page), pageSize: "10" });
+    const params = new URLSearchParams({ page: String(page), pageSize: "10", includeSummary: "true" });
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
     if (resultFilter) params.set("result", resultFilter);
     if (competencyFilter) params.set("competencyId", competencyFilter);
     if (assessorFilter) params.set("assessorId", assessorFilter);
 
-    const [listRes, kpiRes] = await Promise.all([
-      apiFetch<AssessmentRow[]>(`/api/assessments?${params.toString()}`),
-      apiFetch<Kpis>("/api/assessments/kpis"),
-    ]);
-    if (listRes.success) {
-      setRows(listRes.data);
-      setListMeta(listRes.meta ?? null);
+    type ConsolidatedData = {
+      rows: AssessmentRow[];
+      kpis: Kpis;
+      metaOptions: Meta;
+    };
+
+    const res = await apiFetch<ConsolidatedData>(`/api/assessments?${params.toString()}`);
+    if (res.success) {
+      setRows(res.data.rows);
+      setListMeta(res.meta ?? null);
+      if (res.data.kpis) setKpis(res.data.kpis);
+      if (res.data.metaOptions) setMeta(res.data.metaOptions);
     }
-    if (kpiRes.success) setKpis(kpiRes.data);
     setLoading(false);
     setRefreshing(false);
   }, [page, debouncedSearch, statusFilter, resultFilter, competencyFilter, assessorFilter]);
@@ -99,12 +103,6 @@ export function AssessmentsTable({
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    apiFetch<Meta>("/api/assessments/meta").then((res) => {
-      if (res.success) setMeta(res.data);
-    });
-  }, []);
 
   async function handleExport() {
     const params = new URLSearchParams();

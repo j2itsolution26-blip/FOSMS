@@ -77,24 +77,28 @@ export function TraineesTable({ canCreate }: { canCreate: boolean }) {
     if (showSpinner) setRefreshing(true);
     else setLoading(true);
 
-    const params = new URLSearchParams({ page: String(page), pageSize: "10" });
+    const params = new URLSearchParams({ page: String(page), pageSize: "10", includeSummary: "true" });
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
     if (batchFilter) params.set("batchId", batchFilter);
     if (instructorFilter) params.set("instructorId", instructorFilter);
     if (progressFilter) params.set("competencyProgress", progressFilter);
 
-    const [listRes, kpiRes, activityRes] = await Promise.all([
-      apiFetch<TraineeRow[]>(`/api/trainees?${params.toString()}`),
-      apiFetch<Kpis>("/api/trainees/kpis"),
-      apiFetch<{ id: string; time: string; label: string }[]>("/api/trainees/activity"),
-    ]);
-    if (listRes.success) {
-      setRows(listRes.data);
-      setListMeta(listRes.meta ?? null);
+    type ConsolidatedData = {
+      rows: TraineeRow[];
+      kpis: Kpis;
+      metaOptions: Meta;
+      activity: { id: string; time: string; label: string }[];
+    };
+
+    const res = await apiFetch<ConsolidatedData>(`/api/trainees?${params.toString()}`);
+    if (res.success) {
+      setRows(res.data.rows);
+      setListMeta(res.meta ?? null);
+      if (res.data.kpis) setKpis(res.data.kpis);
+      if (res.data.activity) setActivity(res.data.activity);
+      if (res.data.metaOptions) setMeta(res.data.metaOptions);
     }
-    if (kpiRes.success) setKpis(kpiRes.data);
-    if (activityRes.success) setActivity(activityRes.data);
     setLoading(false);
     setRefreshing(false);
   }, [page, debouncedSearch, statusFilter, batchFilter, instructorFilter, progressFilter]);
@@ -102,12 +106,6 @@ export function TraineesTable({ canCreate }: { canCreate: boolean }) {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    apiFetch<Meta>("/api/trainees/meta").then((res) => {
-      if (res.success) setMeta(res.data);
-    });
-  }, []);
 
   useEffect(() => {
     if (searchParams.get("action") === "new") router.replace("/trainees");

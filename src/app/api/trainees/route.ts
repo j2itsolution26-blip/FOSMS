@@ -19,12 +19,47 @@ export async function GET(req: NextRequest) {
   const status = statusParam ? traineeStatusEnum.safeParse(statusParam) : undefined;
   const competencyProgress = searchParams.get("competencyProgress") as "under50" | "50to79" | "80plus" | null;
 
+  const includeSummary = searchParams.get("includeSummary") === "true";
+
   const { rows, meta } = await listTrainees(pagination, {
     status: status?.success ? status.data : undefined,
     batchId: searchParams.get("batchId") ?? undefined,
     instructorId: searchParams.get("instructorId") ?? undefined,
     competencyProgress: competencyProgress ?? undefined,
   });
+
+  if (includeSummary) {
+    const { getTraineeKpis, listBatches, listInstructors } = await import("@/services/trainee.service");
+    const { prisma } = await import("@/lib/prisma");
+
+    const [kpis, batches, instructors, recentLogs] = await Promise.all([
+      getTraineeKpis(),
+      listBatches(),
+      listInstructors(),
+      prisma.auditLog.findMany({
+        where: { module: "trainees" },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { user: { select: { firstName: true, lastName: true } } },
+      }),
+    ]);
+
+    const activity = recentLogs.map((log) => ({
+      id: log.id,
+      time: log.createdAt.toISOString(),
+      label: `${log.action.replaceAll("_", " ")}: ${log.recordId || "record"}`,
+    }));
+
+    return apiSuccess(
+      {
+        rows,
+        kpis,
+        metaOptions: { batches, instructors },
+        activity,
+      },
+      meta
+    );
+  }
 
   return apiSuccess(rows, meta);
 }
