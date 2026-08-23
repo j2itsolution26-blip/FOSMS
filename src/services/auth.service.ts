@@ -61,19 +61,22 @@ export async function login(email: string, password: string, meta: RequestMeta) 
     throw new AppError("Invalid email or password.", "INVALID_CREDENTIALS", 401);
   }
 
-  await resetFailedLogin(user.id);
-  const { token, expiresAt } = await createSession(user.id, meta);
-
   const primaryRole = user.roles[0]?.role.name ?? null;
 
-  await recordAudit({
-    userId: user.id,
-    role: primaryRole,
-    action: "LOGIN",
-    module: "auth",
-    ipAddress: meta.ipAddress,
-    userAgent: meta.userAgent,
-  });
+  // Independent writes — none depends on another's result — so they run
+  // concurrently instead of paying three sequential round trips.
+  const [, { token, expiresAt }] = await Promise.all([
+    resetFailedLogin(user.id),
+    createSession(user.id, meta),
+    recordAudit({
+      userId: user.id,
+      role: primaryRole,
+      action: "LOGIN",
+      module: "auth",
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    }),
+  ]);
 
   return { token, expiresAt, user };
 }

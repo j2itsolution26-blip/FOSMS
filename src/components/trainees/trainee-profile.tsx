@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, Mail, Phone, GraduationCap, CalendarDays } from "lucide-react";
@@ -61,6 +62,7 @@ export function TraineeProfile({
   canRecordAttendance: boolean;
   canUploadDocuments: boolean;
 }) {
+  const router = useRouter();
   const [attendanceOpen, setAttendanceOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
 
@@ -376,13 +378,13 @@ export function TraineeProfile({
         open={attendanceOpen}
         onOpenChange={setAttendanceOpen}
         traineeId={trainee.id}
-        onDone={() => window.location.reload()}
+        onDone={() => router.refresh()}
       />
       <DocumentUploadDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         traineeId={trainee.id}
-        onDone={() => window.location.reload()}
+        onDone={() => router.refresh()}
       />
     </div>
   );

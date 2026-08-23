@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, Paperclip, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 
@@ -58,6 +59,7 @@ export function AssessmentDetail({
   canEvaluate: boolean;
   canFinalize: boolean;
 }) {
+  const router = useRouter();
   async function handleDownload(evidenceId: string, fileName: string) {
     const res = await fetch(`/api/assessments/${assessment.id}/evidence/${evidenceId}/download`);
     if (!res.ok) {
@@ -199,7 +201,7 @@ export function AssessmentDetail({
             ))
           )}
 
-          {canRecordEvidence ? <EvidenceUploadForm assessmentId={assessment.id} onDone={() => window.location.reload()} /> : null}
+          {canRecordEvidence ? <EvidenceUploadForm assessmentId={assessment.id} onDone={() => router.refresh()} /> : null}
         </CardContent>
       </Card>
 
@@ -209,7 +211,7 @@ export function AssessmentDetail({
             <CardTitle>Evaluate Performance</CardTitle>
           </CardHeader>
           <CardContent>
-            <SubmitForm assessmentId={assessment.id} onDone={() => window.location.reload()} />
+            <SubmitForm assessmentId={assessment.id} onDone={() => router.refresh()} />
           </CardContent>
         </Card>
       ) : null}
@@ -229,7 +231,7 @@ export function AssessmentDetail({
                   return;
                 }
                 toast.success("Moved to review.");
-                window.location.reload();
+                router.refresh();
               }}
             >
               Begin Review
@@ -244,7 +246,7 @@ export function AssessmentDetail({
             <CardTitle>Finalize Result</CardTitle>
           </CardHeader>
           <CardContent>
-            <FinalizeForm assessmentId={assessment.id} mode="finalize" onDone={() => window.location.reload()} />
+            <FinalizeForm assessmentId={assessment.id} mode="finalize" onDone={() => router.refresh()} />
           </CardContent>
         </Card>
       ) : null}
@@ -259,7 +261,7 @@ export function AssessmentDetail({
               This assessment is finalized and cannot be edited directly. Recording a correction creates a new, linked
               assessment record — the original result stays in the audit trail.
             </p>
-            <FinalizeForm assessmentId={assessment.id} mode="correct" onDone={() => window.location.reload()} />
+            <FinalizeForm assessmentId={assessment.id} mode="correct" onDone={() => router.refresh()} />
           </CardContent>
         </Card>
       ) : null}
