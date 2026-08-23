@@ -34,7 +34,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-[#0b1c3f] text-slate-200 transition-transform duration-200 ease-in-out lg:static lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-40 flex w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] max-w-[var(--app-sidebar-width)] flex-col overflow-x-hidden border-r border-white/10 bg-[#0b1c3f] text-slate-200 transition-transform duration-200 ease-in-out lg:translate-x-0",
         mobileOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
@@ -48,12 +48,12 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
+      <nav className="flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4">
         {sections.map((section) =>
           section.items.length === 0 ? null : (
-            <div key={section.label || "root"} className="mb-4">
+            <div key={section.label || "root"} className="mb-5">
               {section.label ? (
-                <p className="px-3 pb-1.5 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+                <p className="px-3.5 pt-1 pb-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
                   {section.label}
                 </p>
               ) : null}
@@ -68,13 +68,13 @@ export function Sidebar({
                         onClick={onNavigate}
                         aria-current={active ? "page" : undefined}
                         className={cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                          "flex h-11 items-center gap-3 rounded-[9px] px-3.5 text-sm font-medium transition-colors",
                           active
                             ? "bg-blue-600 text-white shadow-sm"
                             : "text-slate-300 hover:bg-white/5 hover:text-white"
                         )}
                       >
-                        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                        <Icon className="h-5 w-5 shrink-0" aria-hidden />
                         <span className="truncate">{item.label}</span>
                       </Link>
                     </li>

@@ -51,7 +51,7 @@ export function AppShell({
         />
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-0">
+      <div className="flex min-w-0 flex-1 flex-col lg:ml-[var(--app-sidebar-width)]">
         <div className="print:hidden">
           <Topbar
             orgName={orgName}
