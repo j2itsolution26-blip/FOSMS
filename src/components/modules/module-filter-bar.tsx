@@ -36,7 +36,7 @@ export function ModuleFilterBar({
       {filters.map((filter) => (
         <select
           key={filter.label}
-          className="h-9 rounded-md border bg-white px-3 text-sm"
+          className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           value={filter.value}
           onChange={(e) => filter.onChange(e.target.value)}
           aria-label={filter.label}

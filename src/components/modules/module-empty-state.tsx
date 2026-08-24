@@ -18,11 +18,11 @@ export function ModuleEmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Icon className="h-6 w-6" aria-hidden />
       </div>
       <div>
-        <p className="font-semibold text-slate-900">{title}</p>
+        <p className="font-semibold text-foreground">{title}</p>
         <p className="mx-auto max-w-sm text-sm text-muted-foreground">{description}</p>
       </div>
       {actionLabel && onAction ? (

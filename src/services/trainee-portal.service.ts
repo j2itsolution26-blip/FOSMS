@@ -407,7 +407,10 @@ export async function getMyEvidence(traineeId: string) {
     }),
     prisma.assessmentEvidence.findMany({
       where: { assessment: { traineeId }, storedName: { not: null } },
-      include: { assessment: { select: { assessmentNo: true, competency: { select: { title: true } } } } },
+      include: {
+        assessment: { select: { assessmentNo: true, competency: { select: { title: true } } } },
+        uploadedBy: { select: { firstName: true, lastName: true } },
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.trainingActivitySubmission.findMany({
@@ -418,19 +421,31 @@ export async function getMyEvidence(traineeId: string) {
   ]);
 
   return {
-    documents: documents.map((d) => ({
-      id: d.id,
-      kind: "document" as const,
-      label: d.label,
-      fileName: d.fileName,
-      uploadedBy: `${d.uploadedBy.firstName} ${d.uploadedBy.lastName}`,
-      createdAt: d.createdAt,
-    })),
+    documents: documents.map((doc) => {
+      const d = doc as typeof doc & { category?: string | null; description?: string | null };
+      return {
+        id: d.id,
+        kind: "document" as const,
+        label: d.label,
+        category: d.category ?? "Training Documents",
+        description: d.description ?? null,
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        sizeBytes: d.sizeBytes,
+        uploadedBy: `${d.uploadedBy.firstName} ${d.uploadedBy.lastName}`,
+        createdAt: d.createdAt,
+      };
+    }),
     assessmentEvidence: assessmentEvidence.map((e) => ({
       id: e.id,
       kind: "assessment-evidence" as const,
       label: `${e.assessment.competency.title} — ${e.type.replaceAll("_", " ")}`,
+      category: "Assessment Evidence" as const,
+      description: e.description ?? null,
       fileName: e.fileName,
+      mimeType: e.mimeType ?? null,
+      sizeBytes: e.sizeBytes ?? null,
+      uploadedBy: `${e.uploadedBy.firstName} ${e.uploadedBy.lastName}`,
       assessmentNo: e.assessment.assessmentNo,
       createdAt: e.createdAt,
     })),
@@ -438,8 +453,72 @@ export async function getMyEvidence(traineeId: string) {
       id: s.id,
       kind: "activity-submission" as const,
       label: s.activity.title,
+      category: "Activity Evidence" as const,
+      description: s.remarks ?? null,
       fileName: s.fileName,
+      mimeType: s.mimeType ?? null,
+      sizeBytes: s.sizeBytes ?? null,
+      uploadedBy: null,
       createdAt: s.submittedAt,
     })),
   };
 }
+
+export async function uploadMyDocument(
+  traineeId: string,
+  file: File,
+  label: string,
+  category: string,
+  description: string | undefined,
+  actor: ActorContext
+) {
+  const stored = await saveUploadedFile(file, "trainee-documents");
+
+  const document = await prisma.traineeDocument.create({
+    data: {
+      traineeId,
+      label,
+      category,
+      description: description || null,
+      fileName: stored.fileName,
+      storedName: stored.storedName,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      uploadedById: actor.userId,
+    } as any,
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "EVIDENCE_UPLOADED",
+    module: "trainee-portal",
+    recordId: document.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: { label, category, fileName: stored.fileName },
+  });
+
+  return document;
+}
+
+export async function deleteMyDocument(traineeId: string, documentId: string, actor: ActorContext) {
+  const doc = await prisma.traineeDocument.findFirst({
+    where: { id: documentId, traineeId, uploadedById: actor.userId },
+  });
+  if (!doc) throw new NotFoundError("Document not found or you do not have permission to delete it.");
+
+  await prisma.traineeDocument.delete({ where: { id: documentId } });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "DELETE",
+    module: "trainee-portal",
+    recordId: documentId,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: { label: doc.label, fileName: doc.fileName },
+  });
+}
+

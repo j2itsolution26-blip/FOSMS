@@ -500,6 +500,8 @@ model TraineeDocument {
   id           String   @id @default(cuid())
   traineeId    String
   label        String
+  category     String   @default("Training Documents")
+  description  String?
   fileName     String
   storedName   String
   mimeType     String
