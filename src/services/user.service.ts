@@ -46,6 +46,46 @@ export async function listUsers(pagination: PaginationInput) {
   return { rows, meta: paginationMeta(total, { page, pageSize }) };
 }
 
+/**
+ * Full account detail for the Users → View page.
+ *
+ * Deliberately defensive: a user's `roles` say what they're *entitled* to do,
+ * but nothing in the schema guarantees a matching `Instructor`/`Trainee`
+ * profile row exists (an admin can create a user with the INSTRUCTOR or
+ * TRAINEE role directly from Users → New User, or change any user's role
+ * from the Users table, and neither path creates the profile row — only
+ * trainee.service.ts's dedicated createTrainee() does that, and only for
+ * trainees). So every optional relation here — instructor, trainee, and the
+ * trainee's own program/batch/instructor — is treated as genuinely optional
+ * at read time, never assumed present just because a role implies it should
+ * exist. The page renders "not set up" for a missing profile instead of
+ * crashing on a null dereference.
+ */
+export async function getUserById(id: string) {
+  const user = await prisma.user.findUnique({
+    where: { id, deletedAt: null },
+    include: {
+      roles: { include: { role: true } },
+      instructor: {
+        include: {
+          _count: { select: { trainees: true, activities: true } },
+        },
+      },
+      trainee: {
+        include: {
+          program: true,
+          batch: true,
+          instructor: { include: { user: { select: { firstName: true, lastName: true } } } },
+          _count: { select: { competencies: true, assessments: true } },
+        },
+      },
+    },
+  });
+  if (!user) throw new NotFoundError("User not found.");
+
+  return user;
+}
+
 export async function createUser(input: CreateUserInput, actor: ActorContext) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) throw new AppError("A user with this email already exists.", "EMAIL_TAKEN", 409);

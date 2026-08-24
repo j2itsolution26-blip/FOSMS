@@ -5,9 +5,23 @@ import { authorize } from "@/lib/auth/guard";
 import { handleServiceError } from "@/lib/handle-service-error";
 import { PERMISSIONS } from "@/config/permissions";
 import { updateUserSchema } from "@/validators/user.schema";
-import { updateUser } from "@/services/user.service";
+import { getUserById, updateUser } from "@/services/user.service";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+export async function GET(_req: NextRequest, { params }: RouteContext) {
+  const auth = await authorize(PERMISSIONS.USERS_MANAGE);
+  if (auth.error) return auth.error;
+
+  const { id } = await params;
+
+  try {
+    const user = await getUserById(id);
+    return apiSuccess(user);
+  } catch (err) {
+    return handleServiceError(err, "users/get");
+  }
+}
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
   const auth = await authorize(PERMISSIONS.USERS_MANAGE);

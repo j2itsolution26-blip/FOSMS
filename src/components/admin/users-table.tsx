@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import Link from "next/link";
+import { Plus, Search, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -137,13 +138,14 @@ export function UsersTable({ currentUserId }: { currentUserId: string }) {
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Active</TableHead>
+              <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 4 }).map((__, j) => (
+                  {Array.from({ length: 5 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -152,7 +154,7 @@ export function UsersTable({ currentUserId }: { currentUserId: string }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
                   No users found.
                 </TableCell>
               </TableRow>
@@ -186,6 +188,13 @@ export function UsersTable({ currentUserId }: { currentUserId: string }) {
                     </TableCell>
                     <TableCell>
                       <Switch checked={u.isActive} onCheckedChange={(v) => toggleActive(u, v)} disabled={isSelf} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/users/${u.id}`}>
+                          <Eye className="h-4 w-4" /> View
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
