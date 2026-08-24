@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EvidenceStatusBadge } from "@/components/shared/status-badge";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { UploadEvidenceDialog } from "@/components/trainee-portal/upload-evidence-dialog";
 import {
   DocumentDetailDialog,
@@ -317,6 +318,7 @@ export function MyEvidencePage({
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["value"]>("newest");
   const [currentEvidence, setCurrentEvidence] = useState(evidence);
   const [refreshing, setRefreshing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EvidenceItem | null>(null);
 
   const allItems = useMemo(() => {
     if (!currentEvidence) return [];
@@ -387,10 +389,15 @@ export function MyEvidencePage({
     setRefreshing(false);
   }, []);
 
-  const handleDelete = useCallback(async (doc: EvidenceItem) => {
-    if (!confirm("Are you sure you want to delete this document? This action cannot be undone.")) return;
+  const requestDelete = useCallback((doc: EvidenceItem) => {
+    setViewDoc(null);
+    setDeleteTarget(doc);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/me/evidence/${doc.kind}/${doc.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/me/evidence/${deleteTarget.kind}/${deleteTarget.id}`, { method: "DELETE" });
       const body = await res.json();
       if (!body.success) {
         toast.error(body.message || "Failed to delete document.");
@@ -398,11 +405,12 @@ export function MyEvidencePage({
       }
       toast.success("Document deleted.");
       setViewDoc(null);
+      setDeleteTarget(null);
       refreshData();
     } catch {
       toast.error("Failed to delete document.");
     }
-  }, [refreshData]);
+  }, [deleteTarget, refreshData]);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -550,7 +558,18 @@ export function MyEvidencePage({
       <DocumentDetailDialog
         document={viewDoc}
         onOpenChange={(open) => { if (!open) setViewDoc(null); }}
-        onDelete={handleDelete}
+        onDelete={requestDelete}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete document?"
+        description={`"${deleteTarget?.label ?? ""}" will be permanently deleted. This action cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
       />
     </div>
   );

@@ -421,21 +421,18 @@ export async function getMyEvidence(traineeId: string) {
   ]);
 
   return {
-    documents: documents.map((doc) => {
-      const d = doc as typeof doc & { category?: string | null; description?: string | null };
-      return {
-        id: d.id,
-        kind: "document" as const,
-        label: d.label,
-        category: d.category ?? "Training Documents",
-        description: d.description ?? null,
-        fileName: d.fileName,
-        mimeType: d.mimeType,
-        sizeBytes: d.sizeBytes,
-        uploadedBy: `${d.uploadedBy.firstName} ${d.uploadedBy.lastName}`,
-        createdAt: d.createdAt,
-      };
-    }),
+    documents: documents.map((d) => ({
+      id: d.id,
+      kind: "document" as const,
+      label: d.label,
+      category: d.category,
+      description: d.description,
+      fileName: d.fileName,
+      mimeType: d.mimeType,
+      sizeBytes: d.sizeBytes,
+      uploadedBy: `${d.uploadedBy.firstName} ${d.uploadedBy.lastName}`,
+      createdAt: d.createdAt,
+    })),
     assessmentEvidence: assessmentEvidence.map((e) => ({
       id: e.id,
       kind: "assessment-evidence" as const,
@@ -485,7 +482,7 @@ export async function uploadMyDocument(
       mimeType: stored.mimeType,
       sizeBytes: stored.sizeBytes,
       uploadedById: actor.userId,
-    } as any,
+    },
   });
 
   await recordAudit({

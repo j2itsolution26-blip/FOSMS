@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SubmissionStatusBadge } from "@/components/shared/status-badge";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { SubmitActivityDialog } from "@/components/trainee-portal/submit-activity-dialog";
@@ -57,11 +58,12 @@ export function MyActivitiesList() {
   const [status, setStatus] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [submitTarget, setSubmitTarget] = useState<ActivityRow | null>(null);
+  const debouncedSearch = useDebouncedValue(search);
 
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: "10" });
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     if (status !== "all") params.set("status", status);
     const result = await apiFetch<ActivityRow[]>(`/api/me/activities?${params.toString()}`);
     if (result.success) {
@@ -69,7 +71,7 @@ export function MyActivitiesList() {
       setMeta(result.meta ?? null);
     }
     setLoading(false);
-  }, [page, search, status]);
+  }, [page, debouncedSearch, status]);
 
   useEffect(() => {
     load();
@@ -104,6 +106,7 @@ export function MyActivitiesList() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             placeholder="Search activities…"
+            aria-label="Search activities"
             className="pl-9"
             value={search}
             onChange={(e) => {
@@ -119,7 +122,7 @@ export function MyActivitiesList() {
             setStatus(v);
           }}
         >
-          <SelectTrigger className="w-full sm:w-48">
+          <SelectTrigger className="w-full sm:w-48" aria-label="Filter by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>

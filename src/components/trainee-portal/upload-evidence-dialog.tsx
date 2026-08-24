@@ -147,7 +147,7 @@ export function UploadEvidenceDialog({
         <div className="space-y-4">
           {/* Document Name */}
           <div className="space-y-2">
-            <Label htmlFor="upload-doc-name">Document Name <span className="text-red-500">*</span></Label>
+            <Label htmlFor="upload-doc-name">Document Name <span className="text-destructive">*</span></Label>
             <Input
               id="upload-doc-name"
               value={label}
@@ -160,7 +160,7 @@ export function UploadEvidenceDialog({
 
           {/* Category */}
           <div className="space-y-2">
-            <Label htmlFor="upload-doc-category">Category <span className="text-red-500">*</span></Label>
+            <Label htmlFor="upload-doc-category">Category <span className="text-destructive">*</span></Label>
             <Select
               value={category}
               onValueChange={(v) => setCategory(v as DocumentCategory)}

@@ -143,12 +143,7 @@ export function DocumentDetailDialog({
 
         <DialogFooter>
           {canDelete && onDelete && (
-            <Button
-              type="button"
-              variant="outline"
-              className="text-red-600 hover:bg-red-50 hover:text-red-700 mr-auto"
-              onClick={() => onDelete(document)}
-            >
+            <Button type="button" variant="destructive" className="mr-auto" onClick={() => onDelete(document)}>
               Delete
             </Button>
           )}
