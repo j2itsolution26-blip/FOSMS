@@ -1,8 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { verifyPassword } from "@/lib/auth/password";
-import { createSession, revokeSession } from "@/lib/auth/session";
+import { verifyPassword, hashPassword } from "@/lib/auth/password";
+import { createSession, revokeSession, revokeAllUserSessions } from "@/lib/auth/session";
+import { generateToken, hashToken } from "@/lib/auth/tokens";
 import { isLocked, registerFailedLogin, resetFailedLogin } from "@/lib/auth/lockout";
+import { storeResetToken, consumeResetToken, invalidateResetTokensForUser } from "@/lib/auth/password-reset-store";
+import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
 import { recordAudit } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
 
@@ -90,5 +93,76 @@ export async function logout(sessionId: string, userId: string, role: string | n
     module: "auth",
     ipAddress: meta.ipAddress,
     userAgent: meta.userAgent,
+  });
+}
+
+/**
+ * Always succeeds from the caller's point of view — same constant-shaped
+ * response whether or not the email belongs to an account, so this can't be
+ * used to enumerate registered users. If the account exists (and isn't
+ * deactivated), a single-use token is generated and the reset link is sent.
+ */
+export async function requestPasswordReset(email: string, meta: RequestMeta): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email, deletedAt: null } });
+
+  if (user && user.isActive) {
+    const token = generateToken();
+    storeResetToken(hashToken(token), user.id);
+
+    const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+    await sendPasswordResetEmail(user.email, resetUrl);
+
+    await recordAudit({
+      userId: user.id,
+      action: "UPDATE",
+      module: "auth",
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+      newValue: { event: "PASSWORD_RESET_REQUESTED" },
+    });
+  } else {
+    // No matching/active account — record the attempt without a userId, same as a failed login.
+    await recordAudit({
+      action: "LOGIN_FAILED",
+      module: "auth",
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+      result: "FAILURE",
+      newValue: { event: "PASSWORD_RESET_REQUESTED_UNKNOWN_EMAIL", email },
+    });
+  }
+}
+
+export async function resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
+  const userId = consumeResetToken(hashToken(token));
+  if (!userId) {
+    throw new AppError("This reset link is invalid or has expired. Please request a new one.", "INVALID_RESET_TOKEN", 400);
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId, deletedAt: null } });
+  if (!user || !user.isActive) {
+    throw new AppError("This reset link is invalid or has expired. Please request a new one.", "INVALID_RESET_TOKEN", 400);
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, passwordResetAt: new Date(), failedLoginCount: 0, lockedUntil: null },
+  });
+
+  // A password reset is a strong signal the old credential may have been compromised
+  // (or the user simply forgot it) — invalidate every existing session either way,
+  // same as the admin-initiated deactivation path in user.service.ts.
+  await revokeAllUserSessions(userId);
+  invalidateResetTokensForUser(userId);
+
+  await recordAudit({
+    userId,
+    action: "UPDATE",
+    module: "auth",
+    ipAddress: meta.ipAddress,
+    userAgent: meta.userAgent,
+    newValue: { event: "PASSWORD_RESET_COMPLETED" },
   });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -130,11 +131,16 @@ export function LoginForm() {
           )}
         />
 
-        <div className="flex items-center gap-2">
-          <Checkbox id="remember-me" checked={rememberMe} onCheckedChange={(v) => setRememberMe(v === true)} />
-          <Label htmlFor="remember-me" className="text-sm font-normal text-[#64748B]">
-            Remember me
-          </Label>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Checkbox id="remember-me" checked={rememberMe} onCheckedChange={(v) => setRememberMe(v === true)} />
+            <Label htmlFor="remember-me" className="text-sm font-normal text-[#64748B]">
+              Remember me
+            </Label>
+          </div>
+          <Link href="/forgot-password" className="text-sm font-medium text-[#0B1F44] hover:underline">
+            Forgot password?
+          </Link>
         </div>
 
         <Button
@@ -147,12 +153,14 @@ export function LoginForm() {
               <Loader2 className="h-4 w-4 animate-spin" /> Signing in…
             </>
           ) : (
-            "SIGN IN"
+            <>
+              <Lock className="h-4 w-4" aria-hidden /> SIGN IN
+            </>
           )}
         </Button>
 
         <p className="flex items-center justify-center gap-1.5 text-xs text-[#64748B]">
-          <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Protected by secure authentication
+          <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Protected by advanced security
         </p>
       </form>
     </Form>

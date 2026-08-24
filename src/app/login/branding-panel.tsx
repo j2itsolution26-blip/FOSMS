@@ -1,25 +1,25 @@
-import { BedDouble, ClipboardList, Award, FolderOpen, BarChart3, ShieldCheck } from "lucide-react";
+import { BedDouble, GraduationCap, Award, FileText, BarChart3, ShieldCheck } from "lucide-react";
 
 const FEATURES = [
   {
-    icon: ClipboardList,
+    icon: GraduationCap,
     title: "Training Management",
-    description: "Manage activities, schedules, and training progress.",
+    description: "Manage activities, schedules and progress",
   },
   {
     icon: Award,
     title: "Competency Tracking",
-    description: "Monitor competencies and assessment results.",
+    description: "Monitor competency and assessment results",
   },
   {
-    icon: FolderOpen,
+    icon: FileText,
     title: "Evidence & Documents",
-    description: "Upload and manage training evidence and documents.",
+    description: "Upload and manage training evidence",
   },
   {
     icon: BarChart3,
     title: "Reports & Analytics",
-    description: "Track performance and training outcomes.",
+    description: "Real-time insights and performance reports",
   },
 ];
 
@@ -31,9 +31,16 @@ export function LoginBrandingPanel() {
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.06]"
         style={{
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
+          backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
           backgroundSize: "28px 28px",
+        }}
+      />
+      {/* Gold diagonal accent along the bottom edge. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-24 opacity-90"
+        style={{
+          background: "linear-gradient(100deg, transparent 60%, #F4B400 60.5%, #F4B400 62%, transparent 62.5%)",
         }}
       />
 
@@ -43,19 +50,23 @@ export function LoginBrandingPanel() {
             <BedDouble className="h-5.5 w-5.5" aria-hidden />
           </div>
           <div className="leading-tight">
-            <p className="text-sm font-bold tracking-wide text-[#F4B400]">FRONT OFFICE SERVICING NC II</p>
-            <p className="text-xs text-white/60">Training & Operations Management System</p>
+            <p className="text-sm font-bold tracking-wide">
+              FRONT OFFICE
+              <br />
+              SERVICING <span className="text-[#F4B400]">NC II</span>
+            </p>
           </div>
         </div>
 
         <h1 className="mt-10 text-3xl leading-tight font-bold xl:text-4xl">
-          Professional Training.
+          Excellence in Service.
           <br />
-          Excellence in Hospitality.
+          <span className="text-[#F4B400]">Mastery in Hospitality.</span>
         </h1>
         <p className="mt-4 max-w-md text-sm text-white/70">
-          A complete training and operations management platform for Front Office Servicing NC II.
+          A complete training and operations management system for Front Office Servicing NC II.
         </p>
+        <div className="mt-6 h-1 w-14 rounded-full bg-[#F4B400]" aria-hidden />
 
         <ul className="mt-10 space-y-5">
           {FEATURES.map((f) => (
@@ -72,12 +83,12 @@ export function LoginBrandingPanel() {
         </ul>
       </div>
 
-      <div className="relative flex items-start gap-2.5 border-t border-white/10 pt-6 text-white/60">
+      <div className="relative flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/5 p-4 text-white/60">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <p className="text-xs leading-relaxed">
           <span className="font-semibold text-white/80">Secure. Reliable. Trusted.</span>
           <br />
-          Your training data is protected with enterprise-grade security.
+          Your data is protected with enterprise-grade security.
         </p>
       </div>
     </div>
