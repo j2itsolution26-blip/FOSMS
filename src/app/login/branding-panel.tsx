@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { BedDouble, GraduationCap, Award, FileText, BarChart3, ShieldCheck } from "lucide-react";
 
 const FEATURES = [
@@ -25,16 +26,33 @@ const FEATURES = [
 
 export function LoginBrandingPanel() {
   return (
-    <div className="relative hidden overflow-hidden bg-linear-to-b from-[#0B1F44] to-[#07162F] px-10 py-12 text-white lg:flex lg:w-[45%] lg:flex-col lg:justify-between xl:px-14">
-      {/* Subtle background pattern — no imagery, keeps the panel fast-loading. */}
+    <div className="relative hidden overflow-hidden bg-[#07162F] px-10 py-12 text-white md:flex md:w-[42%] md:flex-col md:justify-between lg:w-[45%] xl:px-14">
+      {/* Front-office reception photo — the visual anchor of the panel. */}
+      <Image
+        src="/images/login-front-office.jpg"
+        alt=""
+        aria-hidden
+        fill
+        priority
+        sizes="(min-width: 1024px) 45vw, (min-width: 768px) 42vw, 100vw"
+        className="object-cover object-[75%_center]"
+      />
+
+      {/* Solid-to-transparent navy wash, left to right — grounds the copy against
+          the photo without darkening the receptionist/customer scene on the right. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
+        className="pointer-events-none absolute inset-0"
         style={{
-          backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
-          backgroundSize: "28px 28px",
+          background: "linear-gradient(100deg, #07162F 0%, #07162F 38%, rgba(7,22,47,0.85) 50%, rgba(7,22,47,0.35) 64%, rgba(7,22,47,0.12) 78%, transparent 92%)",
         }}
       />
+      {/* Subtle overall bottom-up wash for footer/trust-panel legibility. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-linear-to-t from-[#07162F]/70 via-transparent to-[#07162F]/10"
+      />
+
       {/* Gold diagonal accent along the bottom edge. */}
       <div
         aria-hidden

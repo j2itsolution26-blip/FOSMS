@@ -6,6 +6,8 @@ const TONE_STYLES = {
   green: { bg: "bg-emerald-50", text: "text-emerald-700", iconBg: "bg-emerald-100 text-emerald-600" },
   amber: { bg: "bg-amber-50", text: "text-amber-700", iconBg: "bg-amber-100 text-amber-600" },
   purple: { bg: "bg-violet-50", text: "text-violet-700", iconBg: "bg-violet-100 text-violet-600" },
+  red: { bg: "bg-red-50", text: "text-red-700", iconBg: "bg-red-100 text-red-600" },
+  slate: { bg: "bg-slate-50", text: "text-slate-700", iconBg: "bg-slate-100 text-slate-600" },
 } as const;
 
 export function KpiCard({

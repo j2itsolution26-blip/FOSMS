@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { LoginBrandingPanel } from "./branding-panel";
 import { LoginFooter } from "./login-footer";
 import { LoginForm } from "./login-form";
+import { LoginMobileHero } from "./mobile-hero";
 import { BrandCrest } from "./brand-crest";
 import { TesdaBadge } from "./tesda-badge";
 
@@ -11,11 +12,12 @@ export const metadata: Metadata = { title: "Sign in — Front Office Servicing N
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen bg-[#F8FAFC] lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-screen flex-col bg-[#F8FAFC] md:h-screen md:flex-row md:overflow-hidden">
       <TesdaBadge />
+      <LoginMobileHero />
       <LoginBrandingPanel />
 
-      <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10 sm:px-6 lg:px-10">
+      <div className="flex flex-1 flex-col items-center justify-start overflow-y-auto px-4 py-8 sm:px-6 md:justify-center md:py-10 lg:px-10">
         <div className="w-full max-w-[440px]">
           <div className="rounded-2xl border border-[#E2E8F0] bg-white p-6 shadow-sm sm:p-8">
             <div className="mb-6 flex flex-col items-center gap-3 text-center">

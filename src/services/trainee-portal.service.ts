@@ -336,7 +336,10 @@ export async function getMyAssessmentById(traineeId: string, assessmentId: strin
 }
 
 export async function getMyAttendance(traineeId: string) {
-  const rows = await prisma.attendance.findMany({ where: { traineeId }, orderBy: { date: "desc" }, take: 180 });
+  const [rows, trainee] = await Promise.all([
+    prisma.attendance.findMany({ where: { traineeId }, orderBy: { date: "desc" }, take: 180 }),
+    prisma.trainee.findUnique({ where: { id: traineeId }, select: { program: { select: { title: true } } } }),
+  ]);
 
   const marked = rows.length;
   const present = rows.filter((a) => a.status === "PRESENT").length;
@@ -345,7 +348,11 @@ export async function getMyAttendance(traineeId: string) {
   const excused = rows.filter((a) => a.status === "EXCUSED").length;
   const rate = marked > 0 ? Math.round(((present + late) / marked) * 100) : 0;
 
-  return { rows, summary: { rate, present, late, absent, excused, marked } };
+  return {
+    rows,
+    programTitle: trainee?.program?.title ?? "Front Office Servicing NC II",
+    summary: { rate, present, late, absent, excused, marked },
+  };
 }
 
 export async function getMyProgress(traineeId: string) {

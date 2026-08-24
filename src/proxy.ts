@@ -29,5 +29,8 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Public static assets (images, fonts, etc.) never require a session — without
+  // this, an asset referenced from the login page itself (e.g. its background
+  // photo) gets redirected to /login before it can load.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|css|js|woff2?|ttf)$).*)"],
 };
