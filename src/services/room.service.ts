@@ -4,6 +4,7 @@ import type { Prisma, RoomStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
+import { findRoomStatusesMatching, isAvailableCategory, isOccupiedCategory } from "@/config/room-status";
 import type { RoomInput, RoomTypeInput } from "@/validators/room.schema";
 
 type ActorContext = {
@@ -40,9 +41,15 @@ export async function createRoomType(input: RoomTypeInput, actor: ActorContext) 
   return roomType;
 }
 
-export async function listRooms(filters: { status?: RoomStatus; search?: string; roomTypeId?: string; isSmoking?: boolean } = {}) {
+export async function listRooms(
+  filters: { status?: RoomStatus | RoomStatus[]; search?: string; roomTypeId?: string; isSmoking?: boolean } = {}
+) {
+  const statusMatches = filters.search ? findRoomStatusesMatching(filters.search) : [];
+
   const where: Prisma.RoomWhereInput = {
-    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.status
+      ? { status: Array.isArray(filters.status) ? { in: filters.status } : filters.status }
+      : {}),
     ...(filters.roomTypeId ? { roomTypeId: filters.roomTypeId } : {}),
     ...(filters.isSmoking !== undefined ? { isSmoking: filters.isSmoking } : {}),
     ...(filters.search
@@ -50,6 +57,7 @@ export async function listRooms(filters: { status?: RoomStatus; search?: string;
           OR: [
             { number: { contains: filters.search, mode: "insensitive" } },
             { roomType: { name: { contains: filters.search, mode: "insensitive" } } },
+            ...(statusMatches.length ? [{ status: { in: statusMatches } }] : []),
           ],
         }
       : {}),
@@ -78,7 +86,7 @@ export async function createRoom(input: RoomInput, actor: ActorContext) {
       number: input.number,
       roomTypeId: input.roomTypeId,
       floor: input.floor,
-      status: input.status ?? "AVAILABLE",
+      status: input.status ?? "VC",
     },
     include: { roomType: true },
   });
@@ -99,7 +107,7 @@ export async function updateRoomStatus(id: string, status: RoomStatus, note: str
   const existing = await prisma.room.findUnique({ where: { id } });
   if (!existing) throw new NotFoundError("Room not found.");
 
-  if (existing.status === "OCCUPIED" && status === "AVAILABLE") {
+  if (isOccupiedCategory(existing.status) && isAvailableCategory(status)) {
     throw new AppError(
       "An occupied room must be checked out before it can be marked available.",
       "ROOM_OCCUPIED",

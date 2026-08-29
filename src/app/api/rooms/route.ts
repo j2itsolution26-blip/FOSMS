@@ -13,13 +13,19 @@ export async function GET(req: NextRequest) {
 
   const searchParams = req.nextUrl.searchParams;
   const statusParam = searchParams.get("status");
-  const status = statusParam ? roomStatusEnum.safeParse(statusParam) : undefined;
+  const statuses = statusParam
+    ? statusParam
+        .split(",")
+        .map((s) => roomStatusEnum.safeParse(s.trim()))
+        .filter((r) => r.success)
+        .map((r) => r.data)
+    : [];
 
   const includeSummary = searchParams.get("includeSummary") === "true";
   const isSmokingParam = searchParams.get("isSmoking");
 
   const rooms = await listRooms({
-    status: status?.success ? status.data : undefined,
+    status: statuses.length === 0 ? undefined : statuses.length === 1 ? statuses[0] : statuses,
     search: searchParams.get("search") ?? undefined,
     roomTypeId: searchParams.get("roomTypeId") ?? undefined,
     isSmoking: isSmokingParam === null ? undefined : isSmokingParam === "true",

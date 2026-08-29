@@ -1,13 +1,9 @@
 import { z } from "zod";
+import type { RoomStatus } from "@prisma/client";
 
-export const roomStatusEnum = z.enum([
-  "AVAILABLE",
-  "OCCUPIED",
-  "RESERVED",
-  "CLEANING",
-  "MAINTENANCE",
-  "OUT_OF_ORDER",
-]);
+import { ROOM_STATUS_ORDER } from "@/config/room-status";
+
+export const roomStatusEnum = z.enum(ROOM_STATUS_ORDER as [RoomStatus, ...RoomStatus[]]);
 
 export const roomTypeSchema = z.object({
   code: z.string().trim().min(1).max(20),

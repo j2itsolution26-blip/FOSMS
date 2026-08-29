@@ -18,6 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
 import { useRoomOptions } from "@/hooks/use-room-options";
+import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { walkInSchema, type WalkInInput } from "@/validators/front-office.schema";
 
 export function WalkInDialog({
@@ -29,7 +30,7 @@ export function WalkInDialog({
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
 }) {
-  const { options, loading } = useRoomOptions("AVAILABLE", open);
+  const { options, loading } = useRoomOptions(ASSIGNABLE_ROOM_STATUS_QUERY, open);
 
   const form = useForm({
     resolver: zodResolver(walkInSchema),

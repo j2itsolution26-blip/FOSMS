@@ -1,23 +1,17 @@
 "use client";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import type { RoomStatus } from "@prisma/client";
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  AVAILABLE: { label: "Available", color: "#16a34a" },
-  OCCUPIED: { label: "Occupied", color: "#2563eb" },
-  RESERVED: { label: "Reserved", color: "#7c3aed" },
-  CLEANING: { label: "Cleaning", color: "#f59e0b" },
-  MAINTENANCE: { label: "Maintenance", color: "#ef4444" },
-  OUT_OF_ORDER: { label: "Out of Order", color: "#64748b" },
-};
+import { ROOM_STATUS_CATEGORY_META, roomStatusCategory, roomStatusLabel } from "@/config/room-status";
 
 export function RoomStatusChart({ total, byStatus }: { total: number; byStatus: Record<string, number> }) {
   const data = Object.entries(byStatus)
     .filter(([, count]) => count > 0)
     .map(([status, count]) => ({
       status,
-      label: STATUS_META[status]?.label ?? status,
-      color: STATUS_META[status]?.color ?? "#94a3b8",
+      label: roomStatusLabel(status as RoomStatus),
+      color: ROOM_STATUS_CATEGORY_META[roomStatusCategory(status as RoomStatus)].color,
       count,
     }));
 

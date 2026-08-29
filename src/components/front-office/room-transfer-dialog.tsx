@@ -19,6 +19,7 @@ import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
 import { useReservationOptions } from "@/hooks/use-reservation-options";
 import { useRoomOptions } from "@/hooks/use-room-options";
+import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { roomTransferSchema, type RoomTransferInput } from "@/validators/front-office.schema";
 
 export function RoomTransferDialog({
@@ -31,7 +32,7 @@ export function RoomTransferDialog({
   onDone: () => void;
 }) {
   const { options: reservationOptions, loading: loadingReservations } = useReservationOptions("CHECKED_IN", open);
-  const { options: roomOptions, loading: loadingRooms } = useRoomOptions("AVAILABLE", open);
+  const { options: roomOptions, loading: loadingRooms } = useRoomOptions(ASSIGNABLE_ROOM_STATUS_QUERY, open);
 
   const form = useForm({
     resolver: zodResolver(roomTransferSchema),

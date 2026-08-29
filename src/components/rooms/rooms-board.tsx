@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Search, Tags } from "lucide-react";
+import type { RoomStatus } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,24 +14,16 @@ import { RoomTypeFormDialog } from "@/components/rooms/room-type-form-dialog";
 import { apiFetch } from "@/lib/api-client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
+import { ROOM_STATUS_CATEGORY_META, ROOM_STATUS_OPTIONS, roomStatusCategory } from "@/config/room-status";
 
 type RoomRow = {
   id: string;
   number: string;
   floor: number;
-  status: string;
+  status: RoomStatus;
   roomType: { id: string; name: string; maxOccupancy: number };
 };
 type RoomTypeRow = { id: string; name: string };
-
-const STATUS_BORDER: Record<string, string> = {
-  AVAILABLE: "border-l-emerald-500",
-  OCCUPIED: "border-l-blue-500",
-  RESERVED: "border-l-violet-500",
-  CLEANING: "border-l-amber-500",
-  MAINTENANCE: "border-l-red-500",
-  OUT_OF_ORDER: "border-l-slate-500",
-};
 
 export function RoomsBoard({ canManage }: { canManage: boolean }) {
   const [rooms, setRooms] = useState<RoomRow[]>([]);
@@ -38,6 +31,8 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [roomTypeFilter, setRoomTypeFilter] = useState("");
+  const [floorFilter, setFloorFilter] = useState("");
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
 
@@ -48,6 +43,7 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
     const params = new URLSearchParams({ includeSummary: "true" });
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
+    if (roomTypeFilter) params.set("roomTypeId", roomTypeFilter);
 
     type ConsolidatedData = { rooms: RoomRow[]; roomTypes: RoomTypeRow[] };
     const res = await apiFetch<ConsolidatedData>(`/api/rooms?${params.toString()}`);
@@ -56,13 +52,15 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
       if (res.data.roomTypes) setRoomTypes(res.data.roomTypes);
     }
     setLoading(false);
-  }, [debouncedSearch, statusFilter]);
+  }, [debouncedSearch, statusFilter, roomTypeFilter]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const floors = Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
+  const allFloors = Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
+  const visibleRooms = floorFilter ? rooms.filter((r) => String(r.floor) === floorFilter) : rooms;
+  const floors = Array.from(new Set(visibleRooms.map((r) => r.floor))).sort((a, b) => a - b);
 
   return (
     <div className="space-y-4">
@@ -83,10 +81,15 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search room number…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            className="pl-9"
+            placeholder="Search room #, type, status code…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         <select
           className="h-9 rounded-md border bg-white px-3 text-sm"
@@ -94,13 +97,38 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
           onChange={(e) => setStatusFilter(e.target.value)}
           aria-label="Filter by status"
         >
-          <option value="">All statuses</option>
-          <option value="AVAILABLE">Available</option>
-          <option value="OCCUPIED">Occupied</option>
-          <option value="RESERVED">Reserved</option>
-          <option value="CLEANING">Cleaning</option>
-          <option value="MAINTENANCE">Maintenance</option>
-          <option value="OUT_OF_ORDER">Out of Order</option>
+          <option value="">All Statuses</option>
+          {ROOM_STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className="h-9 rounded-md border bg-white px-3 text-sm"
+          value={roomTypeFilter}
+          onChange={(e) => setRoomTypeFilter(e.target.value)}
+          aria-label="Filter by room type"
+        >
+          <option value="">All Room Types</option>
+          {roomTypes.map((rt) => (
+            <option key={rt.id} value={rt.id}>
+              {rt.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="h-9 rounded-md border bg-white px-3 text-sm"
+          value={floorFilter}
+          onChange={(e) => setFloorFilter(e.target.value)}
+          aria-label="Filter by floor"
+        >
+          <option value="">All Floors</option>
+          {allFloors.map((f) => (
+            <option key={f} value={String(f)}>
+              Floor {f}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -110,21 +138,22 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
-      ) : rooms.length === 0 ? (
+      ) : visibleRooms.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">No rooms found.</p>
       ) : (
         floors.map((floor) => (
           <div key={floor}>
             <p className="mb-2 text-sm font-semibold text-slate-700">Floor {floor}</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {rooms
+              {visibleRooms
                 .filter((r) => r.floor === floor)
                 .map((room) => {
+                  const borderClass = ROOM_STATUS_CATEGORY_META[roomStatusCategory(room.status)].borderClass;
                   const card = (
                     <div
                       className={cn(
                         "rounded-lg border border-l-4 bg-white p-3 text-left shadow-sm transition-shadow",
-                        STATUS_BORDER[room.status] ?? "border-l-slate-300",
+                        borderClass,
                         canManage && "cursor-pointer hover:shadow-md"
                       )}
                     >

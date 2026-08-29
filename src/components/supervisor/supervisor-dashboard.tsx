@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReservationStatusBadge, RoomStatusBadge } from "@/components/shared/status-badge";
+import { ROOM_STATUS_ORDER } from "@/config/room-status";
 import type {
   getSupervisorKpis,
   getTodaysOperationsSummary,
@@ -290,7 +291,7 @@ export function SupervisorDashboard({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {(["AVAILABLE", "OCCUPIED", "CLEANING", "RESERVED", "MAINTENANCE", "OUT_OF_ORDER"] as const).map((status) => (
+            {ROOM_STATUS_ORDER.filter((status) => (kpis.roomSummary.byStatus[status] ?? 0) > 0).map((status) => (
               <div key={status} className="rounded-lg border p-3">
                 <RoomStatusBadge status={status} />
                 <p className="mt-2 text-2xl font-bold text-slate-900">{kpis.roomSummary.byStatus[status] ?? 0}</p>

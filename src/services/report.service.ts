@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getRoomOccupancySummary } from "@/services/room.service";
 import { toCsv } from "@/lib/csv";
 import { recordAudit } from "@/lib/audit";
+import { ROOM_STATUS_ORDER, isOccupiedCategory, roomStatusLabel } from "@/config/room-status";
 
 export const REPORT_TYPES = [
   { value: "trainee-master-list", label: "Trainee Master List", category: "Training" },
@@ -173,7 +174,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
       const rooms = await prisma.room.findMany({ include: { roomType: true }, orderBy: [{ floor: "asc" }, { number: "asc" }] });
       return toCsv(
         ["Room", "Floor", "Type", "Status"],
-        rooms.map((r) => [r.number, r.floor, r.roomType.name, r.status])
+        rooms.map((r) => [r.number, r.floor, r.roomType.name, roomStatusLabel(r.status)])
       );
     }
 
@@ -208,9 +209,11 @@ export async function getAnalyticsKpis() {
   const attendanceRate = attendanceRows.length
     ? Math.round((attendanceRows.filter((a) => a.status === "PRESENT" || a.status === "LATE").length / attendanceRows.length) * 100)
     : 0;
-  const occupancyRate = roomOccupancy.total
-    ? Math.round(((roomOccupancy.byStatus.OCCUPIED ?? 0) / roomOccupancy.total) * 100)
-    : 0;
+  const occupiedRoomCount = ROOM_STATUS_ORDER.filter(isOccupiedCategory).reduce(
+    (sum, status) => sum + (roomOccupancy.byStatus[status] ?? 0),
+    0
+  );
+  const occupancyRate = roomOccupancy.total ? Math.round((occupiedRoomCount / roomOccupancy.total) * 100) : 0;
 
   return {
     totalTrainees,

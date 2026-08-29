@@ -4,6 +4,7 @@ import type { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getRoomOccupancySummary } from "@/services/room.service";
 import { getConciergeKpis, listServiceRequests } from "@/services/concierge.service";
+import { ASSIGNABLE_ROOM_STATUSES, ROOM_STATUS_ORDER, isOccupiedCategory } from "@/config/room-status";
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -26,11 +27,13 @@ function endOfDay(d: Date) {
  *   (an active, unrevoked, unexpired `Session`) rather than "on duty" —
  *   a logged-in session is real data; a shift or physical presence is not,
  *   and this file must not pretend to know the latter.
- * - `NO_SHOW` reservations and `RESERVED` rooms are real enum values that
- *   nothing in the current front-office workflow ever sets, so those counts
- *   will typically read 0. That's an honest 0 from a real query, not a
- *   fabricated one — the moment a workflow starts using those states, these
- *   numbers pick it up with no changes needed here.
+ * - `NO_SHOW` reservations, and most of the 29 RoomStatus codes (only a
+ *   handful are ever written by the automated check-in/check-out/transfer/
+ *   walk-in flows — the rest are set manually by housekeeping/front-desk
+ *   staff via the Room Management status picker), are real values that may
+ *   currently read 0. That's an honest 0 from a real query, not a
+ *   fabricated one — the moment a workflow or staff member starts using
+ *   those states, these numbers pick it up with no changes needed here.
  */
 
 export async function getSupervisorKpis() {
@@ -50,8 +53,11 @@ export async function getSupervisorKpis() {
     prisma.serviceRequest.count({ where: { status: { in: ["PENDING", "ASSIGNED", "IN_PROGRESS"] } } }),
   ]);
 
-  const occupied = roomSummary.byStatus.OCCUPIED ?? 0;
-  const available = roomSummary.byStatus.AVAILABLE ?? 0;
+  const occupied = ROOM_STATUS_ORDER.filter(isOccupiedCategory).reduce(
+    (sum, status) => sum + (roomSummary.byStatus[status] ?? 0),
+    0
+  );
+  const available = ASSIGNABLE_ROOM_STATUSES.reduce((sum, status) => sum + (roomSummary.byStatus[status] ?? 0), 0);
   const occupancyRate = roomSummary.total > 0 ? Math.round((occupied / roomSummary.total) * 100) : 0;
 
   return {

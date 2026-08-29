@@ -41,13 +41,42 @@ enum ReservationSource {
   OTHER
 }
 
+// Standardized front-office room-status codes. Labels/descriptions/colors live
+// in src/config/room-status.ts (the single source of truth used across the app) —
+// this enum is just the persisted set of valid codes. Five codes contain a slash,
+// which isn't a valid Prisma enum-member character, so they're mapped via @map:
+// the Prisma Client value stays the safe identifier (e.g. V_O) while the raw
+// Postgres value keeps the literal code (e.g. "V/O").
 enum RoomStatus {
-  AVAILABLE
-  OCCUPIED
-  RESERVED
-  CLEANING
-  MAINTENANCE
-  OUT_OF_ORDER
+  OCC // Occupied
+  VC // Vacant and Cleaned
+  VD // Vacant and Dirty
+  OR // Occupied and Ready
+  OC // Occupied and Clean
+  OD // Occupied and Dirty
+  CO // Check-out
+  OOO // Out of Order
+  DND // Do Not Disturb
+  V_O @map("V/O") // Status unclear
+  O_V @map("O/V") // Status unclear
+  LO // Lock Out
+  DO // Due Out
+  DNCO // Did Not Check Out
+  VCI // Vacant, Cleaned and Inspected
+  H_L @map("H/L") // Heavy Luggage
+  L_L @map("L/L") // Light Luggage
+  N_L @map("N/L") // No Luggage
+  DL // Double Lock
+  CL // Chain Lock
+  HU // House Use
+  NCI // Newly Checked-In
+  NS // No Show
+  SO // Slept Out
+  BLO // Blocked
+  V // Vacant
+  MUR // Make Up Room
+  VR // Vacant and Ready
+  SR // Service Refused
 }
 
 enum IdentificationType {
@@ -617,7 +646,7 @@ model Room {
   number     String     @unique
   roomTypeId String
   floor      Int
-  status     RoomStatus @default(AVAILABLE)
+  status     RoomStatus @default(VC)
   isSmoking  Boolean    @default(false)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt

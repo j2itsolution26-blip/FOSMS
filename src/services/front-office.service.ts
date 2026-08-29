@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
+import { ASSIGNABLE_ROOM_STATUSES } from "@/config/room-status";
 import type {
   CheckInInput,
   CheckOutInput,
@@ -195,8 +196,8 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       },
     });
     await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CHECKED_IN" } });
-    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "OCCUPIED" } });
-    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "OCCUPIED", note: "Guest checked in" } });
+    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "OCC" } });
+    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "OCC", note: "Guest checked in" } });
 
     return reservation;
   });
@@ -247,8 +248,8 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
       data: { reservationId: reservation.id, lateCheckOut: input.lateCheckOut, notes: input.notes || null },
     });
     await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CHECKED_OUT" } });
-    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "CLEANING" } });
-    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "CLEANING", note: "Guest checked out" } });
+    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "VD" } });
+    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "VD", note: "Guest checked out" } });
 
     return reservation;
   });
@@ -283,7 +284,7 @@ export async function transferRoom(input: RoomTransferInput, actor: ActorContext
 
     const newRoom = await tx.room.findUnique({ where: { id: input.newRoomId } });
     if (!newRoom) throw new NotFoundError("Destination room not found.");
-    if (newRoom.status !== "AVAILABLE") {
+    if (!ASSIGNABLE_ROOM_STATUSES.includes(newRoom.status)) {
       throw new AppError("The destination room is not available.", "ROOM_UNAVAILABLE", 409);
     }
 
@@ -293,12 +294,12 @@ export async function transferRoom(input: RoomTransferInput, actor: ActorContext
 
     const oldRoomId = reservation.roomId;
     await tx.reservation.update({ where: { id: reservation.id }, data: { roomId: input.newRoomId } });
-    await tx.room.update({ where: { id: input.newRoomId }, data: { status: "OCCUPIED" } });
-    await tx.room.update({ where: { id: oldRoomId }, data: { status: "CLEANING" } });
+    await tx.room.update({ where: { id: input.newRoomId }, data: { status: "OCC" } });
+    await tx.room.update({ where: { id: oldRoomId }, data: { status: "VD" } });
     await tx.roomStatusHistory.createMany({
       data: [
-        { roomId: input.newRoomId, status: "OCCUPIED", note: `Transferred in from room ${reservation.room.number}` },
-        { roomId: oldRoomId, status: "CLEANING", note: `Guest transferred to room ${newRoom.number}` },
+        { roomId: input.newRoomId, status: "OCC", note: `Transferred in from room ${reservation.room.number}` },
+        { roomId: oldRoomId, status: "VD", note: `Guest transferred to room ${newRoom.number}` },
       ],
     });
 
@@ -357,7 +358,7 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
     await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${input.roomId} FOR UPDATE`;
     const room = await tx.room.findUnique({ where: { id: input.roomId } });
     if (!room) throw new NotFoundError("Room not found.");
-    if (room.status !== "AVAILABLE") {
+    if (!ASSIGNABLE_ROOM_STATUSES.includes(room.status)) {
       throw new AppError("This room is not available for a walk-in.", "ROOM_UNAVAILABLE", 409);
     }
 
@@ -386,8 +387,8 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
     });
 
     await tx.checkIn.create({ data: { reservationId: reservation.id } });
-    await tx.room.update({ where: { id: input.roomId }, data: { status: "OCCUPIED" } });
-    await tx.roomStatusHistory.create({ data: { roomId: input.roomId, status: "OCCUPIED", note: "Walk-in guest checked in" } });
+    await tx.room.update({ where: { id: input.roomId }, data: { status: "OCC" } });
+    await tx.roomStatusHistory.create({ data: { roomId: input.roomId, status: "OCC", note: "Walk-in guest checked in" } });
 
     return { guest, reservation, room };
   });

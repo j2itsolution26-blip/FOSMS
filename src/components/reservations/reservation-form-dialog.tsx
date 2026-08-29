@@ -34,6 +34,7 @@ import {
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
 import { createReservationSchema, type CreateReservationInput } from "@/validators/reservation.schema";
+import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 
 type GuestRow = { id: string; firstName: string; lastName: string; email: string | null };
 type RoomRow = { id: string; number: string; status: string; roomType: { name: string } };
@@ -80,7 +81,7 @@ export function ReservationFormDialog({
     setLoadingOptions(true);
     Promise.all([
       apiFetch<GuestRow[]>("/api/guests?pageSize=100"),
-      apiFetch<RoomRow[]>("/api/rooms?status=AVAILABLE"),
+      apiFetch<RoomRow[]>(`/api/rooms?status=${ASSIGNABLE_ROOM_STATUS_QUERY}`),
     ])
       .then(([guestRes, roomRes]) => {
         if (guestRes.success) setGuests(guestRes.data);

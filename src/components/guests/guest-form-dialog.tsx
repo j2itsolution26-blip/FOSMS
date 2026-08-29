@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
 import { useRoomOptions } from "@/hooks/use-room-options";
+import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
 import {
   folioRoomAssignmentSchema,
@@ -109,7 +110,11 @@ export function GuestFormDialog({
   const bedCount = roomForm.watch("bedCount");
   const discountType = roomForm.watch("discountType");
 
-  const { rows: roomRows, loading: roomsLoading } = useRoomOptions("AVAILABLE", open && isCreate && assignRoom, roomTypeId);
+  const { rows: roomRows, loading: roomsLoading } = useRoomOptions(
+    ASSIGNABLE_ROOM_STATUS_QUERY,
+    open && isCreate && assignRoom,
+    roomTypeId
+  );
   const roomOptions = useMemo(() => {
     const filtered =
       smokingFilter === "any" ? roomRows : roomRows.filter((r) => r.isSmoking === (smokingFilter === "smoking"));

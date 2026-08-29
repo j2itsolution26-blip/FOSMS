@@ -125,7 +125,7 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
 
     const room = await tx.room.findUnique({ where: { id: input.roomId } });
     if (!room) throw new NotFoundError("Room not found.");
-    if (room.status === "OUT_OF_ORDER" || room.status === "MAINTENANCE") {
+    if (room.status === "OOO") {
       throw new AppError("This room is not available for reservations.", "ROOM_UNAVAILABLE", 409);
     }
 

@@ -399,7 +399,7 @@ async function main() {
         number: plan.number,
         floor: plan.floor,
         roomTypeId: roomTypes[plan.roomTypeIdx].id,
-        status: "AVAILABLE",
+        status: "VC",
         isSmoking: plan.isSmoking,
       },
     });
@@ -442,17 +442,17 @@ async function main() {
     createdAtOffset: number;
     checkIn?: { offset: number };
     checkOut?: { offset: number };
-    roomStatus?: "OCCUPIED" | "AVAILABLE" | "CLEANING" | "MAINTENANCE";
+    roomStatus?: "OCC" | "VC" | "VD" | "OOO";
   };
 
   const plans: ReservationPlan[] = [
     { guest: 0, room: 0, arrival: 0, departure: 3, status: "CONFIRMED", createdAtOffset: -1 },
-    { guest: 1, room: 6, arrival: -1, departure: 2, status: "CHECKED_IN", createdAtOffset: -2, checkIn: { offset: -1 }, roomStatus: "OCCUPIED" },
-    { guest: 2, room: 7, arrival: -2, departure: 0, status: "CHECKED_IN", createdAtOffset: -3, checkIn: { offset: -2 }, roomStatus: "OCCUPIED" },
+    { guest: 1, room: 6, arrival: -1, departure: 2, status: "CHECKED_IN", createdAtOffset: -2, checkIn: { offset: -1 }, roomStatus: "OCC" },
+    { guest: 2, room: 7, arrival: -2, departure: 0, status: "CHECKED_IN", createdAtOffset: -3, checkIn: { offset: -2 }, roomStatus: "OCC" },
     { guest: 3, room: 12, arrival: 1, departure: 4, status: "PENDING", createdAtOffset: 0 },
     { guest: 4, room: 1, arrival: -5, departure: -2, status: "CHECKED_OUT", createdAtOffset: -6, checkIn: { offset: -5 }, checkOut: { offset: -2 } },
     { guest: 5, room: 2, arrival: 2, departure: 5, status: "CONFIRMED", createdAtOffset: -1 },
-    { guest: 6, room: 8, arrival: -1, departure: 1, status: "CHECKED_IN", createdAtOffset: -1, checkIn: { offset: -1 }, roomStatus: "OCCUPIED" },
+    { guest: 6, room: 8, arrival: -1, departure: 1, status: "CHECKED_IN", createdAtOffset: -1, checkIn: { offset: -1 }, roomStatus: "OCC" },
     { guest: 7, room: 13, arrival: 0, departure: 2, status: "PENDING", createdAtOffset: 0 },
     { guest: 8, room: 3, arrival: -10, departure: -8, status: "CANCELLED", createdAtOffset: -11 },
     { guest: 9, room: 4, arrival: -1, departure: 2, status: "NO_SHOW", createdAtOffset: -3 },
@@ -499,10 +499,10 @@ async function main() {
     }
   }
 
-  // A couple of rooms in cleaning/maintenance for a realistic room-status board.
-  await prisma.room.update({ where: { id: rooms[14].id }, data: { status: "CLEANING" } });
-  await prisma.room.update({ where: { id: rooms[15].id }, data: { status: "CLEANING" } });
-  await prisma.room.update({ where: { id: rooms[17].id }, data: { status: "MAINTENANCE" } });
+  // A couple of rooms in dirty/out-of-order for a realistic room-status board.
+  await prisma.room.update({ where: { id: rooms[14].id }, data: { status: "VD" } });
+  await prisma.room.update({ where: { id: rooms[15].id }, data: { status: "VD" } });
+  await prisma.room.update({ where: { id: rooms[17].id }, data: { status: "OOO" } });
 
   // Never regress the counter: real usage (bookings made after the first seed run) may
   // have already advanced it past seqCounter, and re-running seed must not collide with those.
