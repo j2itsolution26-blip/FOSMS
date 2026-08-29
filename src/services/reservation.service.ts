@@ -4,6 +4,7 @@ import type { Prisma, ReservationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
+import { isRestrictedStatus } from "@/config/room-status";
 import type { CreateReservationInput, UpdateReservationInput } from "@/validators/reservation.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -125,7 +126,7 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
 
     const room = await tx.room.findUnique({ where: { id: input.roomId } });
     if (!room) throw new NotFoundError("Room not found.");
-    if (room.status === "OOO") {
+    if (isRestrictedStatus(room.status)) {
       throw new AppError("This room is not available for reservations.", "ROOM_UNAVAILABLE", 409);
     }
 

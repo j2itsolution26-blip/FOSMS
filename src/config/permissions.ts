@@ -20,6 +20,7 @@ export const PERMISSIONS = {
 
   ROOMS_VIEW: "rooms:view",
   ROOMS_MANAGE: "rooms:manage",
+  ROOMS_OVERRIDE: "rooms:override",
 
   FRONT_OFFICE_VIEW: "front-office:view",
   FRONT_OFFICE_MANAGE: "front-office:manage",
@@ -78,7 +79,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { key: PERMISSIONS.GUESTS_MANAGE, module: "guests", description: "Create / edit guest records" },
 
   { key: PERMISSIONS.ROOMS_VIEW, module: "rooms", description: "View rooms and room status" },
-  { key: PERMISSIONS.ROOMS_MANAGE, module: "rooms", description: "Create / edit rooms and room types" },
+  { key: PERMISSIONS.ROOMS_MANAGE, module: "rooms", description: "Create / edit rooms and room types; perform normal room-status corrections" },
+  { key: PERMISSIONS.ROOMS_OVERRIDE, module: "rooms", description: "Mark rooms out of order / out of service and release them back to service (supervisor authority)" },
 
   { key: PERMISSIONS.FRONT_OFFICE_VIEW, module: "front-office", description: "View front office operations" },
   { key: PERMISSIONS.FRONT_OFFICE_MANAGE, module: "front-office", description: "Check guests in/out, transfer rooms, verify guests" },
@@ -129,6 +131,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.GUESTS_MANAGE,
     PERMISSIONS.ROOMS_VIEW,
     PERMISSIONS.ROOMS_MANAGE,
+    PERMISSIONS.ROOMS_OVERRIDE,
     PERMISSIONS.FRONT_OFFICE_VIEW,
     PERMISSIONS.FRONT_OFFICE_MANAGE,
     PERMISSIONS.CLUB_RECEPTION_VIEW,
@@ -167,6 +170,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.GUESTS_VIEW,
     PERMISSIONS.GUESTS_MANAGE,
     PERMISSIONS.ROOMS_VIEW,
+    PERMISSIONS.ROOMS_MANAGE,
     PERMISSIONS.FRONT_OFFICE_VIEW,
     PERMISSIONS.FRONT_OFFICE_MANAGE,
     PERMISSIONS.CLUB_RECEPTION_VIEW,
@@ -184,17 +188,23 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   /** Consolidated FOSMS operational-supervision role (replaces the former
    * ADMINISTRATOR/INSTRUCTOR/ASSESSOR/SUPER_ADMIN split). Deliberately
    * excludes ROLES_MANAGE/SETTINGS_MANAGE (system administration, not
-   * operational supervision) and the hands-on hotel-ops keys — no
-   * *_CREATE/_MANAGE for reservations/rooms/cashiering, which stay Front
-   * Office's domain. Does hold read-only front-office visibility
-   * (RESERVATIONS_VIEW/ROOMS_VIEW/GUESTS_VIEW/FRONT_OFFICE_VIEW/CONCIERGE_VIEW)
-   * so a Front Office Supervisor can monitor daily operations — arrivals,
-   * departures, room status, guest service requests — without being able to
-   * create reservations, change room status, or process payments themselves. */
+   * operational supervision) and most hands-on hotel-ops keys — no
+   * *_CREATE/_MANAGE for reservations/cashiering, which stay Front Office's
+   * domain. Does hold read-only front-office visibility
+   * (RESERVATIONS_VIEW/GUESTS_VIEW/FRONT_OFFICE_VIEW/CONCIERGE_VIEW) so a
+   * Front Office Supervisor can monitor daily operations — arrivals,
+   * departures, guest service requests — without being able to create
+   * reservations or process payments themselves.
+   * ROOMS_MANAGE/ROOMS_OVERRIDE are the one exception: room-status authority
+   * (marking a room OOO/BLO-out-of-service and releasing it back to service,
+   * or correcting front-desk mistakes) is explicitly Supervisor territory —
+   * see updateRoomStatus in room.service.ts, which enforces this server-side. */
   SUPERVISOR: [
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.RESERVATIONS_VIEW,
     PERMISSIONS.ROOMS_VIEW,
+    PERMISSIONS.ROOMS_MANAGE,
+    PERMISSIONS.ROOMS_OVERRIDE,
     PERMISSIONS.GUESTS_VIEW,
     PERMISSIONS.FRONT_OFFICE_VIEW,
     PERMISSIONS.CONCIERGE_VIEW,

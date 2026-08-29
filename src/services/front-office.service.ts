@@ -196,8 +196,10 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       },
     });
     await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CHECKED_IN" } });
-    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "OCC" } });
-    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "OCC", note: "Guest checked in" } });
+    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "OC" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: reservation.roomId, status: "OC", note: "Guest checked in", changedById: actor.userId },
+    });
 
     return reservation;
   });
@@ -249,7 +251,9 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
     });
     await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CHECKED_OUT" } });
     await tx.room.update({ where: { id: reservation.roomId }, data: { status: "VD" } });
-    await tx.roomStatusHistory.create({ data: { roomId: reservation.roomId, status: "VD", note: "Guest checked out" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: reservation.roomId, status: "VD", note: "Guest checked out", changedById: actor.userId },
+    });
 
     return reservation;
   });
@@ -294,12 +298,22 @@ export async function transferRoom(input: RoomTransferInput, actor: ActorContext
 
     const oldRoomId = reservation.roomId;
     await tx.reservation.update({ where: { id: reservation.id }, data: { roomId: input.newRoomId } });
-    await tx.room.update({ where: { id: input.newRoomId }, data: { status: "OCC" } });
+    await tx.room.update({ where: { id: input.newRoomId }, data: { status: "OC" } });
     await tx.room.update({ where: { id: oldRoomId }, data: { status: "VD" } });
     await tx.roomStatusHistory.createMany({
       data: [
-        { roomId: input.newRoomId, status: "OCC", note: `Transferred in from room ${reservation.room.number}` },
-        { roomId: oldRoomId, status: "VD", note: `Guest transferred to room ${newRoom.number}` },
+        {
+          roomId: input.newRoomId,
+          status: "OC",
+          note: `Transferred in from room ${reservation.room.number}`,
+          changedById: actor.userId,
+        },
+        {
+          roomId: oldRoomId,
+          status: "VD",
+          note: `Guest transferred to room ${newRoom.number}`,
+          changedById: actor.userId,
+        },
       ],
     });
 
@@ -387,8 +401,10 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
     });
 
     await tx.checkIn.create({ data: { reservationId: reservation.id } });
-    await tx.room.update({ where: { id: input.roomId }, data: { status: "OCC" } });
-    await tx.roomStatusHistory.create({ data: { roomId: input.roomId, status: "OCC", note: "Walk-in guest checked in" } });
+    await tx.room.update({ where: { id: input.roomId }, data: { status: "OC" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: input.roomId, status: "OC", note: "Walk-in guest checked in", changedById: actor.userId },
+    });
 
     return { guest, reservation, room };
   });

@@ -335,6 +335,7 @@ model User {
   nightAuditsOpened        NightAudit[]         @relation("NightAuditOpenedBy")
   nightAuditsFinalized     NightAudit[]         @relation("NightAuditFinalizedBy")
   notifications            Notification[]
+  roomStatusChanges        RoomStatusHistory[]  @relation("RoomStatusChangedBy")
 
   @@index([email])
   @@map("users")
@@ -660,13 +661,15 @@ model Room {
 }
 
 model RoomStatusHistory {
-  id        String     @id @default(cuid())
-  roomId    String
-  status    RoomStatus
-  changedAt DateTime   @default(now())
-  note      String?
+  id          String     @id @default(cuid())
+  roomId      String
+  status      RoomStatus
+  changedAt   DateTime   @default(now())
+  note        String?
+  changedById String?
 
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room      Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("RoomStatusChangedBy", fields: [changedById], references: [id])
 
   @@index([roomId])
   @@map("room_status_history")

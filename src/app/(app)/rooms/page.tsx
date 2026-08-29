@@ -12,5 +12,10 @@ export default async function RoomsPage() {
   const user = await requirePagePermission(PERMISSIONS.ROOMS_VIEW);
   if (!user) return <AccessDenied />;
 
-  return <RoomsBoard canManage={hasPermission(user, PERMISSIONS.ROOMS_MANAGE)} />;
+  return (
+    <RoomsBoard
+      canManage={hasPermission(user, PERMISSIONS.ROOMS_MANAGE)}
+      canOverride={hasPermission(user, PERMISSIONS.ROOMS_OVERRIDE)}
+    />
+  );
 }

@@ -5,7 +5,7 @@ import { authorize } from "@/lib/auth/guard";
 import { handleServiceError } from "@/lib/handle-service-error";
 import { PERMISSIONS } from "@/config/permissions";
 import { roomSchema, roomStatusEnum } from "@/validators/room.schema";
-import { createRoom, listRooms } from "@/services/room.service";
+import { createRoom, listRooms, getRoomOccupancySummary } from "@/services/room.service";
 
 export async function GET(req: NextRequest) {
   const auth = await authorize(PERMISSIONS.ROOMS_VIEW);
@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
 
   if (includeSummary) {
     const { listRoomTypes } = await import("@/services/room.service");
-    const roomTypes = await listRoomTypes();
-    return apiSuccess({ rooms, roomTypes });
+    const [roomTypes, statusSummary] = await Promise.all([listRoomTypes(), getRoomOccupancySummary()]);
+    return apiSuccess({ rooms, roomTypes, statusSummary });
   }
 
   return apiSuccess(rooms);

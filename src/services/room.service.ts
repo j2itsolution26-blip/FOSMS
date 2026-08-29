@@ -4,7 +4,7 @@ import type { Prisma, RoomStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
-import { findRoomStatusesMatching, isAvailableCategory, isOccupiedCategory } from "@/config/room-status";
+import { findRoomStatusesMatching, isAvailableCategory, isOccupiedCategory, isRestrictedStatus } from "@/config/room-status";
 import type { RoomInput, RoomTypeInput } from "@/validators/room.schema";
 
 type ActorContext = {
@@ -13,6 +13,8 @@ type ActorContext = {
   ipAddress?: string | null;
   userAgent?: string | null;
 };
+
+type StatusChangeActorContext = ActorContext & { canOverride: boolean };
 
 export async function listRoomTypes() {
   return prisma.roomType.findMany({ orderBy: { name: "asc" } });
@@ -63,11 +65,21 @@ export async function listRooms(
       : {}),
   };
 
-  return prisma.room.findMany({
+  const rooms = await prisma.room.findMany({
     where,
     include: { roomType: true },
     orderBy: [{ floor: "asc" }, { number: "asc" }],
   });
+
+  // Front Desk's room-status board needs to show who's currently in an
+  // occupied room; a room holds at most one CHECKED_IN reservation at a time.
+  const inHouse = await prisma.reservation.findMany({
+    where: { roomId: { in: rooms.map((r) => r.id) }, status: "CHECKED_IN" },
+    select: { roomId: true, guest: { select: { firstName: true, lastName: true } } },
+  });
+  const guestByRoomId = new Map(inHouse.map((r) => [r.roomId, `${r.guest.firstName} ${r.guest.lastName}`]));
+
+  return rooms.map((room) => ({ ...room, currentGuestName: guestByRoomId.get(room.id) ?? null }));
 }
 
 export async function getRoomOccupancySummary() {
@@ -103,7 +115,12 @@ export async function createRoom(input: RoomInput, actor: ActorContext) {
   return room;
 }
 
-export async function updateRoomStatus(id: string, status: RoomStatus, note: string | undefined, actor: ActorContext) {
+export async function updateRoomStatus(
+  id: string,
+  status: RoomStatus,
+  note: string | undefined,
+  actor: StatusChangeActorContext
+) {
   const existing = await prisma.room.findUnique({ where: { id } });
   if (!existing) throw new NotFoundError("Room not found.");
 
@@ -115,9 +132,29 @@ export async function updateRoomStatus(id: string, status: RoomStatus, note: str
     );
   }
 
+  // Marking a room out-of-order/out-of-service, or releasing it back into
+  // service, is Front Office Supervisor authority — Front Desk performs every
+  // other day-to-day status correction on its own (see PERMISSIONS.ROOMS_OVERRIDE).
+  if ((isRestrictedStatus(status) || isRestrictedStatus(existing.status)) && !actor.canOverride) {
+    throw new AppError(
+      "Only a Front Office Supervisor can set or release an out-of-order/out-of-service room.",
+      "ROOMS_OVERRIDE_REQUIRED",
+      403
+    );
+  }
+  if (isRestrictedStatus(status) && !note?.trim()) {
+    throw new AppError(
+      "A reason is required when marking a room out of order or out of service.",
+      "REASON_REQUIRED",
+      400
+    );
+  }
+
   const room = await prisma.$transaction(async (tx) => {
     const updated = await tx.room.update({ where: { id }, data: { status }, include: { roomType: true } });
-    await tx.roomStatusHistory.create({ data: { roomId: id, status, note: note || null } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: id, status, note: note || null, changedById: actor.userId },
+    });
     return updated;
   });
 
@@ -128,8 +165,19 @@ export async function updateRoomStatus(id: string, status: RoomStatus, note: str
     module: "rooms",
     recordId: id,
     previousValue: { status: existing.status },
-    newValue: { status },
+    newValue: { status, note: note || undefined },
   });
 
   return room;
+}
+
+export async function getRoomStatusHistory(roomId: string) {
+  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+  if (!room) throw new NotFoundError("Room not found.");
+
+  return prisma.roomStatusHistory.findMany({
+    where: { roomId },
+    orderBy: { changedAt: "desc" },
+    include: { changedBy: { select: { firstName: true, lastName: true } } },
+  });
 }

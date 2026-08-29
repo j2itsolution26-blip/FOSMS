@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -25,10 +26,12 @@ export function WalkInDialog({
   open,
   onOpenChange,
   onDone,
+  initialRoomId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
+  initialRoomId?: string | null;
 }) {
   const { options, loading } = useRoomOptions(ASSIGNABLE_ROOM_STATUS_QUERY, open);
 
@@ -36,6 +39,11 @@ export function WalkInDialog({
     resolver: zodResolver(walkInSchema),
     defaultValues: { firstName: "", lastName: "", phone: "", email: "", roomId: "", nights: 1, numGuests: 1 },
   });
+
+  useEffect(() => {
+    if (open) form.setValue("roomId", initialRoomId || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialRoomId]);
 
   async function onSubmit(values: WalkInInput) {
     const result = await apiFetch("/api/front-office/walk-in", { method: "POST", body: JSON.stringify(values) });

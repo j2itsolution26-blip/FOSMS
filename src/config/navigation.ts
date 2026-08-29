@@ -8,7 +8,6 @@ import {
   Sparkles,
   Wallet,
   Moon,
-  GraduationCap,
   BookMarked,
   ClipboardList,
   FileCheck2,
@@ -60,11 +59,9 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Training",
     items: [
-      { label: "Trainees", href: "/trainees", icon: GraduationCap, permission: PERMISSIONS.TRAINEES_VIEW },
       { label: "Competencies", href: "/competencies", icon: BookMarked, permission: PERMISSIONS.COMPETENCIES_VIEW },
       { label: "Training Activities", href: "/training-activities", icon: ClipboardList, permission: PERMISSIONS.TRAINING_ACTIVITIES_VIEW },
       { label: "Assessments", href: "/assessments", icon: FileCheck2, permission: PERMISSIONS.ASSESSMENTS_VIEW },
-      { label: "Attendance", href: "/attendance", icon: CalendarClock, permission: PERMISSIONS.ATTENDANCE_VIEW },
     ],
   },
   {

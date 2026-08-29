@@ -84,7 +84,7 @@ export const ROOM_STATUS_META: Record<RoomStatus, RoomStatusMeta> = {
   NCI: { code: "NCI", description: "Newly Checked-In", category: "occupied" },
   NS: { code: "NS", description: "No Show", category: "attention" },
   SO: { code: "SO", description: "Slept Out", category: "attention" },
-  BLO: { code: "BLO", description: "Blocked", category: "blocked" },
+  BLO: { code: "BLO", description: "Blocked / Out of Service", category: "blocked" },
   V: { code: "V", description: "Vacant", category: "available" },
   MUR: { code: "MUR", description: "Make Up Room", category: "cleaning" },
   VR: { code: "VR", description: "Vacant and Ready", category: "available" },
@@ -149,6 +149,19 @@ export const ROOM_STATUS_CATEGORY_META: Record<
 /** Vacant + ready-to-sell codes — the only statuses a room can be auto-assigned from (walk-in, transfer, reservation picker). */
 export const ASSIGNABLE_ROOM_STATUSES: RoomStatus[] = ["VC", "VR", "VCI"];
 export const ASSIGNABLE_ROOM_STATUS_QUERY = ASSIGNABLE_ROOM_STATUSES.join(",");
+
+/**
+ * Out-of-order / out-of-service codes. Setting a room to one of these, or
+ * releasing it back into service (changing it away from one of these),
+ * requires supervisor override authority (PERMISSIONS.ROOMS_OVERRIDE) and a
+ * reason — see updateRoomStatus in src/services/room.service.ts. Front Desk
+ * can perform every other status correction on its own.
+ */
+export const RESTRICTED_ROOM_STATUSES: RoomStatus[] = ["OOO", "BLO"];
+
+export function isRestrictedStatus(status: RoomStatus): boolean {
+  return RESTRICTED_ROOM_STATUSES.includes(status);
+}
 
 export function roomStatusCode(status: RoomStatus): string {
   return ROOM_STATUS_META[status].code;
