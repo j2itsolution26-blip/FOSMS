@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import Image from "next/image";
 
 import { LoginBrandingPanel } from "./branding-panel";
 import { LoginFooter } from "./login-footer";
 import { LoginForm } from "./login-form";
 import { LoginMobileHero } from "./mobile-hero";
-import { BrandCrest } from "./brand-crest";
 import { TesdaBadge } from "./tesda-badge";
 
 export const metadata: Metadata = { title: "Sign in — Front Office Servicing NC II" };
@@ -21,7 +21,7 @@ export default function LoginPage() {
         <div className="w-full max-w-[440px]">
           <div className="rounded-2xl border border-[#E2E8F0] bg-white p-6 shadow-sm sm:p-8">
             <div className="mb-6 flex flex-col items-center gap-3 text-center">
-              <BrandCrest />
+              <Image src="/images/asian-college-logo.png" alt="Asian College of Science and Technology" width={64} height={64} className="h-16 w-16" priority />
               <div>
                 <p className="text-sm font-bold tracking-wide text-[#0B1F44]">FRONT OFFICE SERVICING NC II</p>
                 <p className="text-xs text-[#64748B]">Training & Operations Management System</p>

@@ -86,7 +86,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Guests</h1>
-          <p className="text-sm text-muted-foreground">Guest records and reservation history.</p>
+          <p className="text-sm text-muted-foreground">Guest folios, profiles, and reservation history.</p>
         </div>
         {canManage ? (
           <Button
@@ -95,7 +95,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               setDialogOpen(true);
             }}
           >
-            <Plus className="h-4 w-4" /> New Guest
+            <Plus className="h-4 w-4" /> Guest Folio
           </Button>
         ) : null}
       </div>

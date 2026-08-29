@@ -1,9 +1,8 @@
 import type { Page } from "@playwright/test";
 
 export const DEMO_USERS = {
-  superAdmin: { email: "superadmin@fonc2s.local", password: "Password123!" },
+  supervisor: { email: "supervisor@fonc2s.local", password: "Password123!" },
   frontOffice: { email: "frontdesk@fonc2s.local", password: "Password123!" },
-  instructor: { email: "instructor@fonc2s.local", password: "Password123!" },
 } as const;
 
 export async function login(page: Page, user: { email: string; password: string }) {

@@ -59,7 +59,7 @@ test.describe("Cashiering — Receipts", () => {
   });
 
   test("blocks a role without CASHIERING_VIEW from the Receipts page", async ({ page }) => {
-    await login(page, DEMO_USERS.instructor);
+    await login(page, DEMO_USERS.supervisor);
     await page.goto("/cashiering/receipts");
     await expect(page.getByText("You don't have access to this page")).toBeVisible();
   });

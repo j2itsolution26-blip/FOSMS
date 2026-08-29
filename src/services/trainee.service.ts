@@ -149,12 +149,17 @@ export async function createTrainee(input: CreateTraineeInput, actor: ActorConte
   const passwordHash = await hashPassword(input.password);
 
   const trainee = await prisma.$transaction(async (tx) => {
+    // TRAINEE is a retired, non-assignable login role (see ASSIGNABLE_ROLE_NAMES) —
+    // enrolling a trainee still creates their record here so Supervisor/Front Office
+    // have a real profile to manage (competencies, attendance, assessments), but the
+    // account itself is created inactive: students no longer get portal logins.
     const user = await tx.user.create({
       data: {
         firstName: input.firstName,
         lastName: input.lastName,
         email: input.email,
         passwordHash,
+        isActive: false,
         roles: { create: { roleId: traineeRole.id } },
       },
     });

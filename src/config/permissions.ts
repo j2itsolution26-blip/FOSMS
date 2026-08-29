@@ -175,6 +175,38 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.CONCIERGE_MANAGE,
     PERMISSIONS.CASHIERING_VIEW,
     PERMISSIONS.CASHIERING_MANAGE,
+    PERMISSIONS.TRAINEES_VIEW,
+    PERMISSIONS.ATTENDANCE_VIEW,
+    PERMISSIONS.ATTENDANCE_RECORD,
+    PERMISSIONS.REPORTS_VIEW,
+    PERMISSIONS.REPORTS_GENERATE,
+  ],
+  /** Consolidated FOSMS operational-supervision role (replaces the former
+   * ADMINISTRATOR/INSTRUCTOR/ASSESSOR/SUPER_ADMIN split). Deliberately
+   * excludes ROLES_MANAGE/SETTINGS_MANAGE (system administration, not
+   * operational supervision) and the hotel-operations keys (Front Office's
+   * domain), per the role-consolidation brief. */
+  SUPERVISOR: [
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.TRAINEES_VIEW,
+    PERMISSIONS.TRAINEES_CREATE,
+    PERMISSIONS.TRAINEES_UPDATE,
+    PERMISSIONS.TRAINEES_ARCHIVE,
+    PERMISSIONS.COMPETENCIES_VIEW,
+    PERMISSIONS.COMPETENCIES_MANAGE,
+    PERMISSIONS.TRAINING_ACTIVITIES_VIEW,
+    PERMISSIONS.TRAINING_ACTIVITIES_MANAGE,
+    PERMISSIONS.ASSESSMENTS_VIEW,
+    PERMISSIONS.ASSESSMENTS_CREATE,
+    PERMISSIONS.ASSESSMENTS_EVALUATE,
+    PERMISSIONS.ASSESSMENTS_FINALIZE,
+    PERMISSIONS.ATTENDANCE_VIEW,
+    PERMISSIONS.ATTENDANCE_RECORD,
+    PERMISSIONS.REPORTS_VIEW,
+    PERMISSIONS.REPORTS_GENERATE,
+    PERMISSIONS.REPORTS_EXPORT,
+    PERMISSIONS.USERS_MANAGE,
+    PERMISSIONS.AUDIT_VIEW,
   ],
   INSTRUCTOR: [
     PERMISSIONS.DASHBOARD_VIEW,
@@ -204,3 +236,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   ],
   TRAINEE: [PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.TRAINEE_PORTAL_ACCESS],
 };
+
+/**
+ * The only roles a normal user (or a raw API call) may be assigned through
+ * account creation/role-change. SUPER_ADMIN/ADMINISTRATOR/INSTRUCTOR/ASSESSOR/
+ * TRAINEE rows still exist in the database for historical/referential
+ * integrity (existing accounts, audit trail), but are no longer assignable —
+ * enforced server-side in user.service.ts, not just hidden from the UI.
+ */
+export const ASSIGNABLE_ROLE_NAMES = ["SUPERVISOR", "FRONT_OFFICE_STAFF"] as const;

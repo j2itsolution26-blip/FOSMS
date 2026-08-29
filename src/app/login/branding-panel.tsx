@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { BedDouble, GraduationCap, Award, FileText, BarChart3, ShieldCheck } from "lucide-react";
+import { GraduationCap, Award, FileText, BarChart3, ShieldCheck } from "lucide-react";
 
 const FEATURES = [
   {
@@ -26,31 +26,39 @@ const FEATURES = [
 
 export function LoginBrandingPanel() {
   return (
-    <div className="relative hidden overflow-hidden bg-[#07162F] px-10 py-12 text-white md:flex md:w-[42%] md:flex-col md:justify-between lg:w-[45%] xl:px-14">
-      {/* Front-office reception photo — the visual anchor of the panel. */}
+    <div className="relative hidden overflow-hidden bg-[#07162F] px-10 py-10 text-white md:flex md:w-[55%] md:flex-col md:justify-between lg:w-[58%] xl:px-16 xl:py-12">
+      {/* Asian College campus — the visual anchor of the panel. */}
       <Image
-        src="/images/login-front-office.jpg"
+        src="/images/asian-college-campus.png"
         alt=""
         aria-hidden
         fill
         priority
-        sizes="(min-width: 1024px) 45vw, (min-width: 768px) 42vw, 100vw"
-        className="object-cover object-[75%_center]"
+        sizes="(min-width: 1024px) 58vw, (min-width: 768px) 55vw, 100vw"
+        className="object-cover object-center"
       />
 
-      {/* Solid-to-transparent navy wash, left to right — grounds the copy against
-          the photo without darkening the receptionist/customer scene on the right. */}
+      {/* Navy wash, left to right — grounds the copy against the photo while keeping
+          the building itself clearly visible on the right side of the panel. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
-          background: "linear-gradient(100deg, #07162F 0%, #07162F 38%, rgba(7,22,47,0.85) 50%, rgba(7,22,47,0.35) 64%, rgba(7,22,47,0.12) 78%, transparent 92%)",
+          background: "linear-gradient(100deg, #07162F 0%, #07162F 30%, rgba(7,22,47,0.88) 44%, rgba(7,22,47,0.5) 60%, rgba(7,22,47,0.22) 76%, rgba(7,22,47,0.08) 92%)",
         }}
       />
-      {/* Subtle overall bottom-up wash for footer/trust-panel legibility. */}
+      {/* Subtle overall bottom-up wash for footer legibility. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-linear-to-t from-[#07162F]/70 via-transparent to-[#07162F]/10"
+        className="pointer-events-none absolute inset-0 bg-linear-to-t from-[#07162F]/65 via-transparent to-[#07162F]/15"
+      />
+      {/* Soft vignette around the edges. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "radial-gradient(ellipse at center, transparent 55%, rgba(7,22,47,0.4) 100%)",
+        }}
       />
 
       {/* Gold diagonal accent along the bottom edge. */}
@@ -63,20 +71,15 @@ export function LoginBrandingPanel() {
       />
 
       <div className="relative">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#F4B400]/15 text-[#F4B400]">
-            <BedDouble className="h-5.5 w-5.5" aria-hidden />
-          </div>
-          <div className="leading-tight">
-            <p className="text-sm font-bold tracking-wide">
-              FRONT OFFICE
-              <br />
-              SERVICING <span className="text-[#F4B400]">NC II</span>
-            </p>
-          </div>
-        </div>
+        <Image src="/images/asian-college-logo.png" alt="Asian College of Science and Technology" width={56} height={56} className="h-14 w-14" priority />
 
-        <h1 className="mt-10 text-3xl leading-tight font-bold xl:text-4xl">
+        <p className="mt-6 text-sm font-bold tracking-wide">
+          ASIAN COLLEGE
+          <br />
+          OF SCIENCE AND TECHNOLOGY
+        </p>
+
+        <h1 className="mt-4 text-3xl leading-tight font-bold xl:text-4xl">
           Excellence in Service.
           <br />
           <span className="text-[#F4B400]">Mastery in Hospitality.</span>
@@ -101,11 +104,10 @@ export function LoginBrandingPanel() {
         </ul>
       </div>
 
-      <div className="relative flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/5 p-4 text-white/60">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <div className="relative flex items-center gap-2 text-white/60">
+        <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden />
         <p className="text-xs leading-relaxed">
-          <span className="font-semibold text-white/80">Secure. Reliable. Trusted.</span>
-          <br />
+          <span className="font-semibold text-white/80">Secure. Reliable. Trusted.</span>{" "}
           Your data is protected with enterprise-grade security.
         </p>
       </div>

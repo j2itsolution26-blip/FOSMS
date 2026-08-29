@@ -8,7 +8,6 @@ import {
   FileText,
   Download,
   Eye,
-  Trash2,
   FolderOpen,
   ArrowUpDown,
   Filter,
@@ -66,11 +65,11 @@ function formatFileSize(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getFileTypeIcon(mimeType: string | null) {
-  if (!mimeType) return FileIcon;
-  if (mimeType.startsWith("image/")) return FileImage;
-  if (mimeType === "application/pdf") return FileType;
-  return FileText;
+function FileTypeIcon({ mimeType, className }: { mimeType: string | null; className?: string }) {
+  if (!mimeType) return <FileIcon className={className} aria-hidden />;
+  if (mimeType.startsWith("image/")) return <FileImage className={className} aria-hidden />;
+  if (mimeType === "application/pdf") return <FileType className={className} aria-hidden />;
+  return <FileText className={className} aria-hidden />;
 }
 
 function getFileExtension(name: string | null) {
@@ -172,7 +171,6 @@ function EmptyState({ onUpload }: { onUpload: () => void }) {
 // ─── Document Table Row (Desktop) ───
 
 function DocumentRow({ item, onView }: { item: EvidenceItem; onView: (item: EvidenceItem) => void }) {
-  const Icon = getFileTypeIcon(item.mimeType);
   const verificationStatus = item.kind === "document" ? "PENDING" : "VERIFIED";
   const downloadUrl = `/api/me/evidence/${item.kind}/${item.id}/download`;
 
@@ -181,7 +179,7 @@ function DocumentRow({ item, onView }: { item: EvidenceItem; onView: (item: Evid
       <td className="py-3 pl-4 pr-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-            <Icon className="h-4 w-4" aria-hidden />
+            <FileTypeIcon mimeType={item.mimeType} className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-slate-900">{item.label}</p>
@@ -222,7 +220,6 @@ function DocumentRow({ item, onView }: { item: EvidenceItem; onView: (item: Evid
 // ─── Document Card (Mobile) ───
 
 function DocumentCard({ item, onView }: { item: EvidenceItem; onView: (item: EvidenceItem) => void }) {
-  const Icon = getFileTypeIcon(item.mimeType);
   const verificationStatus = item.kind === "document" ? "PENDING" : "VERIFIED";
   const downloadUrl = `/api/me/evidence/${item.kind}/${item.id}/download`;
 
@@ -231,7 +228,7 @@ function DocumentCard({ item, onView }: { item: EvidenceItem; onView: (item: Evi
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-            <Icon className="h-5 w-5" aria-hidden />
+            <FileTypeIcon mimeType={item.mimeType} className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-900">{item.label}</p>

@@ -7,13 +7,22 @@ import type { ModuleQuickAction } from "@/components/modules/types";
 export function ModuleQuickActions({ actions }: { actions: ModuleQuickAction[] }) {
   if (actions.length === 0) return null;
 
+  const gridCols =
+    actions.length <= 3
+      ? "grid-cols-1 sm:grid-cols-3"
+      : actions.length === 4
+      ? "grid-cols-2 sm:grid-cols-4"
+      : actions.length === 5
+      ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+      : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6";
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Quick Actions</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className={cn("grid gap-3", gridCols)}>
           {actions.map((action) => {
             const Icon = action.icon;
             return (

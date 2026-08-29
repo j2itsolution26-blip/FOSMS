@@ -39,7 +39,7 @@ test.describe("Concierge / Bell Service", () => {
 test.describe("Cashiering", () => {
   test("blocks recording a transaction without an open cashier session for a fresh cashier", async ({ page }) => {
     // Instructor role has no cashiering permission at all — confirms the module is access-gated.
-    await login(page, DEMO_USERS.instructor);
+    await login(page, DEMO_USERS.supervisor);
     await page.goto("/cashiering");
     await expect(page.getByText("You don't have access to this page")).toBeVisible();
   });

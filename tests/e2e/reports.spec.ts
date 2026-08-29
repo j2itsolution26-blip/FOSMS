@@ -3,7 +3,7 @@ import { DEMO_USERS, login } from "./helpers";
 
 test.describe("Reports & Analytics", () => {
   test("shows KPIs, charts, and generates a report via the Report Builder", async ({ page }) => {
-    await login(page, DEMO_USERS.superAdmin);
+    await login(page, DEMO_USERS.supervisor);
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports & Analytics" })).toBeVisible();
 
@@ -19,7 +19,7 @@ test.describe("Reports & Analytics", () => {
   });
 
   test("hides export controls for a role without REPORTS_EXPORT", async ({ page }) => {
-    await login(page, DEMO_USERS.instructor);
+    await login(page, DEMO_USERS.frontOffice);
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports & Analytics" })).toBeVisible();
     await page.getByRole("button", { name: "Generate Report" }).click();

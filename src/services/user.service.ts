@@ -6,6 +6,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { revokeAllUserSessions } from "@/lib/auth/session";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
+import { ASSIGNABLE_ROLE_NAMES } from "@/config/permissions";
 import type { CreateUserInput, UpdateUserInput } from "@/validators/user.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -86,12 +87,27 @@ export async function getUserById(id: string) {
   return user;
 }
 
+/**
+ * A roleId is client-supplied, so the role it resolves to must be checked
+ * against the current assignable-role allowlist server-side — never trust
+ * that the UI only ever offers assignable roles. Retired roles (e.g.
+ * TRAINEE, ADMINISTRATOR) still exist as rows for historical accounts, but
+ * must be rejected here even if referenced directly via the API.
+ */
+async function assertAssignableRole(roleId: string) {
+  const role = await prisma.role.findUnique({ where: { id: roleId } });
+  if (!role) throw new NotFoundError("Role not found.");
+  if (!(ASSIGNABLE_ROLE_NAMES as readonly string[]).includes(role.name)) {
+    throw new AppError("This role can no longer be assigned.", "ROLE_NOT_ASSIGNABLE", 400);
+  }
+  return role;
+}
+
 export async function createUser(input: CreateUserInput, actor: ActorContext) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) throw new AppError("A user with this email already exists.", "EMAIL_TAKEN", 409);
 
-  const role = await prisma.role.findUnique({ where: { id: input.roleId } });
-  if (!role) throw new NotFoundError("Role not found.");
+  const role = await assertAssignableRole(input.roleId);
 
   const passwordHash = await hashPassword(input.password);
 
@@ -121,6 +137,10 @@ export async function createUser(input: CreateUserInput, actor: ActorContext) {
 export async function updateUser(id: string, input: UpdateUserInput, actor: ActorContext) {
   const existing = await prisma.user.findUnique({ where: { id, deletedAt: null }, include: listInclude });
   if (!existing) throw new NotFoundError("User not found.");
+
+  if (input.roleId) {
+    await assertAssignableRole(input.roleId);
+  }
 
   const user = await prisma.$transaction(async (tx) => {
     await tx.user.update({

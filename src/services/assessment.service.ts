@@ -117,7 +117,7 @@ export async function listAssessableTrainees() {
 
 export async function listAssessors() {
   const users = await prisma.user.findMany({
-    where: { isActive: true, deletedAt: null, roles: { some: { role: { name: { in: ["ASSESSOR", "INSTRUCTOR", "ADMINISTRATOR", "SUPER_ADMIN"] } } } } },
+    where: { isActive: true, deletedAt: null, roles: { some: { role: { name: { in: ["ASSESSOR", "INSTRUCTOR", "ADMINISTRATOR", "SUPER_ADMIN", "SUPERVISOR"] } } } } },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { firstName: "asc" },
   });

@@ -2,12 +2,17 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError } from "@/lib/errors";
-import type { PermissionKey } from "@/config/permissions";
+import { ASSIGNABLE_ROLE_NAMES, type PermissionKey } from "@/config/permissions";
 
 type ActorContext = { userId: string; role: string | null };
 
+/** Backs every role UI surface (New User, per-row role change, Roles &
+ * Permissions editor) — filtering here removes retired roles from all of
+ * them at once, per the role-consolidation brief. The underlying Role rows
+ * for retired roles are left in the database untouched (see ASSIGNABLE_ROLE_NAMES). */
 export async function listRolesWithPermissions() {
   return prisma.role.findMany({
+    where: { name: { in: [...ASSIGNABLE_ROLE_NAMES] } },
     orderBy: { label: "asc" },
     include: {
       permissions: { include: { permission: true } },

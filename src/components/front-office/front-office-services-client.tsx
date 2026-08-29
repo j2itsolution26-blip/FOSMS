@@ -7,8 +7,6 @@ import {
   ArrowLeftRight,
   BadgeCheck,
   UserPlus,
-  MessageSquarePlus,
-  ClipboardList,
   Users,
   DoorOpen,
 } from "lucide-react";
@@ -26,7 +24,6 @@ import { CheckOutDialog } from "@/components/front-office/check-out-dialog";
 import { RoomTransferDialog } from "@/components/front-office/room-transfer-dialog";
 import { GuestVerificationDialog } from "@/components/front-office/guest-verification-dialog";
 import { WalkInDialog } from "@/components/front-office/walk-in-dialog";
-import { GuestRequestDialog } from "@/components/concierge/guest-request-dialog";
 
 type Operation = {
   id: string;
@@ -59,7 +56,7 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
   const debouncedSearch = useDebouncedValue(search);
 
   const [dialog, setDialog] = useState<
-    "check-in" | "check-out" | "transfer" | "verify" | "walk-in" | "request" | null
+    "check-in" | "check-out" | "transfer" | "verify" | "walk-in" | null
   >(null);
   const [prefillReservationId, setPrefillReservationId] = useState<string | null>(null);
 
@@ -136,7 +133,6 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
                 { label: "Today's Check-ins", value: summary.kpis.todaysCheckIns, unit: "Guests", icon: LogIn, tone: "blue" },
                 { label: "Today's Check-outs", value: summary.kpis.todaysCheckOuts, unit: "Guests", icon: LogOut, tone: "amber" },
                 { label: "In-House Guests", value: summary.kpis.inHouseGuests, unit: "Guests", icon: Users, tone: "green" },
-                { label: "Pending Requests", value: summary.kpis.pendingRequests, unit: "Awaiting action", icon: ClipboardList, tone: "purple" },
               ]
             : []
         }
@@ -148,7 +144,6 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
                 { label: "Room Transfer", icon: ArrowLeftRight, tone: "bg-violet-50 text-violet-700", onClick: () => openDialog("transfer") },
                 { label: "Guest Verification", icon: BadgeCheck, tone: "bg-emerald-50 text-emerald-700", onClick: () => openDialog("verify") },
                 { label: "Walk-In Guest", icon: UserPlus, tone: "bg-slate-100 text-slate-700", onClick: () => openDialog("walk-in") },
-                { label: "Guest Request", icon: MessageSquarePlus, tone: "bg-red-50 text-red-700", onClick: () => openDialog("request") },
               ]
             : []
         }
@@ -195,7 +190,6 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
       <RoomTransferDialog open={dialog === "transfer"} onOpenChange={(o) => setDialog(o ? "transfer" : null)} onDone={() => load()} />
       <GuestVerificationDialog open={dialog === "verify"} onOpenChange={(o) => setDialog(o ? "verify" : null)} onDone={() => load()} />
       <WalkInDialog open={dialog === "walk-in"} onOpenChange={(o) => setDialog(o ? "walk-in" : null)} onDone={() => load()} />
-      <GuestRequestDialog open={dialog === "request"} onOpenChange={(o) => setDialog(o ? "request" : null)} onDone={() => load()} />
     </>
   );
 }

@@ -20,6 +20,7 @@ enum RoleName {
   INSTRUCTOR
   ASSESSOR
   TRAINEE
+  SUPERVISOR
 }
 
 enum ReservationStatus {

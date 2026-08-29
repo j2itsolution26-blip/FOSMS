@@ -25,6 +25,10 @@ async function main() {
   const year = now.getFullYear();
   console.log("Seeding roles & permissions…");
 
+  // SUPER_ADMIN/ADMINISTRATOR/INSTRUCTOR/ASSESSOR/TRAINEE are retired,
+  // non-assignable roles (see ASSIGNABLE_ROLE_NAMES in src/config/permissions.ts)
+  // kept here only so existing demo/historical accounts still resolve a valid
+  // role — no new user is ever assigned one of these going forward.
   const roleDefs: { name: RoleName; label: string; description: string }[] = [
     { name: "SUPER_ADMIN", label: "Super Administrator", description: "Full system access." },
     { name: "ADMINISTRATOR", label: "Administrator", description: "Operational and training administration." },
@@ -32,6 +36,7 @@ async function main() {
     { name: "INSTRUCTOR", label: "Instructor", description: "Trainee monitoring, competency assignment, evaluation." },
     { name: "ASSESSOR", label: "Assessor", description: "Competency assessment and certification." },
     { name: "TRAINEE", label: "Trainee", description: "Trainee self-service access." },
+    { name: "SUPERVISOR", label: "Supervisor", description: "Consolidated FOSMS operational supervision — training, assessments, attendance, reports, user management." },
   ];
 
   const roles = new Map<string, { id: string }>();
@@ -65,11 +70,15 @@ async function main() {
   console.log("Seeding users…");
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
-  async function upsertUser(email: string, firstName: string, lastName: string, roleName: string) {
+  // `isActive` defaults to true (matches the schema default) so existing calls
+  // don't need to change; pass `false` for accounts whose role has been
+  // retired — the `update:` clause deliberately re-applies it on every seed
+  // run so re-seeding an already-active legacy account still deactivates it.
+  async function upsertUser(email: string, firstName: string, lastName: string, roleName: string, isActive = true) {
     const user = await prisma.user.upsert({
       where: { email },
-      update: {},
-      create: { email, firstName, lastName, passwordHash },
+      update: { isActive },
+      create: { email, firstName, lastName, passwordHash, isActive },
     });
     await prisma.userRole.upsert({
       where: { userId_roleId: { userId: user.id, roleId: roles.get(roleName)!.id } },
@@ -79,16 +88,20 @@ async function main() {
     return user;
   }
 
-  const superAdmin = await upsertUser("superadmin@fonc2s.local", "Mary Jane", "Dela Cruz", "SUPER_ADMIN");
-  await upsertUser("admin@fonc2s.local", "Carlos", "Reyes", "ADMINISTRATOR");
+  // Retired-role demo accounts are kept (isActive: false) rather than deleted —
+  // their linked Instructor/Trainee profiles and downstream assessment/attendance
+  // data below are real demo data Supervisor/Front Office need to see and manage.
+  const superAdmin = await upsertUser("superadmin@fonc2s.local", "Mary Jane", "Dela Cruz", "SUPER_ADMIN", false);
+  await upsertUser("admin@fonc2s.local", "Carlos", "Reyes", "ADMINISTRATOR", false);
   await upsertUser("frontdesk@fonc2s.local", "Angela", "Santos", "FRONT_OFFICE_STAFF");
-  const instructorUser = await upsertUser("instructor@fonc2s.local", "Roberto", "Villanueva", "INSTRUCTOR");
-  const assessorUser = await upsertUser("assessor@fonc2s.local", "Liza", "Fernandez", "ASSESSOR");
-  const traineeUser1 = await upsertUser("trainee1@fonc2s.local", "Juan", "Dela Cruz", "TRAINEE");
-  const traineeUser2 = await upsertUser("trainee2@fonc2s.local", "Maria", "Garcia", "TRAINEE");
-  const traineeUser3 = await upsertUser("trainee3@fonc2s.local", "Pedro", "Santos", "TRAINEE");
-  const traineeUser4 = await upsertUser("trainee4@fonc2s.local", "Carmela", "Lopez", "TRAINEE");
-  const traineeUser5 = await upsertUser("trainee5@fonc2s.local", "Ramon", "Cruz", "TRAINEE");
+  await upsertUser("supervisor@fonc2s.local", "Alexandra", "Ramos", "SUPERVISOR");
+  const instructorUser = await upsertUser("instructor@fonc2s.local", "Roberto", "Villanueva", "INSTRUCTOR", false);
+  const assessorUser = await upsertUser("assessor@fonc2s.local", "Liza", "Fernandez", "ASSESSOR", false);
+  const traineeUser1 = await upsertUser("trainee1@fonc2s.local", "Juan", "Dela Cruz", "TRAINEE", false);
+  const traineeUser2 = await upsertUser("trainee2@fonc2s.local", "Maria", "Garcia", "TRAINEE", false);
+  const traineeUser3 = await upsertUser("trainee3@fonc2s.local", "Pedro", "Santos", "TRAINEE", false);
+  const traineeUser4 = await upsertUser("trainee4@fonc2s.local", "Carmela", "Lopez", "TRAINEE", false);
+  const traineeUser5 = await upsertUser("trainee5@fonc2s.local", "Ramon", "Cruz", "TRAINEE", false);
 
   console.log("Seeding training program, instructor & trainees…");
   const program = await prisma.program.upsert({
@@ -467,14 +480,11 @@ async function main() {
   }
 
   console.log("\nSeed complete.");
-  console.log("Demo accounts (all use the same password):");
+  console.log("Active demo accounts (all use the same password):");
   console.log(`  Password: ${DEMO_PASSWORD}`);
-  console.log("  superadmin@fonc2s.local  — Super Administrator");
-  console.log("  admin@fonc2s.local       — Administrator");
+  console.log("  supervisor@fonc2s.local  — Supervisor");
   console.log("  frontdesk@fonc2s.local   — Front Office Staff");
-  console.log("  instructor@fonc2s.local  — Instructor");
-  console.log("  assessor@fonc2s.local    — Assessor");
-  console.log("  trainee1@fonc2s.local    — Trainee");
+  console.log("(superadmin/admin/instructor/assessor/trainee1-5@fonc2s.local still exist as demo data, but are inactive and cannot log in.)");
 }
 
 main()
