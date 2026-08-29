@@ -11,9 +11,20 @@ import {
 } from "@/services/dashboard.service";
 import { getTrainingActivityKpis } from "@/services/training-activity.service";
 import { getMyDashboard } from "@/services/trainee-portal.service";
+import {
+  getSupervisorKpis,
+  getTodaysOperationsSummary,
+  getTodaysArrivals,
+  getTodaysDepartures,
+  getReservationOverview,
+  getStaffOnDuty,
+  getGuestIssues,
+  getRecentFrontOfficeActivity,
+} from "@/services/supervisor-dashboard.service";
 import { prisma } from "@/lib/prisma";
 
 import { TraineeDashboard } from "@/components/trainee-portal/trainee-dashboard";
+import { SupervisorDashboard } from "@/components/supervisor/supervisor-dashboard";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ReservationTrendChart } from "@/components/dashboard/reservation-trend-chart";
 import { RoomStatusChart } from "@/components/dashboard/room-status-chart";
@@ -37,6 +48,34 @@ export default async function DashboardPage() {
       const dashboard = await getMyDashboard(trainee.id);
       return <TraineeDashboard dashboard={dashboard} firstName={user.firstName} />;
     }
+  }
+
+  // Front Office Supervisors get a real-hotel-operations command center, not the
+  // training-centric staff dashboard below — same early-branch pattern as TRAINEE.
+  if (user?.roles[0] === "SUPERVISOR") {
+    const [kpis, ops, arrivals, departures, reservationOverview, staffOnDuty, guestIssues, activity] = await Promise.all([
+      getSupervisorKpis(),
+      getTodaysOperationsSummary(),
+      getTodaysArrivals(),
+      getTodaysDepartures(),
+      getReservationOverview(),
+      getStaffOnDuty(),
+      getGuestIssues(),
+      getRecentFrontOfficeActivity(),
+    ]);
+    return (
+      <SupervisorDashboard
+        firstName={user.firstName}
+        kpis={kpis}
+        ops={ops}
+        arrivals={arrivals}
+        departures={departures}
+        reservationOverview={reservationOverview}
+        staffOnDuty={staffOnDuty}
+        guestIssues={guestIssues}
+        activity={activity}
+      />
+    );
   }
 
   const canViewTrainees = hasPermission(user, PERMISSIONS.TRAINEES_VIEW);

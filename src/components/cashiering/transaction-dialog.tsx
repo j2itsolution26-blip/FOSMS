@@ -37,6 +37,7 @@ const METHOD_OPTIONS = [
   { value: "CASH", label: "Cash" },
   { value: "CARD", label: "Card" },
   { value: "BANK_TRANSFER", label: "Bank Transfer" },
+  { value: "ONLINE", label: "Online" },
   { value: "OTHER", label: "Other" },
 ];
 

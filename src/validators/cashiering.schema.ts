@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 export const transactionTypeEnum = z.enum(["CHARGE", "PAYMENT", "DISCOUNT"]);
-export const paymentMethodEnum = z.enum(["CASH", "CARD", "BANK_TRANSFER", "OTHER"]);
+export const paymentMethodEnum = z.enum(["CASH", "CARD", "BANK_TRANSFER", "ONLINE", "OTHER"]);
+export const discountTypeEnum = z.enum(["SENIOR_CITIZEN", "PWD", "STAKEHOLDER"]);
 
 // A "receipt" is a PAYMENT or REFUND transaction. PAID = payment not (yet) reversed;
 // REFUNDED = payment that was reversed; REFUND_ISSUED = the reversal transaction itself.
@@ -14,6 +15,13 @@ export const createTransactionSchema = z.object({
   amount: z.coerce.number().positive("Amount must be greater than 0."),
   paymentMethod: paymentMethodEnum.optional(),
   reference: z.string().trim().max(200).optional().or(z.literal("")),
+  // Folio pricing breakdown — all optional so a plain charge/payment with no
+  // room context behaves exactly as before. When roomTypeId is present, the
+  // server recomputes `amount` from these via computeFolioCharge() rather
+  // than trusting the client-supplied amount for that portion.
+  roomTypeId: z.string().min(1).optional(),
+  bedCount: z.coerce.number().int().min(0).max(10).optional(),
+  discountType: discountTypeEnum.optional(),
 });
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 

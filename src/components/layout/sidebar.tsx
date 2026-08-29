@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { BedDouble } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { NAV_SECTIONS, TRAINEE_NAV_SECTIONS } from "@/config/navigation";
+import { NAV_SECTIONS, TRAINEE_NAV_SECTIONS, SUPERVISOR_NAV_SECTIONS } from "@/config/navigation";
 import type { PermissionKey } from "@/config/permissions";
 import { SidebarUser } from "@/components/layout/sidebar-user";
 
@@ -25,7 +25,11 @@ export function Sidebar({
   // A trainee gets their own dedicated portal nav, never the staff/admin sidebar
   // (AGENTS.md §5, §20) — trainees hold no staff permissions by default anyway,
   // but this keeps the two navigation sets structurally separate regardless.
-  const navSource = user.role === "TRAINEE" ? TRAINEE_NAV_SECTIONS : NAV_SECTIONS;
+  // Supervisor gets a real-hotel-operations nav — SUPERVISOR still holds the
+  // training permissions at the data layer, but that section has no place in
+  // a Front Office Supervisor's navigation.
+  const navSource =
+    user.role === "TRAINEE" ? TRAINEE_NAV_SECTIONS : user.role === "SUPERVISOR" ? SUPERVISOR_NAV_SECTIONS : NAV_SECTIONS;
   const sections = navSource.map((section) => ({
     ...section,
     items: section.items.filter((item) => allowed.has(item.permission)),
@@ -49,9 +53,13 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4">
-        {sections.map((section) =>
+        {sections.map((section, index) =>
           section.items.length === 0 ? null : (
-            <div key={section.label || "root"} className="mb-5">
+            // Index in the key too: a config can have more than one unlabeled
+            // section (e.g. a bare "Dashboard" item up top and a bare
+            // "Activity Log" item at the bottom), and `label` alone collided
+            // ("root" for every empty-label section) when that happened.
+            <div key={`${section.label || "section"}-${index}`} className="mb-5">
               {section.label ? (
                 <p className="px-3.5 pt-1 pb-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
                   {section.label}

@@ -146,7 +146,14 @@ enum PaymentMethod {
   CASH
   CARD
   BANK_TRANSFER
+  ONLINE
   OTHER
+}
+
+enum DiscountType {
+  SENIOR_CITIZEN
+  PWD
+  STAKEHOLDER
 }
 
 enum NightAuditStatus {
@@ -204,6 +211,7 @@ enum AuditAction {
   TRAINING_ACTIVITY_GRADED
   NIGHT_AUDIT_OPENED
   SETTINGS_UPDATED
+  DISCOUNT_APPLIED
 }
 
 enum TrainingActivityStatus {
@@ -598,7 +606,8 @@ model RoomType {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  rooms Room[]
+  rooms               Room[]
+  cashierTransactions CashierTransaction[]
 
   @@map("room_types")
 }
@@ -609,6 +618,7 @@ model Room {
   roomTypeId String
   floor      Int
   status     RoomStatus @default(AVAILABLE)
+  isSmoking  Boolean    @default(false)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
@@ -801,9 +811,23 @@ model CashierTransaction {
   userId        String
   createdAt     DateTime        @default(now())
 
+  // Itemized folio breakdown — nullable so existing/plain transactions (no
+  // room context) are unaffected. When present, `amount` above is the total
+  // (subtotal - discountAmount + vatAmount), preserving existing semantics.
+  // roomTypeId is a snapshot of what was charged, independent of the room's
+  // *current* reservation — RoomType.baseRate can change after the fact.
+  roomTypeId     String?
+  bedCount       Int?
+  bedCharge      Decimal?      @db.Decimal(10, 2)
+  discountType   DiscountType?
+  discountAmount Decimal?      @db.Decimal(10, 2)
+  subtotal       Decimal?      @db.Decimal(10, 2)
+  vatAmount      Decimal?      @db.Decimal(10, 2)
+
   session     CashierSession @relation(fields: [sessionId], references: [id])
   reservation Reservation?   @relation(fields: [reservationId], references: [id])
   user        User           @relation(fields: [userId], references: [id])
+  roomType    RoomType?      @relation(fields: [roomTypeId], references: [id])
 
   @@index([sessionId])
   @@index([createdAt])

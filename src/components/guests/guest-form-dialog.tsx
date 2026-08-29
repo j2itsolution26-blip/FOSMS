@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, UserCheck } from "lucide-react";
+import { Loader2, UserCheck, BedDouble } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,13 +18,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Form,
   FormControl,
   FormField,
@@ -31,15 +25,32 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
+import { useRoomOptions } from "@/hooks/use-room-options";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
+import {
+  folioRoomAssignmentSchema,
+  FOLIO_PAYMENT_METHOD_OPTIONS,
+  FOLIO_DISCOUNT_TYPE_OPTIONS,
+} from "@/validators/folio-room-assignment.schema";
+import type { FolioCharge } from "@/lib/folio-pricing";
 
-const ID_TYPE_OPTIONS = [
-  { value: "PASSPORT", label: "Passport" },
-  { value: "DRIVER_LICENSE", label: "Driver's License" },
-  { value: "NATIONAL_ID", label: "National ID" },
-  { value: "OTHER", label: "Other" },
-];
+type RoomTypeRow = { id: string; name: string; baseRate: string };
+
+function currency(n: number) {
+  return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+function tomorrowIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
 const EMPTY: GuestInput = {
   firstName: "",
@@ -74,18 +85,145 @@ export function GuestFormDialog({
     defaultValues: EMPTY,
   });
 
+  // Room Assignment is optional and only offered when creating a new guest —
+  // editing an existing guest folio never touches reservations/cashiering.
+  const isCreate = !guestId;
+  const [assignRoom, setAssignRoom] = useState(false);
+  const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
+  const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
+  const [charge, setCharge] = useState<FolioCharge | null>(null);
+  const [quoting, setQuoting] = useState(false);
+
+  const roomForm = useForm({
+    resolver: zodResolver(folioRoomAssignmentSchema),
+    defaultValues: {
+      roomTypeId: "",
+      roomId: "",
+      arrivalDate: todayIso(),
+      departureDate: tomorrowIso(),
+      bedCount: 0,
+      paymentMethod: "CASH",
+    },
+  });
+  const roomTypeId = roomForm.watch("roomTypeId");
+  const bedCount = roomForm.watch("bedCount");
+  const discountType = roomForm.watch("discountType");
+
+  const { rows: roomRows, loading: roomsLoading } = useRoomOptions("AVAILABLE", open && isCreate && assignRoom, roomTypeId);
+  const roomOptions = useMemo(() => {
+    const filtered =
+      smokingFilter === "any" ? roomRows : roomRows.filter((r) => r.isSmoking === (smokingFilter === "smoking"));
+    return filtered.map((r) => ({ value: r.id, label: `Room ${r.number}`, description: r.roomType.name }));
+  }, [roomRows, smokingFilter]);
+  const smokingChoices = useMemo(
+    () => ({ smoking: roomRows.some((r) => r.isSmoking), nonsmoking: roomRows.some((r) => !r.isSmoking) }),
+    [roomRows]
+  );
+  const selectedRoomType = roomTypes.find((rt) => rt.id === roomTypeId);
+
   useEffect(() => {
-    if (open) form.reset({ ...EMPTY, ...initialValues });
+    if (open) {
+      form.reset({ ...EMPTY, ...initialValues });
+      setAssignRoom(false);
+      setSmokingFilter("any");
+      setCharge(null);
+      roomForm.reset({
+        roomTypeId: "",
+        roomId: "",
+        arrivalDate: todayIso(),
+        departureDate: tomorrowIso(),
+        bedCount: 0,
+        paymentMethod: "CASH",
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, guestId]);
 
+  // Live price preview — recomputed server-side from configured rates
+  // whenever the priced inputs change, so staff see the real total before
+  // saving (the actual charge is recomputed again, authoritatively, on submit).
+  useEffect(() => {
+    if (!assignRoom || !roomTypeId) {
+      setCharge(null);
+      return;
+    }
+    setQuoting(true);
+    apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
+      method: "POST",
+      body: JSON.stringify({ roomTypeId, bedCount, discountType }),
+    })
+      .then((res) => {
+        if (res.success) setCharge(res.data);
+      })
+      .finally(() => setQuoting(false));
+  }, [assignRoom, roomTypeId, bedCount, discountType]);
+
+  useEffect(() => {
+    if (!open || !isCreate) return;
+    apiFetch<RoomTypeRow[]>("/api/room-types").then((res) => {
+      if (res.success) setRoomTypes(res.data);
+    });
+  }, [open, isCreate]);
+
   async function onSubmit(values: GuestInput) {
+    if (assignRoom) {
+      const roomValid = await roomForm.trigger();
+      if (!roomValid) return;
+    }
+
     const result = guestId
       ? await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) })
       : await apiFetch("/api/guests", { method: "POST", body: JSON.stringify(values) });
 
     if (!result.success) {
       toast.error(result.message);
+      return;
+    }
+
+    if (isCreate && assignRoom) {
+      const guest = result.data as { id: string };
+      const room = roomForm.getValues();
+
+      const reservationResult = await apiFetch<{ id: string }>("/api/reservations", {
+        method: "POST",
+        body: JSON.stringify({
+          guestId: guest.id,
+          roomId: room.roomId,
+          arrivalDate: room.arrivalDate,
+          departureDate: room.departureDate,
+          numGuests: 1,
+          source: "WALK_IN",
+        }),
+      });
+      if (!reservationResult.success) {
+        toast.error(`Guest folio saved, but room assignment failed: ${reservationResult.message}`);
+        onOpenChange(false);
+        onSaved();
+        return;
+      }
+
+      const transactionResult = await apiFetch("/api/cashiering/transactions", {
+        method: "POST",
+        body: JSON.stringify({
+          reservationId: reservationResult.data.id,
+          type: "CHARGE",
+          amount: charge?.total ?? 0,
+          paymentMethod: room.paymentMethod,
+          roomTypeId: room.roomTypeId,
+          bedCount: room.bedCount,
+          discountType: room.discountType,
+        }),
+      });
+      if (!transactionResult.success) {
+        toast.error(`Guest folio and room assignment saved, but the Cashiering charge failed: ${transactionResult.message}`);
+        onOpenChange(false);
+        onSaved();
+        return;
+      }
+
+      toast.success("Guest folio saved, room assigned, and charge sent to Cashiering.");
+      onOpenChange(false);
+      onSaved();
       return;
     }
 
@@ -99,12 +237,6 @@ export function GuestFormDialog({
       <DialogContent className="max-w-xl p-0 sm:max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
         {/* Fixed Header */}
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 pt-5 pb-4">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="inline-flex items-center gap-1 rounded bg-[#0b1c3f]/10 px-2 py-0.5 text-[11px] font-bold tracking-wider text-[#0b1c3f] uppercase">
-              <ShieldCheck className="h-3 w-3" />
-              Asian College · Front Office Servicing NC II
-            </span>
-          </div>
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#0b1c3f] uppercase">
               {guestId ? "Edit Guest Folio" : "Guest Folio"}
@@ -184,162 +316,6 @@ export function GuestFormDialog({
                 )}
               />
 
-              {/* ID Type & ID Number */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="identificationType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        ID Type
-                      </FormLabel>
-                      <Select value={field.value ?? ""} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger className="h-10 w-full rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus:border-[#0b1c3f] focus:bg-white focus:ring-1 focus:ring-[#0b1c3f]">
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="bg-white">
-                          {ID_TYPE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-sm cursor-pointer">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="identificationNo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        ID Number
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter ID number"
-                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Nationality & Date of Birth */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="nationality"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        Nationality
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter nationality"
-                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="dateOfBirth"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        Date of Birth
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="date"
-                          placeholder="mm/dd/yyyy"
-                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Email & Phone */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        Email Address
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="Enter email address"
-                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                        Phone Number
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter phone number"
-                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage className="text-xs text-red-600" />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Emergency Contact (Full-width) */}
-              <FormField
-                control={form.control}
-                name="emergencyContact"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Emergency Contact
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Enter emergency contact number / details"
-                        className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage className="text-xs text-red-600" />
-                  </FormItem>
-                )}
-              />
-
               {/* Preferences (Full-width) */}
               <FormField
                 control={form.control}
@@ -383,6 +359,253 @@ export function GuestFormDialog({
                   </FormItem>
                 )}
               />
+
+              {/* Room Assignment (create only) — optional; when filled in, saving
+                  this folio also creates a Reservation and sends the computed
+                  charge straight to Cashiering. */}
+              {isCreate ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50">
+                  <label className="flex cursor-pointer items-center gap-2.5 px-4 py-3">
+                    <Checkbox checked={assignRoom} onCheckedChange={(v) => setAssignRoom(v === true)} />
+                    <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                      <BedDouble className="h-3.5 w-3.5" /> Assign a Room Now
+                    </span>
+                  </label>
+
+                  {assignRoom ? (
+                    <div className="space-y-4 border-t border-slate-200 px-4 py-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <FormField
+                          control={roomForm.control}
+                          name="roomTypeId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Room Type <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={(v) => {
+                                  field.onChange(v);
+                                  roomForm.setValue("roomId", "");
+                                  setSmokingFilter("any");
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select room type" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {roomTypes.map((rt) => (
+                                    <SelectItem key={rt.id} value={rt.id}>
+                                      {rt.name} — {currency(Number(rt.baseRate))}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormItem>
+                          <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                            Smoking / Non-Smoking
+                          </FormLabel>
+                          <Select
+                            value={smokingFilter}
+                            onValueChange={(v) => {
+                              setSmokingFilter(v as typeof smokingFilter);
+                              roomForm.setValue("roomId", "");
+                            }}
+                            disabled={!roomTypeId}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="any">Any</SelectItem>
+                              {/* Only offer options actually present among available rooms of this type. */}
+                              {smokingChoices.nonsmoking ? <SelectItem value="nonsmoking">Non-Smoking</SelectItem> : null}
+                              {smokingChoices.smoking ? <SelectItem value="smoking">Smoking</SelectItem> : null}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      </div>
+
+                      <FormField
+                        control={roomForm.control}
+                        name="roomId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                              Room <span className="text-red-500">*</span>
+                            </FormLabel>
+                            <FormControl>
+                              <Combobox
+                                options={roomOptions}
+                                value={field.value}
+                                onChange={field.onChange}
+                                placeholder={!roomTypeId ? "Select a room type first" : roomsLoading ? "Loading rooms…" : "Select room"}
+                                searchPlaceholder="Search rooms…"
+                                emptyText="No available rooms of this type."
+                                disabled={!roomTypeId || roomsLoading}
+                                ariaLabel="Room"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <FormField
+                          control={roomForm.control}
+                          name="arrivalDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Arrival Date
+                              </FormLabel>
+                              <FormControl>
+                                <Input type="date" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={roomForm.control}
+                          name="departureDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Departure Date
+                              </FormLabel>
+                              <FormControl>
+                                <Input type="date" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <FormField
+                          control={roomForm.control}
+                          name="bedCount"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Additional Beds
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={10}
+                                  {...field}
+                                  value={(field.value as number | string) ?? 0}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={roomForm.control}
+                          name="discountType"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Discount Type
+                              </FormLabel>
+                              <Select value={field.value ?? "none"} onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}>
+                                <FormControl>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {FOLIO_DISCOUNT_TYPE_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={roomForm.control}
+                          name="paymentMethod"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Mode of Payment
+                              </FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      {selectedRoomType && charge ? (
+                        <div className="space-y-1 rounded-md border border-slate-200 bg-white p-3 text-sm">
+                          <div className="flex justify-between text-slate-600">
+                            <span>Room ({selectedRoomType.name})</span>
+                            <span>{currency(charge.roomPrice)}</span>
+                          </div>
+                          {charge.bedCount > 0 ? (
+                            <div className="flex justify-between text-slate-600">
+                              <span>Bed ({charge.bedCount})</span>
+                              <span>{currency(charge.bedCharge)}</span>
+                            </div>
+                          ) : null}
+                          <div className="flex justify-between border-t pt-1 font-medium text-slate-800">
+                            <span>Subtotal</span>
+                            <span>{currency(charge.subtotal)}</span>
+                          </div>
+                          {charge.discountAmount > 0 ? (
+                            <div className="flex justify-between text-emerald-700">
+                              <span>Discount ({FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === charge.discountType)?.label})</span>
+                              <span>-{currency(charge.discountAmount)}</span>
+                            </div>
+                          ) : null}
+                          <div className="flex justify-between text-slate-600">
+                            <span>VAT ({Math.round(charge.vatRate * 100)}%)</span>
+                            <span>{currency(charge.vatAmount)}</span>
+                          </div>
+                          <div className="flex justify-between border-t pt-1 text-base font-bold text-[#0b1c3f]">
+                            <span>Total</span>
+                            <span>{currency(charge.total)}</span>
+                          </div>
+                        </div>
+                      ) : quoting ? (
+                        <p className="text-xs text-muted-foreground">Calculating price…</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {/* Fixed Footer Actions */}

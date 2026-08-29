@@ -16,10 +16,13 @@ export async function GET(req: NextRequest) {
   const status = statusParam ? roomStatusEnum.safeParse(statusParam) : undefined;
 
   const includeSummary = searchParams.get("includeSummary") === "true";
+  const isSmokingParam = searchParams.get("isSmoking");
 
   const rooms = await listRooms({
     status: status?.success ? status.data : undefined,
     search: searchParams.get("search") ?? undefined,
+    roomTypeId: searchParams.get("roomTypeId") ?? undefined,
+    isSmoking: isSmokingParam === null ? undefined : isSmokingParam === "true",
   });
 
   if (includeSummary) {

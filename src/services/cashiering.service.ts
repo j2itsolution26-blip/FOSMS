@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
+import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
 import type {
   CloseCashierInput,
   CreateTransactionInput,
@@ -87,8 +88,14 @@ export async function listTodayTransactions(search = "") {
     },
     orderBy: { createdAt: "desc" },
     include: {
-      reservation: { include: { guest: { select: { firstName: true, lastName: true } } } },
+      reservation: {
+        include: {
+          guest: { select: { firstName: true, lastName: true } },
+          room: { select: { number: true, roomType: { select: { name: true } } } },
+        },
+      },
       user: { select: { firstName: true, lastName: true } },
+      roomType: { select: { name: true } },
     },
     take: 200,
   });
@@ -165,6 +172,19 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
     throw new AppError("Open a cashier session before recording transactions.", "NO_OPEN_SESSION", 409);
   }
 
+  // When a room type is specified, the amount is server-computed from
+  // configured rates (never trusting a client-supplied amount for the priced
+  // portion) — this is what backs the Guest Folio auto-charge as well as any
+  // manual folio-priced charge from the Cashiering dialog.
+  let charge: FolioCharge | null = null;
+  if (input.roomTypeId) {
+    charge = await computeFolioCharge({
+      roomTypeId: input.roomTypeId,
+      bedCount: input.bedCount,
+      discountType: input.discountType,
+    });
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
       where: { id: input.reservationId },
@@ -182,10 +202,21 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
         sessionId: session.id,
         reservationId: input.reservationId,
         type: input.type,
-        amount: input.amount,
+        amount: charge ? charge.total : input.amount,
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
         userId: actor.userId,
+        ...(charge
+          ? {
+              roomTypeId: input.roomTypeId,
+              bedCount: charge.bedCount,
+              bedCharge: charge.bedCharge,
+              discountType: charge.discountType,
+              discountAmount: charge.discountAmount,
+              subtotal: charge.subtotal,
+              vatAmount: charge.vatAmount,
+            }
+          : {}),
       },
     });
 
@@ -203,10 +234,23 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
     newValue: {
       transactionNo: result.transaction.transactionNo,
       type: result.transaction.type,
-      amount: input.amount,
+      amount: result.transaction.amount,
       guestName: `${result.reservation.guest.firstName} ${result.reservation.guest.lastName}`,
     },
   });
+
+  if (charge?.discountType) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "DISCOUNT_APPLIED",
+      module: "cashiering",
+      recordId: result.transaction.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: { transactionNo: result.transaction.transactionNo, discountType: charge.discountType, discountAmount: charge.discountAmount },
+    });
+  }
 
   return result.transaction;
 }
@@ -279,8 +323,14 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
 // ---------------------------------------------------------------------------
 
 const receiptInclude = {
-  reservation: { include: { guest: { select: { firstName: true, lastName: true } } } },
+  reservation: {
+    include: {
+      guest: { select: { firstName: true, lastName: true } },
+      room: { select: { number: true, isSmoking: true, roomType: { select: { name: true, baseRate: true } } } },
+    },
+  },
   user: { select: { firstName: true, lastName: true } },
+  roomType: { select: { name: true } },
 } satisfies Prisma.CashierTransactionInclude;
 
 type ReceiptTransaction = Prisma.CashierTransactionGetPayload<{ include: typeof receiptInclude }>;
@@ -303,6 +353,16 @@ function toReceiptRow(t: ReceiptTransaction) {
     guestName: t.reservation ? `${t.reservation.guest.firstName} ${t.reservation.guest.lastName}` : null,
     reservationNo: t.reservation?.reservationNo ?? null,
     createdBy: `${t.user.firstName} ${t.user.lastName}`,
+    // Folio pricing breakdown — null for plain (non-room) transactions.
+    roomNumber: t.reservation?.room?.number ?? null,
+    roomTypeName: t.roomType?.name ?? t.reservation?.room?.roomType?.name ?? null,
+    isSmoking: t.reservation?.room?.isSmoking ?? null,
+    subtotal: t.subtotal,
+    bedCount: t.bedCount,
+    bedCharge: t.bedCharge,
+    discountType: t.discountType,
+    discountAmount: t.discountAmount,
+    vatAmount: t.vatAmount,
   };
 }
 
@@ -403,8 +463,36 @@ export async function getReceiptById(id: string) {
       : null,
   ]);
 
+  const row = toReceiptRow(transaction);
+
+  // A PAYMENT settling a folio-priced CHARGE doesn't itself carry the pricing
+  // breakdown (only the CHARGE does) — pull it from the originating charge so
+  // the printed receipt still itemizes Room/Bed/Discount/VAT, not just the
+  // lump sum paid.
+  if (row.subtotal === null && transaction.reservationId) {
+    const charge = await prisma.cashierTransaction.findFirst({
+      where: { reservationId: transaction.reservationId, type: "CHARGE", subtotal: { not: null } },
+      orderBy: { createdAt: "desc" },
+      include: receiptInclude,
+    });
+    if (charge) {
+      const chargeRow = toReceiptRow(charge);
+      Object.assign(row, {
+        roomNumber: chargeRow.roomNumber,
+        roomTypeName: chargeRow.roomTypeName,
+        isSmoking: chargeRow.isSmoking,
+        subtotal: chargeRow.subtotal,
+        bedCount: chargeRow.bedCount,
+        bedCharge: chargeRow.bedCharge,
+        discountType: chargeRow.discountType,
+        discountAmount: chargeRow.discountAmount,
+        vatAmount: chargeRow.vatAmount,
+      });
+    }
+  }
+
   return {
-    ...toReceiptRow(transaction),
+    ...row,
     refundOfReceiptNumber: refundOf?.transactionNo ?? null,
     refundedByReceiptNumber: refundedBy?.transactionNo ?? null,
     refundedAt: refundedBy?.createdAt ?? null,

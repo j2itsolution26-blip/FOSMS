@@ -27,6 +27,15 @@ type ReceiptRow = {
   guestName: string | null;
   reservationNo: string | null;
   createdBy: string;
+  roomNumber: string | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  vatAmount: string | null;
+};
+
+const DISCOUNT_LABELS: Record<NonNullable<ReceiptRow["discountType"]>, string> = {
+  SENIOR_CITIZEN: "Senior Citizen",
+  PWD: "PWD",
+  STAKEHOLDER: "Stakeholder",
 };
 
 type Kpis = { totalReceipts: number; totalCollected: number; totalRefunded: number; netCollected: number };
@@ -110,8 +119,11 @@ export function ReceiptsTable() {
       ),
     },
     { key: "guest", header: "Trainee / Guest", render: (r) => r.guestName ?? "—" },
+    { key: "room", header: "Room", render: (r) => r.roomNumber ?? "—" },
     { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
+    { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    { key: "vat", header: "VAT", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
     { key: "date", header: "Payment Date", render: (r) => new Date(r.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) },
     { key: "description", header: "Description / Purpose", render: (r) => r.description ?? "—" },
     {
@@ -206,6 +218,7 @@ export function ReceiptsTable() {
             <option value="CASH">Cash</option>
             <option value="CARD">Card</option>
             <option value="BANK_TRANSFER">Bank Transfer</option>
+            <option value="ONLINE">Online</option>
             <option value="OTHER">Other</option>
           </select>
           <div className="flex items-center gap-2">

@@ -33,8 +33,21 @@ type TransactionRow = {
   paymentMethod: string | null;
   reversedById: string | null;
   createdAt: string;
-  reservation: { reservationNo: string; guest: { firstName: string; lastName: string } } | null;
+  reservation: {
+    reservationNo: string;
+    guest: { firstName: string; lastName: string };
+    room: { number: string; roomType: { name: string } } | null;
+  } | null;
   user: { firstName: string; lastName: string };
+  roomType: { name: string } | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  vatAmount: string | null;
+};
+
+const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, string> = {
+  SENIOR_CITIZEN: "Senior Citizen",
+  PWD: "PWD",
+  STAKEHOLDER: "Stakeholder",
 };
 
 type Summary = {
@@ -89,10 +102,14 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
     { key: "no", header: "Transaction #", render: (r) => <span className="font-medium text-blue-600">{r.transactionNo}</span> },
     { key: "guest", header: "Guest", render: (r) => (r.reservation ? `${r.reservation.guest.firstName} ${r.reservation.guest.lastName}` : "—") },
     { key: "reservation", header: "Reservation", render: (r) => r.reservation?.reservationNo ?? "—" },
+    { key: "room", header: "Room", render: (r) => r.reservation?.room?.number ?? "—" },
+    { key: "roomType", header: "Room Type", render: (r) => r.roomType?.name ?? r.reservation?.room?.roomType.name ?? "—" },
     { key: "type", header: "Type", render: (r) => STATUS_META[r.type].label.replace("ed", "") },
     { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
-    { key: "cashier", header: "Cashier", render: (r) => `${r.user.firstName} ${r.user.lastName}` },
+    { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    { key: "vat", header: "VAT", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
+    { key: "cashier", header: "Processed By", render: (r) => `${r.user.firstName} ${r.user.lastName}` },
     {
       key: "status",
       header: "Status",

@@ -343,6 +343,31 @@ async function main() {
     }
   }
 
+  console.log("Seeding financial settings (VAT, discounts, bed rate)…");
+  // Editable later via Admin -> System Settings; these are seed defaults, not
+  // hardcoded calculation constants (src/lib/pricing-config.ts reads them live).
+  const settingDefs: { key: string; value: object }[] = [
+    { key: "vat_rate", value: { rate: 0.12 } },
+    {
+      key: "discount_rates",
+      value: {
+        SENIOR_CITIZEN: { rate: 0.2, vatExempt: true },
+        PWD: { rate: 0.2, vatExempt: true },
+        // No legal standard for this one — a reasonable configured default,
+        // adjustable via System Settings.
+        STAKEHOLDER: { rate: 0.1, vatExempt: false },
+      },
+    },
+    { key: "additional_bed_rate", value: { amount: 500 } },
+  ];
+  for (const def of settingDefs) {
+    await prisma.systemSetting.upsert({
+      where: { key: def.key },
+      update: {},
+      create: { key: def.key, value: def.value },
+    });
+  }
+
   console.log("Seeding room types & rooms…");
   const roomTypeDefs = [
     { code: "STD", name: "Standard Room", baseRate: 2200, maxOccupancy: 2, description: "Comfortable standard room with essential amenities." },
@@ -355,10 +380,13 @@ async function main() {
     roomTypes.push(rt);
   }
 
-  const roomPlan: { number: string; floor: number; roomTypeIdx: number }[] = [];
+  const roomPlan: { number: string; floor: number; roomTypeIdx: number; isSmoking: boolean }[] = [];
   for (let floor = 1; floor <= 3; floor++) {
     for (let i = 1; i <= 6; i++) {
-      roomPlan.push({ number: `${floor}0${i}`, floor, roomTypeIdx: (i - 1) % 3 });
+      // Every-other room is smoking, spread across all 3 room types (i=2,4,6
+      // map to roomTypeIdx 1,0,2) so the smoking-status picker always has a
+      // real room to offer regardless of which room type is selected.
+      roomPlan.push({ number: `${floor}0${i}`, floor, roomTypeIdx: (i - 1) % 3, isSmoking: i % 2 === 0 });
     }
   }
 
@@ -366,8 +394,14 @@ async function main() {
   for (const plan of roomPlan) {
     const room = await prisma.room.upsert({
       where: { number: plan.number },
-      update: {},
-      create: { number: plan.number, floor: plan.floor, roomTypeId: roomTypes[plan.roomTypeIdx].id, status: "AVAILABLE" },
+      update: { isSmoking: plan.isSmoking },
+      create: {
+        number: plan.number,
+        floor: plan.floor,
+        roomTypeId: roomTypes[plan.roomTypeIdx].id,
+        status: "AVAILABLE",
+        isSmoking: plan.isSmoking,
+      },
     });
     rooms.push(room);
   }

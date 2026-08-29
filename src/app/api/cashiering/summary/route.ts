@@ -13,6 +13,8 @@ function describeActivity(action: string, newValue: unknown) {
       return `${v.type ?? "Transaction"} ${v.transactionNo ?? ""}: ₱${Number(v.amount ?? 0).toFixed(2)} — ${v.guestName ?? ""}`;
     case "REFUND_CREATED":
       return `Refund ${v.transactionNo ?? ""}: ₱${Number(v.amount ?? 0).toFixed(2)} — ${v.guestName ?? ""}`;
+    case "DISCOUNT_APPLIED":
+      return `Discount applied to ${v.transactionNo ?? ""}: ${v.discountType ?? ""} -₱${Number(v.discountAmount ?? 0).toFixed(2)}`;
     case "CASHIER_OPENED":
       return `Cashier session opened (₱${Number(v.openingCash ?? 0).toFixed(2)})`;
     case "CASHIER_CLOSED":

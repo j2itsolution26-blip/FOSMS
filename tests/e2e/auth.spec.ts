@@ -18,9 +18,9 @@ test.describe("Authentication", () => {
 
   test("logs in and reaches the dashboard with seeded KPIs", async ({ page }) => {
     await login(page, DEMO_USERS.supervisor);
-    await expect(page.getByText(/Welcome back/)).toBeVisible();
-    await expect(page.getByText("Today's Arrivals")).toBeVisible();
-    await expect(page.getByText("Core Competencies")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Front Office Supervisor" })).toBeVisible();
+    await expect(page.getByText("Arrivals Today")).toBeVisible();
+    await expect(page.getByText("Recent Front Office Activity")).toBeVisible();
   });
 
   test("logs out and can no longer reach protected pages", async ({ page }) => {

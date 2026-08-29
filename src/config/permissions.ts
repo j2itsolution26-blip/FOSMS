@@ -184,10 +184,20 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   /** Consolidated FOSMS operational-supervision role (replaces the former
    * ADMINISTRATOR/INSTRUCTOR/ASSESSOR/SUPER_ADMIN split). Deliberately
    * excludes ROLES_MANAGE/SETTINGS_MANAGE (system administration, not
-   * operational supervision) and the hotel-operations keys (Front Office's
-   * domain), per the role-consolidation brief. */
+   * operational supervision) and the hands-on hotel-ops keys — no
+   * *_CREATE/_MANAGE for reservations/rooms/cashiering, which stay Front
+   * Office's domain. Does hold read-only front-office visibility
+   * (RESERVATIONS_VIEW/ROOMS_VIEW/GUESTS_VIEW/FRONT_OFFICE_VIEW/CONCIERGE_VIEW)
+   * so a Front Office Supervisor can monitor daily operations — arrivals,
+   * departures, room status, guest service requests — without being able to
+   * create reservations, change room status, or process payments themselves. */
   SUPERVISOR: [
     PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.RESERVATIONS_VIEW,
+    PERMISSIONS.ROOMS_VIEW,
+    PERMISSIONS.GUESTS_VIEW,
+    PERMISSIONS.FRONT_OFFICE_VIEW,
+    PERMISSIONS.CONCIERGE_VIEW,
     PERMISSIONS.TRAINEES_VIEW,
     PERMISSIONS.TRAINEES_CREATE,
     PERMISSIONS.TRAINEES_UPDATE,

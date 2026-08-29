@@ -40,9 +40,11 @@ export async function createRoomType(input: RoomTypeInput, actor: ActorContext) 
   return roomType;
 }
 
-export async function listRooms(filters: { status?: RoomStatus; search?: string } = {}) {
+export async function listRooms(filters: { status?: RoomStatus; search?: string; roomTypeId?: string; isSmoking?: boolean } = {}) {
   const where: Prisma.RoomWhereInput = {
     ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.roomTypeId ? { roomTypeId: filters.roomTypeId } : {}),
+    ...(filters.isSmoking !== undefined ? { isSmoking: filters.isSmoking } : {}),
     ...(filters.search
       ? {
           OR: [
