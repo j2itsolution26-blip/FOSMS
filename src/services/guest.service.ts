@@ -57,7 +57,16 @@ export async function getGuestById(id: string) {
       reservations: {
         orderBy: { createdAt: "desc" },
         take: 20,
-        include: { room: { select: { number: true } } },
+        include: {
+          room: {
+            select: { number: true, isSmoking: true, roomType: { select: { name: true } } },
+          },
+          transactions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { bedCount: true, discountType: true, paymentMethod: true },
+          },
+        },
       },
     },
   });

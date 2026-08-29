@@ -159,7 +159,7 @@ export function RoomsBoard({ canManage }: { canManage: boolean }) {
                     >
                       <p className="text-lg font-bold text-slate-900">{room.number}</p>
                       <p className="mb-2 truncate text-xs text-muted-foreground">{room.roomType.name}</p>
-                      <RoomStatusBadge status={room.status} />
+                      <RoomStatusBadge status={room.status} codeOnly />
                     </div>
                   );
 

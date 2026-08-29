@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, Pencil } from "lucide-react";
+import { Plus, Search, Pencil, Eye } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
+import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
@@ -27,7 +28,14 @@ type GuestRow = {
   lastName: string;
   email: string | null;
   phone: string | null;
+  address: string | null;
+  identificationType: "PASSPORT" | "DRIVER_LICENSE" | "NATIONAL_ID" | "OTHER" | null;
+  identificationNo: string | null;
   nationality: string | null;
+  dateOfBirth: string | null;
+  preferences: string | null;
+  emergencyContact: string | null;
+  notes: string | null;
   _count: { reservations: number };
 };
 
@@ -42,6 +50,8 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(searchParams.get("action") === "new");
   const [editingGuest, setEditingGuest] = useState<{ id: string; values: Partial<GuestInput> } | null>(null);
+  const [detailsGuestId, setDetailsGuestId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const debouncedSearch = useDebouncedValue(search);
 
@@ -75,7 +85,14 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         lastName: g.lastName,
         email: g.email ?? "",
         phone: g.phone ?? "",
+        address: g.address ?? "",
+        identificationType: g.identificationType ?? undefined,
+        identificationNo: g.identificationNo ?? "",
         nationality: g.nationality ?? "",
+        dateOfBirth: g.dateOfBirth ?? "",
+        preferences: g.preferences ?? "",
+        emergencyContact: g.emergencyContact ?? "",
+        notes: g.notes ?? "",
       },
     });
     setDialogOpen(true);
@@ -146,13 +163,33 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               rows.map((g) => (
                 <TableRow key={g.id}>
                   <TableCell className="font-medium">
-                    {g.firstName} {g.lastName}
+                    <button
+                      type="button"
+                      className="hover:underline"
+                      onClick={() => {
+                        setDetailsGuestId(g.id);
+                        setDetailsOpen(true);
+                      }}
+                    >
+                      {g.firstName} {g.lastName}
+                    </button>
                   </TableCell>
                   <TableCell>{g.email || "—"}</TableCell>
                   <TableCell>{g.phone || "—"}</TableCell>
                   <TableCell>{g.nationality || "—"}</TableCell>
                   <TableCell>{g._count.reservations}</TableCell>
-                  <TableCell>
+                  <TableCell className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="View guest"
+                      onClick={() => {
+                        setDetailsGuestId(g.id);
+                        setDetailsOpen(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                     {canManage ? (
                       <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
                         <Pencil className="h-4 w-4" />
@@ -175,6 +212,8 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         initialValues={editingGuest?.values}
         onSaved={load}
       />
+
+      <GuestDetailsDialog open={detailsOpen} onOpenChange={setDetailsOpen} guestId={detailsGuestId} />
     </div>
   );
 }

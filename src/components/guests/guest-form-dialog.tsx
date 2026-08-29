@@ -30,7 +30,7 @@ import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
-import { guestSchema, type GuestInput } from "@/validators/guest.schema";
+import { guestSchema, identificationTypeEnum, type GuestInput } from "@/validators/guest.schema";
 import {
   folioRoomAssignmentSchema,
   FOLIO_PAYMENT_METHOD_OPTIONS,
@@ -39,6 +39,15 @@ import {
 import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
+
+const ID_TYPE_OPTIONS = identificationTypeEnum.options.map((value) => ({
+  value,
+  label: value
+    .toLowerCase()
+    .split("_")
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" "),
+}));
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -128,7 +137,11 @@ export function GuestFormDialog({
 
   useEffect(() => {
     if (open) {
-      form.reset({ ...EMPTY, ...initialValues });
+      form.reset({
+        ...EMPTY,
+        ...initialValues,
+        dateOfBirth: initialValues?.dateOfBirth ? initialValues.dateOfBirth.slice(0, 10) : "",
+      });
       setAssignRoom(false);
       setSmokingFilter("any");
       setCharge(null);
@@ -300,6 +313,49 @@ export function GuestFormDialog({
                 />
               </div>
 
+              {/* Contact Details */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        Email
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder="Enter email address"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        Phone
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter phone number"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               {/* Address (Full-width) */}
               <FormField
                 control={form.control}
@@ -312,6 +368,122 @@ export function GuestFormDialog({
                     <FormControl>
                       <Input
                         placeholder="Enter address"
+                        className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="text-xs text-red-600" />
+                  </FormItem>
+                )}
+              />
+
+              {/* Nationality / Date of Birth */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="nationality"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        Nationality
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter nationality"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        Date of Birth
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Identification */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="identificationType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        ID Type
+                      </FormLabel>
+                      <Select
+                        value={field.value ?? "none"}
+                        onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select ID type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">Not set</SelectItem>
+                          {ID_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="identificationNo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        ID Number
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter ID number"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Emergency Contact (Full-width) */}
+              <FormField
+                control={form.control}
+                name="emergencyContact"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                      Emergency Contact
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter emergency contact name and number"
                         className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
                         {...field}
                       />

@@ -91,12 +91,33 @@ export function ReservationStatusBadge({ status }: { status: string }) {
 }
 
 /**
- * Always renders the code AND its full description (never the code alone),
- * colored by status category — see src/config/room-status.ts, the single
- * source of truth for every room-status label/color used across the app.
+ * Renders the code AND its full description by default, colored by status
+ * category — see src/config/room-status.ts, the single source of truth for
+ * every room-status label/color used across the app. Pass `codeOnly` for
+ * surfaces (e.g. the Room Management board cards) that must show only the
+ * official abbreviation; the description is still available via the title
+ * tooltip in that case.
  */
-export function RoomStatusBadge({ status, compact }: { status: RoomStatus; compact?: boolean }) {
+export function RoomStatusBadge({
+  status,
+  compact,
+  codeOnly,
+}: {
+  status: RoomStatus;
+  compact?: boolean;
+  codeOnly?: boolean;
+}) {
   const badgeClass = ROOM_STATUS_CATEGORY_META[roomStatusCategory(status)].badgeClass;
+  if (codeOnly) {
+    return (
+      <span
+        className={cn("inline-flex rounded-md border px-2 py-1", badgeClass)}
+        title={roomStatusDescription(status)}
+      >
+        <span className="text-sm font-bold leading-tight">{roomStatusCode(status)}</span>
+      </span>
+    );
+  }
   if (compact) {
     return (
       <Badge variant="outline" className={cn("font-medium", badgeClass)} title={roomStatusDescription(status)}>
