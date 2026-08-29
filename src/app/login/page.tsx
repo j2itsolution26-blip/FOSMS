@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Image from "next/image";
+import { redirect } from "next/navigation";
 
+import { getCurrentUser } from "@/lib/auth/session";
 import { LoginBrandingPanel } from "./branding-panel";
 import { LoginFooter } from "./login-footer";
 import { LoginForm } from "./login-form";
@@ -10,7 +12,12 @@ import { TesdaBadge } from "./tesda-badge";
 
 export const metadata: Metadata = { title: "Sign in — Front Office Servicing NC II" };
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  // DB-validated check (not just cookie presence) — see the comment in
+  // src/proxy.ts for why this specific check has to live here.
+  const user = await getCurrentUser();
+  if (user) redirect("/dashboard");
+
   return (
     <div className="flex min-h-screen flex-col bg-[#F8FAFC] md:h-screen md:flex-row md:overflow-hidden">
       <TesdaBadge />
