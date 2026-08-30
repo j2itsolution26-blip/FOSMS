@@ -141,7 +141,11 @@ export function TransactionDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{defaultType === "PAYMENT" ? "Receive Payment" : "New Transaction"}</DialogTitle>
-          <DialogDescription>Requires an open cashier session.</DialogDescription>
+          <DialogDescription>
+            {defaultType === "PAYMENT"
+              ? "Record a payment against an active guest reservation."
+              : "Post a charge, payment, or discount to a guest folio."}
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>

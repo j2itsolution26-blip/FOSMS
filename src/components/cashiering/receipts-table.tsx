@@ -135,7 +135,7 @@ export function ReceiptsTable() {
         </Badge>
       ),
     },
-    { key: "createdBy", header: "Created By", render: (r) => r.createdBy },
+    { key: "createdBy", header: "Processed By", render: (r) => r.createdBy },
     {
       key: "actions",
       header: "Actions",

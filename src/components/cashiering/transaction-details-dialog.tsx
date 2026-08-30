@@ -116,7 +116,6 @@ export function TransactionDetailsDialog({
   canViewGuests,
   canViewRooms,
   canTransact,
-  sessionOpen,
   onTransact,
 }: {
   transaction: TransactionDetailsRow | null;
@@ -126,7 +125,6 @@ export function TransactionDetailsDialog({
   canViewGuests: boolean;
   canViewRooms: boolean;
   canTransact: boolean;
-  sessionOpen: boolean;
   onTransact: () => void;
 }) {
   if (!transaction) return null;
@@ -275,7 +273,7 @@ export function TransactionDetailsDialog({
               </Button>
             ) : null}
             {canShowTransact ? (
-              <Button type="button" onClick={onTransact} disabled={!sessionOpen} title={!sessionOpen ? "Open a cashier session first" : undefined}>
+              <Button type="button" onClick={onTransact}>
                 <Repeat className="h-4 w-4" /> Transact
               </Button>
             ) : null}

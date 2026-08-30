@@ -44,7 +44,7 @@ export async function getCashieringKpis() {
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
 
-  const [todaysTransactions, todaysPayments, todaysRefunds, openCashiers, checkedInReservations] = await Promise.all([
+  const [todaysTransactions, todaysPayments, todaysRefunds, checkedInReservations] = await Promise.all([
     prisma.cashierTransaction.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
     prisma.cashierTransaction.aggregate({
       where: { type: "PAYMENT", createdAt: { gte: todayStart, lte: todayEnd } },
@@ -54,7 +54,6 @@ export async function getCashieringKpis() {
       where: { type: "REFUND", createdAt: { gte: todayStart, lte: todayEnd } },
       _sum: { amount: true },
     }),
-    prisma.cashierSession.count({ where: { status: "OPEN" } }),
     prisma.reservation.findMany({
       where: { status: "CHECKED_IN" },
       select: { id: true, transactions: { select: { type: true, amount: true } } },
@@ -64,7 +63,7 @@ export async function getCashieringKpis() {
   const todaysRevenue = Number(todaysPayments._sum.amount ?? 0) - Number(todaysRefunds._sum.amount ?? 0);
   const pendingPayments = checkedInReservations.filter((r) => reservationBalance(r.transactions) > 0).length;
 
-  return { todaysTransactions, todaysRevenue, openCashiers, pendingPayments };
+  return { todaysTransactions, todaysRevenue, pendingPayments };
 }
 
 /**
@@ -143,6 +142,26 @@ export async function listOpenReservationsForTransactions() {
   }));
 }
 
+async function getOrCreateCashierSession(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+  const existing = await tx.cashierSession.findFirst({
+    where: { cashierId: userId },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await tx.cashierSession.create({
+    data: {
+      cashierId: userId,
+      openingCash: 0,
+      closingCash: 0,
+      status: "CLOSED",
+      closedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
 export async function getMyOpenSession(userId: string) {
   return prisma.cashierSession.findFirst({ where: { cashierId: userId, status: "OPEN" } });
 }
@@ -209,11 +228,6 @@ export async function closeCashierSession(input: CloseCashierInput, actor: Actor
 }
 
 export async function createTransaction(input: CreateTransactionInput, actor: ActorContext) {
-  const session = await getMyOpenSession(actor.userId);
-  if (!session) {
-    throw new AppError("Open a cashier session before recording transactions.", "NO_OPEN_SESSION", 409);
-  }
-
   // When a room type is specified, the amount is server-computed from
   // configured rates (never trusting a client-supplied amount for the priced
   // portion) — this is what backs the Guest Folio auto-charge as well as any
@@ -237,11 +251,12 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
       throw new AppError("Cannot post a transaction to a cancelled reservation.", "INVALID_RESERVATION_STATE", 409);
     }
 
+    const sessionId = await getOrCreateCashierSession(tx, actor.userId);
     const transactionNo = await nextNumber(tx, "cashier-transaction", "TXN");
     const transaction = await tx.cashierTransaction.create({
       data: {
         transactionNo,
-        sessionId: session.id,
+        sessionId,
         reservationId: input.reservationId,
         type: input.type,
         amount: charge ? charge.total : input.amount,
@@ -298,11 +313,6 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
 }
 
 export async function issueRefund(input: IssueRefundInput, actor: ActorContext) {
-  const session = await getMyOpenSession(actor.userId);
-  if (!session) {
-    throw new AppError("Open a cashier session before issuing refunds.", "NO_OPEN_SESSION", 409);
-  }
-
   const result = await prisma.$transaction(async (tx) => {
     const original = await tx.cashierTransaction.findUnique({
       where: { id: input.originalTransactionId },
@@ -319,11 +329,12 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
       throw new AppError("Refund amount cannot exceed the original payment.", "REFUND_EXCEEDS_ORIGINAL", 400);
     }
 
+    const sessionId = await getOrCreateCashierSession(tx, actor.userId);
     const transactionNo = await nextNumber(tx, "cashier-transaction", "TXN");
     const refund = await tx.cashierTransaction.create({
       data: {
         transactionNo,
-        sessionId: session.id,
+        sessionId,
         reservationId: original.reservationId,
         type: "REFUND",
         amount: input.amount,

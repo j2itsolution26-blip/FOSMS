@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, Wallet, DoorOpen, Lock, ReceiptText } from "lucide-react";
+import { Receipt, Wallet, ReceiptText, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatGuestFullName } from "@/lib/formatters";
@@ -14,8 +14,6 @@ import type { ModuleColumn } from "@/components/modules/types";
 
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { RefundDialog } from "@/components/cashiering/refund-dialog";
-import { OpenCashierDialog } from "@/components/cashiering/open-cashier-dialog";
-import { CloseCashierDialog } from "@/components/cashiering/close-cashier-dialog";
 import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
 import {
   TransactionDetailsDialog,
@@ -32,10 +30,9 @@ const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, strin
 };
 
 type Summary = {
-  kpis: { todaysTransactions: number; todaysRevenue: number; openCashiers: number; pendingPayments: number };
+  kpis: { todaysTransactions: number; todaysRevenue: number; pendingPayments: number };
   transactions: TransactionRow[];
   activity: { id: string; time: string; action: string; label: string }[];
-  mySessionOpen: boolean;
 };
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -68,7 +65,7 @@ export function CashieringClient({
   const [typeFilter, setTypeFilter] = useState("");
   const debouncedSearch = useDebouncedValue(search);
 
-  const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | "open" | "close" | null>(null);
+  const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | null>(null);
   const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
   const [transactReservationId, setTransactReservationId] = useState<string | undefined>(undefined);
 
@@ -100,7 +97,6 @@ export function CashieringClient({
   }, [load]);
 
   const rows = (summary?.transactions ?? []).filter((t) => !typeFilter || t.type === typeFilter);
-  const sessionOpen = summary?.mySessionOpen ?? false;
 
   const columns: ModuleColumn<TransactionRow>[] = [
     {
@@ -209,7 +205,7 @@ export function CashieringClient({
     <>
       <FrontOfficeModuleLayout<TransactionRow>
         title="Cashiering"
-        description="Manage guest charges, payments, receipts, refunds, and cashier sessions."
+        description="Manage guest charges, payments, receipts, and refunds."
         breadcrumb={["Dashboard", "Operations", "Cashiering"]}
         onRefresh={() => load(true)}
         refreshing={refreshing}
@@ -218,12 +214,19 @@ export function CashieringClient({
             ? [
                 { label: "Today's Transactions", value: summary.kpis.todaysTransactions, unit: "Entries", icon: Receipt, tone: "blue" },
                 { label: "Today's Revenue", value: currency(summary.kpis.todaysRevenue), unit: "Net of refunds", icon: Wallet, tone: "green" },
-                { label: "Open Cashiers", value: summary.kpis.openCashiers, unit: "Active sessions", icon: DoorOpen, tone: "purple" },
                 { label: "Pending Payments", value: summary.kpis.pendingPayments, unit: "Guests with balance", icon: ReceiptText, tone: "amber" },
               ]
             : []
         }
-        quickActions={[]}
+        quickActions={
+          canManage
+            ? [
+                { label: "Receive Payment", icon: Receipt, tone: "bg-emerald-50 text-emerald-700", onClick: () => openTransactionDialog("payment") },
+                { label: "New Charge", icon: Wallet, tone: "bg-blue-50 text-blue-700", onClick: () => openTransactionDialog("charge") },
+                { label: "Issue Refund", icon: Undo2, tone: "bg-red-50 text-red-700", onClick: () => setDialog("refund") },
+              ]
+            : []
+        }
         search={{ value: search, onChange: setSearch, placeholder: "Search transaction, guest, receipt…" }}
         filters={[
           {
@@ -251,8 +254,8 @@ export function CashieringClient({
             icon={Receipt}
             title="No transactions today"
             description="There are currently no cashiering transactions for the selected period."
-            actionLabel={canManage && sessionOpen ? "New Transaction" : undefined}
-            onAction={canManage && sessionOpen ? () => setDialog("charge") : undefined}
+            actionLabel={canManage ? "New Transaction" : undefined}
+            onAction={canManage ? () => setDialog("charge") : undefined}
           />
         }
         activityTitle="Recent Activity"
@@ -260,16 +263,10 @@ export function CashieringClient({
           id: a.id,
           time: new Date(a.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
           label: a.label,
-          icon: a.action === "CASHIER_OPENED" ? DoorOpen : a.action === "CASHIER_CLOSED" ? Lock : Wallet,
+          icon: a.action === "REFUND_CREATED" ? Undo2 : Wallet,
           tone: "bg-emerald-100 text-emerald-600",
         }))}
       />
-
-      {!sessionOpen && canManage ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          You don&apos;t have an open cashier session — open one before recording transactions or refunds.
-        </p>
-      ) : null}
 
       <TransactionDialog
         open={dialog === "charge" || dialog === "payment"}
@@ -282,8 +279,6 @@ export function CashieringClient({
         initialReservationId={transactReservationId}
       />
       <RefundDialog open={dialog === "refund"} onOpenChange={(o) => setDialog(o ? "refund" : null)} onDone={() => load()} />
-      <OpenCashierDialog open={dialog === "open"} onOpenChange={(o) => setDialog(o ? "open" : null)} onDone={() => load()} />
-      <CloseCashierDialog open={dialog === "close"} onOpenChange={(o) => setDialog(o ? "close" : null)} onDone={() => load()} />
       <TransactionDetailsDialog
         transaction={detailsTxn}
         open={!!detailsTxn}
@@ -292,7 +287,6 @@ export function CashieringClient({
         canViewGuests={canViewGuests}
         canViewRooms={canViewRooms}
         canTransact={canManage}
-        sessionOpen={sessionOpen}
         onTransact={() => detailsTxn && handleTransact(detailsTxn)}
       />
     </>

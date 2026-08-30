@@ -1,15 +1,9 @@
 import type { Metadata } from "next";
-import { CalendarDays, DoorOpen, LogOut, Users, GraduationCap, UserCheck, ClipboardCheck, ListChecks, ShieldCheck } from "lucide-react";
+import { CalendarDays, DoorOpen, LogOut, Users } from "lucide-react";
 
 import { getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { PERMISSIONS, type PermissionKey } from "@/config/permissions";
-import {
-  getCompetencyOverview,
-  getDashboardSummary,
-  getTodaysActivities,
-  getTrainingProgramKpis,
-} from "@/services/dashboard.service";
-import { getTrainingActivityKpis } from "@/services/training-activity.service";
+import { getDashboardSummary, getTodaysActivities } from "@/services/dashboard.service";
 import { getMyDashboard } from "@/services/trainee-portal.service";
 import {
   getSupervisorKpis,
@@ -28,7 +22,6 @@ import { SupervisorDashboard } from "@/components/supervisor/supervisor-dashboar
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ReservationTrendChart } from "@/components/dashboard/reservation-trend-chart";
 import { RoomStatusChart } from "@/components/dashboard/room-status-chart";
-import { CoreCompetenciesCard } from "@/components/dashboard/core-competencies-card";
 import { RecentReservationsCard } from "@/components/dashboard/recent-reservations-card";
 import { TodaysActivitiesCard } from "@/components/dashboard/todays-activities-card";
 import { QuickActionsCard } from "@/components/dashboard/quick-actions-card";
@@ -78,19 +71,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const canViewTrainees = hasPermission(user, PERMISSIONS.TRAINEES_VIEW);
-  const canViewAssessments = hasPermission(user, PERMISSIONS.ASSESSMENTS_VIEW);
-  const canViewTrainingActivities = hasPermission(user, PERMISSIONS.TRAINING_ACTIVITIES_VIEW);
-  const canManageUsers = hasPermission(user, PERMISSIONS.USERS_MANAGE);
-  const showTrainingKpis = canViewTrainees || canViewAssessments || canManageUsers;
-
-  const [summary, competencies, activities, trainingKpis, activityKpis] = await Promise.all([
-    getDashboardSummary(),
-    getCompetencyOverview(),
-    getTodaysActivities(),
-    showTrainingKpis ? getTrainingProgramKpis() : null,
-    canViewTrainingActivities ? getTrainingActivityKpis() : null,
-  ]);
+  const [summary, activities] = await Promise.all([getDashboardSummary(), getTodaysActivities()]);
 
   return (
     <div className="space-y-6">
@@ -108,28 +89,8 @@ export default async function DashboardPage() {
         <KpiCard label="Reservations" value={summary.kpis.reservationsToday} unit="Today" icon={CalendarDays} tone="purple" />
       </div>
 
-      {trainingKpis ? (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {canViewTrainees ? (
-            <>
-              <KpiCard label="Total Trainees" value={trainingKpis.totalTrainees} unit="Enrolled" icon={GraduationCap} tone="blue" />
-              <KpiCard label="Active Trainees" value={trainingKpis.activeTrainees} unit="Currently training" icon={UserCheck} tone="green" />
-            </>
-          ) : null}
-          {canViewAssessments ? (
-            <KpiCard label="Pending Assessments" value={trainingKpis.pendingAssessments} unit="Awaiting completion" icon={ClipboardCheck} tone="amber" />
-          ) : null}
-          {canViewTrainingActivities && activityKpis ? (
-            <KpiCard label="Pending Training Activities" value={activityKpis.pendingSubmissions} unit="Awaiting completion" icon={ListChecks} tone="amber" />
-          ) : null}
-          {canManageUsers ? (
-            <KpiCard label="System Users" value={trainingKpis.systemUsers} unit="Active staff accounts" icon={ShieldCheck} tone="purple" />
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Reservation Overview</CardTitle>
           </CardHeader>
@@ -137,12 +98,7 @@ export default async function DashboardPage() {
             <ReservationTrendChart data={summary.trend} />
           </CardContent>
         </Card>
-        <div className="lg:col-span-1">
-          <CoreCompetenciesCard competencies={competencies} />
-        </div>
-        <div className="lg:col-span-1">
-          <RecentReservationsCard reservations={summary.recentReservations} />
-        </div>
+        <RecentReservationsCard reservations={summary.recentReservations} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
