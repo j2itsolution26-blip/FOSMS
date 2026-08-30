@@ -21,6 +21,14 @@ import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
+import { FOLIO_DISCOUNT_TYPE_OPTIONS, FOLIO_PAYMENT_METHOD_OPTIONS } from "@/validators/folio-room-assignment.schema";
+
+type FolioReservation = {
+  arrivalDate: string;
+  departureDate: string;
+  room: { number: string; isSmoking: boolean; roomType: { name: string } };
+  transactions: Array<{ bedCount: number | null; discountType: string | null; paymentMethod: string | null }>;
+};
 
 type GuestRow = {
   id: string;
@@ -36,8 +44,25 @@ type GuestRow = {
   preferences: string | null;
   emergencyContact: string | null;
   notes: string | null;
-  _count: { reservations: number };
+  reservations: FolioReservation[];
 };
+
+function formatFolioDate(iso: string) {
+  const d = new Date(iso);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${mm}/${dd}/${d.getUTCFullYear()}`;
+}
+
+function discountLabel(value: string | null) {
+  if (!value) return "None";
+  return FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+function paymentLabel(value: string | null) {
+  if (!value) return "—";
+  return FOLIO_PAYMENT_METHOD_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
 
 export function GuestsTable({ canManage }: { canManage: boolean }) {
   const router = useRouter();
@@ -121,7 +146,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Search name, email, phone…"
+          placeholder="Search full name…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -132,21 +157,25 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
 
       <div className="overflow-x-auto rounded-lg border bg-white">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Nationality</TableHead>
-              <TableHead>Reservations</TableHead>
-              <TableHead className="w-10" />
+              <TableHead>Full Name</TableHead>
+              <TableHead>Room Type</TableHead>
+              <TableHead>Smoking / Non-Smoking</TableHead>
+              <TableHead>Room</TableHead>
+              <TableHead>Arrival Date</TableHead>
+              <TableHead>Departure Date</TableHead>
+              <TableHead>Additional Beds</TableHead>
+              <TableHead>Discount Type</TableHead>
+              <TableHead>Mode of Payment</TableHead>
+              <TableHead className="w-20">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 6 }).map((__, j) => (
+                  {Array.from({ length: 10 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -155,49 +184,57 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
                   No guests found.
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((g) => (
-                <TableRow key={g.id}>
-                  <TableCell className="font-medium">
-                    <button
-                      type="button"
-                      className="hover:underline"
-                      onClick={() => {
-                        setDetailsGuestId(g.id);
-                        setDetailsOpen(true);
-                      }}
-                    >
-                      {g.firstName} {g.lastName}
-                    </button>
-                  </TableCell>
-                  <TableCell>{g.email || "—"}</TableCell>
-                  <TableCell>{g.phone || "—"}</TableCell>
-                  <TableCell>{g.nationality || "—"}</TableCell>
-                  <TableCell>{g._count.reservations}</TableCell>
-                  <TableCell className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="View guest"
-                      onClick={() => {
-                        setDetailsGuestId(g.id);
-                        setDetailsOpen(true);
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    {canManage ? (
-                      <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
-                        <Pencil className="h-4 w-4" />
+              rows.map((g) => {
+                const folio = g.reservations[0];
+                const tx = folio?.transactions[0];
+                return (
+                  <TableRow key={g.id}>
+                    <TableCell className="font-medium">
+                      <button
+                        type="button"
+                        className="hover:underline"
+                        onClick={() => {
+                          setDetailsGuestId(g.id);
+                          setDetailsOpen(true);
+                        }}
+                      >
+                        {g.firstName} {g.lastName}
+                      </button>
+                    </TableCell>
+                    <TableCell>{folio?.room.roomType.name ?? "—"}</TableCell>
+                    <TableCell>{folio ? (folio.room.isSmoking ? "Smoking" : "Non-Smoking") : "—"}</TableCell>
+                    <TableCell>{folio?.room.number ?? "—"}</TableCell>
+                    <TableCell>{folio ? formatFolioDate(folio.arrivalDate) : "—"}</TableCell>
+                    <TableCell>{folio ? formatFolioDate(folio.departureDate) : "—"}</TableCell>
+                    <TableCell>{folio ? (tx?.bedCount ?? 0) : "—"}</TableCell>
+                    <TableCell>{folio ? discountLabel(tx?.discountType ?? null) : "—"}</TableCell>
+                    <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null) : "—"}</TableCell>
+                    <TableCell className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="View guest"
+                        onClick={() => {
+                          setDetailsGuestId(g.id);
+                          setDetailsOpen(true);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
                       </Button>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              ))
+                      {canManage ? (
+                        <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

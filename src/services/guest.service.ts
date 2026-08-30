@@ -15,6 +15,13 @@ type ActorContext = {
   userAgent?: string | null;
 };
 
+/**
+ * The Guests page shows one row per Guest Folio: the guest plus their most
+ * recent Reservation (-> Room -> RoomType) and that reservation's most recent
+ * CashierTransaction (-> bed count / discount type / payment method). Mirrors
+ * the same relation chain getGuestById below already uses for the guest
+ * details dialog — just narrowed to the single latest reservation per guest.
+ */
 export async function listGuests(pagination: PaginationInput) {
   const { page, pageSize, search, sortBy, sortDir } = pagination;
 
@@ -25,8 +32,6 @@ export async function listGuests(pagination: PaginationInput) {
           OR: [
             { firstName: { contains: search, mode: "insensitive" } },
             { lastName: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-            { phone: { contains: search, mode: "insensitive" } },
           ],
         }
       : {}),
@@ -42,7 +47,20 @@ export async function listGuests(pagination: PaginationInput) {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { reservations: true } } },
+      include: {
+        reservations: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            room: { select: { number: true, isSmoking: true, roomType: { select: { name: true } } } },
+            transactions: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { bedCount: true, discountType: true, paymentMethod: true },
+            },
+          },
+        },
+      },
     }),
     prisma.guest.count({ where }),
   ]);
