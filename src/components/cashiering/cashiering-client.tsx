@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Receipt,
@@ -14,7 +15,6 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
@@ -26,25 +26,10 @@ import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { RefundDialog } from "@/components/cashiering/refund-dialog";
 import { OpenCashierDialog } from "@/components/cashiering/open-cashier-dialog";
 import { CloseCashierDialog } from "@/components/cashiering/close-cashier-dialog";
+import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
+import { TransactionDetailsDialog, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
-type TransactionRow = {
-  id: string;
-  transactionNo: string;
-  type: "CHARGE" | "PAYMENT" | "REFUND" | "DISCOUNT";
-  amount: string;
-  paymentMethod: string | null;
-  reversedById: string | null;
-  createdAt: string;
-  reservation: {
-    reservationNo: string;
-    guest: { firstName: string; middleName?: string | null; lastName: string };
-    room: { number: string; roomType: { name: string } } | null;
-  } | null;
-  user: { firstName: string; lastName: string };
-  roomType: { name: string } | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
-  vatAmount: string | null;
-};
+type TransactionRow = TransactionDetailsRow;
 
 const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, string> = {
   SENIOR_CITIZEN: "Senior Citizen",
@@ -71,7 +56,17 @@ function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function CashieringClient({ canManage }: { canManage: boolean }) {
+export function CashieringClient({
+  canManage,
+  canViewReservations,
+  canViewGuests,
+  canViewRooms,
+}: {
+  canManage: boolean;
+  canViewReservations: boolean;
+  canViewGuests: boolean;
+  canViewRooms: boolean;
+}) {
   const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +76,7 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
   const debouncedSearch = useDebouncedValue(search);
 
   const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | "open" | "close" | null>(null);
+  const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -101,16 +97,73 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
   const sessionOpen = summary?.mySessionOpen ?? false;
 
   const columns: ModuleColumn<TransactionRow>[] = [
-    { key: "no", header: "Transaction #", render: (r) => <span className="font-medium text-blue-600">{r.transactionNo}</span> },
-    { key: "guest", header: "Guest", render: (r) => (r.reservation ? formatGuestFullName(r.reservation.guest) : "—") },
-    { key: "reservation", header: "Reservation", render: (r) => r.reservation?.reservationNo ?? "—" },
-    { key: "room", header: "Room", render: (r) => r.reservation?.room?.number ?? "—" },
+    {
+      key: "no",
+      header: "Transaction #",
+      render: (r) => (
+        <button
+          type="button"
+          className="font-medium text-blue-600 hover:underline"
+          onClick={() => setDetailsTxn(r)}
+        >
+          {r.transactionNo}
+        </button>
+      ),
+    },
+    {
+      key: "guest",
+      header: "Guest",
+      render: (r) =>
+        r.reservation ? (
+          canViewGuests ? (
+            <Link href={`/guests?guestId=${r.reservation.guestId}`} className="hover:text-blue-600 hover:underline">
+              {formatGuestFullName(r.reservation.guest)}
+            </Link>
+          ) : (
+            formatGuestFullName(r.reservation.guest)
+          )
+        ) : (
+          "—"
+        ),
+    },
+    {
+      key: "reservation",
+      header: "Reservation",
+      render: (r) =>
+        r.reservation ? (
+          canViewReservations ? (
+            <Link href={`/reservations?reservationId=${r.reservation.id}`} className="hover:text-blue-600 hover:underline">
+              {r.reservation.reservationNo}
+            </Link>
+          ) : (
+            r.reservation.reservationNo
+          )
+        ) : (
+          "—"
+        ),
+    },
+    {
+      key: "room",
+      header: "Room",
+      render: (r) =>
+        r.reservation ? (
+          canViewRooms ? (
+            <Link href={`/rooms?roomId=${r.reservation.roomId}`} className="hover:text-blue-600 hover:underline">
+              {r.reservation.room.number}
+            </Link>
+          ) : (
+            r.reservation.room.number
+          )
+        ) : (
+          "—"
+        ),
+    },
     { key: "roomType", header: "Room Type", render: (r) => r.roomType?.name ?? r.reservation?.room?.roomType.name ?? "—" },
     { key: "type", header: "Type", render: (r) => STATUS_META[r.type].label.replace("ed", "") },
-    { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
+    { key: "amount", header: "Amount", className: "text-right tabular-nums", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
     { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
-    { key: "vat", header: "VAT", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
+    { key: "vat", header: "VAT", className: "text-right tabular-nums", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
     { key: "cashier", header: "Processed By", render: (r) => `${r.user.firstName} ${r.user.lastName}` },
     {
       key: "status",
@@ -118,11 +171,29 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
       render: (r) => {
         const meta = r.reversedById ? STATUS_META.VOIDED : STATUS_META[r.type];
         return (
-          <Badge variant="outline" className={meta.className}>
-            {meta.label}
-          </Badge>
+          <button type="button" onClick={() => setDetailsTxn(r)} aria-label={`${meta.label} — view transaction details`}>
+            <Badge variant="outline" className={`${meta.className} cursor-pointer hover:opacity-80`}>
+              {meta.label}
+            </Badge>
+          </button>
         );
       },
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      className: "text-right",
+      render: (r) => (
+        <div className="flex justify-end">
+          <TransactionActionsMenu
+            transaction={r}
+            canViewReservations={canViewReservations}
+            canViewGuests={canViewGuests}
+            canViewRooms={canViewRooms}
+            onViewTransaction={() => setDetailsTxn(r)}
+          />
+        </div>
+      ),
     },
   ];
 
@@ -207,6 +278,14 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
       <RefundDialog open={dialog === "refund"} onOpenChange={(o) => setDialog(o ? "refund" : null)} onDone={() => load()} />
       <OpenCashierDialog open={dialog === "open"} onOpenChange={(o) => setDialog(o ? "open" : null)} onDone={() => load()} />
       <CloseCashierDialog open={dialog === "close"} onOpenChange={(o) => setDialog(o ? "close" : null)} onDone={() => load()} />
+      <TransactionDetailsDialog
+        transaction={detailsTxn}
+        open={!!detailsTxn}
+        onOpenChange={(o) => !o && setDetailsTxn(null)}
+        canViewReservations={canViewReservations}
+        canViewGuests={canViewGuests}
+        canViewRooms={canViewRooms}
+      />
     </>
   );
 }

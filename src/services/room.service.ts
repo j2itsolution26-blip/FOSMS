@@ -45,11 +45,12 @@ export async function createRoomType(input: RoomTypeInput, actor: ActorContext) 
 }
 
 export async function listRooms(
-  filters: { status?: RoomStatus | RoomStatus[]; search?: string; roomTypeId?: string; isSmoking?: boolean } = {}
+  filters: { status?: RoomStatus | RoomStatus[]; search?: string; roomTypeId?: string; isSmoking?: boolean; id?: string } = {}
 ) {
   const statusMatches = filters.search ? findRoomStatusesMatching(filters.search) : [];
 
   const where: Prisma.RoomWhereInput = {
+    ...(filters.id ? { id: filters.id } : {}),
     ...(filters.status
       ? { status: Array.isArray(filters.status) ? { in: filters.status } : filters.status }
       : {}),

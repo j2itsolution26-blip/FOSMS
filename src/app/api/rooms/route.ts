@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     search: searchParams.get("search") ?? undefined,
     roomTypeId: searchParams.get("roomTypeId") ?? undefined,
     isSmoking: isSmokingParam === null ? undefined : isSmokingParam === "true",
+    id: searchParams.get("roomId") ?? undefined,
   });
 
   if (includeSummary) {

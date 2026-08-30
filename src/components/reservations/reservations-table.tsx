@@ -63,14 +63,19 @@ export function ReservationsTable({
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(searchParams.get("action") === "new");
+  const [focusedReservationId, setFocusedReservationId] = useState(searchParams.get("reservationId") ?? "");
 
   const debouncedSearch = useDebouncedValue(search);
 
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: "10" });
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    if (status) params.set("status", status);
+    if (focusedReservationId) {
+      params.set("reservationId", focusedReservationId);
+    } else {
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (status) params.set("status", status);
+    }
 
     const result = await apiFetch<ReservationRow[]>(`/api/reservations?${params.toString()}`);
     if (result.success) {
@@ -78,14 +83,14 @@ export function ReservationsTable({
       setMeta(result.meta ?? null);
     }
     setLoading(false);
-  }, [page, debouncedSearch, status]);
+  }, [page, debouncedSearch, status, focusedReservationId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (searchParams.get("action") === "new") {
+    if (searchParams.get("action") === "new" || searchParams.get("reservationId")) {
       router.replace("/reservations");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,11 +110,21 @@ export function ReservationsTable({
         ) : null}
       </div>
 
+      {focusedReservationId ? (
+        <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <span>Showing the selected reservation only.</span>
+          <Button variant="ghost" size="sm" className="h-7 text-blue-800 hover:bg-blue-100" onClick={() => setFocusedReservationId("")}>
+            Show all reservations
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           value={status}
           onValueChange={(v) => {
             setStatus(v);
+            setFocusedReservationId("");
             setPage(1);
           }}
         >
@@ -130,6 +145,7 @@ export function ReservationsTable({
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              setFocusedReservationId("");
               setPage(1);
             }}
           />

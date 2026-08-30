@@ -22,10 +22,12 @@ export async function GET(req: NextRequest) {
     .filter((r) => r.success)
     .map((r) => r.data);
   const roomId = searchParams.get("roomId") ?? undefined;
+  const reservationId = searchParams.get("reservationId") ?? undefined;
 
   const { rows, meta } = await listReservations(pagination, {
     status: statusValues && statusValues.length > 0 ? (statusValues.length === 1 ? statusValues[0] : statusValues) : undefined,
     roomId,
+    id: reservationId,
   });
 
   return apiSuccess(rows, meta);

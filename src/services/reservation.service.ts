@@ -54,6 +54,7 @@ export async function assertRoomAvailable(
 export type ReservationListFilters = {
   status?: ReservationStatus | ReservationStatus[];
   roomId?: string;
+  id?: string;
 };
 
 const listInclude = {
@@ -69,6 +70,7 @@ export async function listReservations(pagination: PaginationInput, filters: Res
       ? { status: Array.isArray(filters.status) ? { in: filters.status } : filters.status }
       : {}),
     ...(filters.roomId ? { roomId: filters.roomId } : {}),
+    ...(filters.id ? { id: filters.id } : {}),
     ...(search
       ? {
           OR: [

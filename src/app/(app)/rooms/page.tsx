@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { requirePagePermission } from "@/lib/auth/require-permission";
 import { hasPermission } from "@/lib/auth/session";
@@ -13,9 +14,11 @@ export default async function RoomsPage() {
   if (!user) return <AccessDenied />;
 
   return (
-    <RoomsBoard
-      canManage={hasPermission(user, PERMISSIONS.ROOMS_MANAGE)}
-      canOverride={hasPermission(user, PERMISSIONS.ROOMS_OVERRIDE)}
-    />
+    <Suspense>
+      <RoomsBoard
+        canManage={hasPermission(user, PERMISSIONS.ROOMS_MANAGE)}
+        canOverride={hasPermission(user, PERMISSIONS.ROOMS_OVERRIDE)}
+      />
+    </Suspense>
   );
 }

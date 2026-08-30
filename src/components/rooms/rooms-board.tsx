@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { History, LayoutGrid, Plus, Search, Tags, Table as TableIcon, UserPlus } from "lucide-react";
 import type { RoomStatus } from "@prisma/client";
 
@@ -40,15 +41,19 @@ type StatusSummary = { total: number; byStatus: Record<string, number> };
 const QUICK_FILTER_CODES: RoomStatus[] = ["VC", "VD", "OC", "OD", "OOO", "BLO", "DND", "SO"];
 
 export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; canOverride: boolean }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
   const [statusSummary, setStatusSummary] = useState<StatusSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"grid" | "table">("grid");
+  const [view, setView] = useState<"grid" | "table">(searchParams.get("roomId") ? "table" : "grid");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [roomTypeFilter, setRoomTypeFilter] = useState("");
   const [floorFilter, setFloorFilter] = useState("");
+  const [focusedRoomId, setFocusedRoomId] = useState(searchParams.get("roomId") ?? "");
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [historyRoom, setHistoryRoom] = useState<{ id: string; number: string } | null>(null);
@@ -60,9 +65,13 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ includeSummary: "true" });
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    if (statusFilter) params.set("status", statusFilter);
-    if (roomTypeFilter) params.set("roomTypeId", roomTypeFilter);
+    if (focusedRoomId) {
+      params.set("roomId", focusedRoomId);
+    } else {
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (statusFilter) params.set("status", statusFilter);
+      if (roomTypeFilter) params.set("roomTypeId", roomTypeFilter);
+    }
 
     type ConsolidatedData = { rooms: RoomRow[]; roomTypes: RoomTypeRow[]; statusSummary: StatusSummary };
     const res = await apiFetch<ConsolidatedData>(`/api/rooms?${params.toString()}`);
@@ -72,11 +81,16 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
       if (res.data.statusSummary) setStatusSummary(res.data.statusSummary);
     }
     setLoading(false);
-  }, [debouncedSearch, statusFilter, roomTypeFilter]);
+  }, [debouncedSearch, statusFilter, roomTypeFilter, focusedRoomId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get("roomId")) router.replace("/rooms");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allFloors = Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
   const visibleRooms = floorFilter ? rooms.filter((r) => String(r.floor) === floorFilter) : rooms;
@@ -106,6 +120,15 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
         ) : null}
       </div>
 
+      {focusedRoomId ? (
+        <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <span>Showing the selected room only.</span>
+          <Button variant="ghost" size="sm" className="h-7 text-blue-800 hover:bg-blue-100" onClick={() => setFocusedRoomId("")}>
+            Show all rooms
+          </Button>
+        </div>
+      ) : null}
+
       {statusSummary ? (
         <div className="flex flex-wrap gap-2">
           {Object.entries(statusSummary.byStatus)
@@ -128,7 +151,10 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          onClick={() => setStatusFilter("")}
+          onClick={() => {
+            setStatusFilter("");
+            setFocusedRoomId("");
+          }}
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
             statusFilter === "" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -140,7 +166,10 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           <button
             key={code}
             type="button"
-            onClick={() => setStatusFilter(code)}
+            onClick={() => {
+              setStatusFilter(code);
+              setFocusedRoomId("");
+            }}
             className={cn(
               "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
               statusFilter === code ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -158,13 +187,19 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
             className="pl-9"
             placeholder="Search room #, type, status code…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setFocusedRoomId("");
+            }}
           />
         </div>
         <select
           className="h-9 rounded-md border bg-white px-3 text-sm"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setFocusedRoomId("");
+          }}
           aria-label="Filter by status"
         >
           <option value="">All Statuses</option>
@@ -177,7 +212,10 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
         <select
           className="h-9 rounded-md border bg-white px-3 text-sm"
           value={roomTypeFilter}
-          onChange={(e) => setRoomTypeFilter(e.target.value)}
+          onChange={(e) => {
+            setRoomTypeFilter(e.target.value);
+            setFocusedRoomId("");
+          }}
           aria-label="Filter by room type"
         >
           <option value="">All Room Types</option>

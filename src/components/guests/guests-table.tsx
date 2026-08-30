@@ -100,7 +100,12 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
   }, [load]);
 
   useEffect(() => {
-    if (searchParams.get("action") === "new") router.replace("/guests");
+    const guestId = searchParams.get("guestId");
+    if (guestId) {
+      setDetailsGuestId(guestId);
+      setDetailsOpen(true);
+    }
+    if (searchParams.get("action") === "new" || guestId) router.replace("/guests");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
