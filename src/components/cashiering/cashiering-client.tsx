@@ -77,9 +77,9 @@ export function CashieringClient({
     setDialog(type);
   }
 
-  function handleTransact() {
-    if (!detailsTxn?.reservation) return;
-    const reservationId = detailsTxn.reservation.id;
+  function handleTransact(txn: TransactionRow) {
+    if (!txn.reservation) return;
+    const reservationId = txn.reservation.id;
     setDetailsTxn(null);
     openTransactionDialog("payment", reservationId);
   }
@@ -196,7 +196,9 @@ export function CashieringClient({
             canViewReservations={canViewReservations}
             canViewGuests={canViewGuests}
             canViewRooms={canViewRooms}
+            canTransact={canManage}
             onViewTransaction={() => setDetailsTxn(r)}
+            onTransact={() => handleTransact(r)}
           />
         </div>
       ),
@@ -291,7 +293,7 @@ export function CashieringClient({
         canViewRooms={canViewRooms}
         canTransact={canManage}
         sessionOpen={sessionOpen}
-        onTransact={handleTransact}
+        onTransact={() => detailsTxn && handleTransact(detailsTxn)}
       />
     </>
   );

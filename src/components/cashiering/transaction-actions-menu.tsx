@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, FileText, MoreVertical, Printer, User, BedDouble, CalendarClock } from "lucide-react";
+import { Eye, FileText, MoreVertical, Printer, Repeat, User, BedDouble, CalendarClock } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -12,23 +12,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
+import { isCompletedPayment, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 export function TransactionActionsMenu({
   transaction,
   canViewReservations,
   canViewGuests,
   canViewRooms,
+  canTransact,
   onViewTransaction,
+  onTransact,
 }: {
   transaction: TransactionDetailsRow;
   canViewReservations: boolean;
   canViewGuests: boolean;
   canViewRooms: boolean;
+  canTransact: boolean;
   onViewTransaction: () => void;
+  onTransact: () => void;
 }) {
   const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
   const reservation = transaction.reservation;
+  const showTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
 
   return (
     <DropdownMenu>
@@ -53,6 +58,12 @@ export function TransactionActionsMenu({
         <DropdownMenuItem onSelect={onViewTransaction}>
           <Eye className="h-4 w-4" /> View Transaction
         </DropdownMenuItem>
+
+        {showTransact ? (
+          <DropdownMenuItem onSelect={onTransact}>
+            <Repeat className="h-4 w-4" /> Transact
+          </DropdownMenuItem>
+        ) : null}
 
         {isReceiptEligible ? (
           <DropdownMenuItem asChild>

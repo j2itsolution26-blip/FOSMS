@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Printer, Repeat } from "lucide-react";
+import { CheckCircle2, Circle, FileText, Printer, Repeat } from "lucide-react";
 
 import {
   Dialog,
@@ -57,6 +57,33 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionDetailsRow["type"], stri
   REFUND: "Refund",
 };
 
+/**
+ * The single source of truth for "is this transaction a completed payment?" —
+ * derived from the real type/reversedById columns (the same data the status
+ * badge already uses), never a separate flag. A PAYMENT that was later
+ * refunded no longer counts as completed, so Transact becomes available
+ * again instead of permanently blocking further transactions on the folio.
+ */
+export function isCompletedPayment(t: Pick<TransactionDetailsRow, "type" | "reversedById">): boolean {
+  return t.type === "PAYMENT" && !t.reversedById;
+}
+
+function paymentStatusMessage(t: TransactionDetailsRow): { icon: typeof CheckCircle2; text: string; className: string } {
+  if (isCompletedPayment(t)) {
+    return { icon: CheckCircle2, text: "Payment completed", className: "text-emerald-700" };
+  }
+  if (t.type === "PAYMENT" && t.reversedById) {
+    return { icon: Circle, text: "Payment voided — refunded", className: "text-slate-600" };
+  }
+  if (t.type === "REFUND") {
+    return { icon: Circle, text: "Refund issued", className: "text-red-600" };
+  }
+  if (t.type === "DISCOUNT") {
+    return { icon: Circle, text: "Discount applied to the folio", className: "text-blue-600" };
+  }
+  return { icon: Circle, text: "Charge — outstanding transaction", className: "text-amber-600" };
+}
+
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -107,19 +134,16 @@ export function TransactionDetailsDialog({
   const statusMeta = transaction.reversedById ? STATUS_META.VOIDED : STATUS_META[transaction.type];
   const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
   const reservation = transaction.reservation;
+  const canShowTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
+  const status = paymentStatusMessage(transaction);
+  const StatusIcon = status.icon;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <div className="flex items-start justify-between gap-3 pr-6">
-            <div>
-              <DialogTitle>Transaction Details</DialogTitle>
-              <p className="mt-1 text-base font-semibold text-slate-900">{transaction.transactionNo}</p>
-              <p className="text-xs text-muted-foreground">
-                {new Date(transaction.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-              </p>
-            </div>
+            <DialogTitle>Transaction Details</DialogTitle>
             <Badge variant="outline" className={`shrink-0 ${statusMeta.className}`}>
               {statusMeta.label}
             </Badge>
@@ -212,6 +236,23 @@ export function TransactionDetailsDialog({
             <SectionHeading>Processed By</SectionHeading>
             <p className="text-sm font-medium text-slate-900">{`${transaction.user.firstName} ${transaction.user.lastName}`}</p>
           </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Transaction Information</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Transaction Number" value={transaction.transactionNo} />
+              <Field
+                label="Date / Time"
+                value={new Date(transaction.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+              />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Payment Status</p>
+              <p className={`flex items-center gap-1.5 text-sm font-medium ${status.className}`}>
+                <StatusIcon className="h-3.5 w-3.5" /> {status.text}
+              </p>
+            </div>
+          </div>
         </div>
 
         <DialogFooter className="flex-wrap gap-2 border-t pt-4 sm:justify-between">
@@ -233,7 +274,7 @@ export function TransactionDetailsDialog({
                 </a>
               </Button>
             ) : null}
-            {canTransact && reservation ? (
+            {canShowTransact ? (
               <Button type="button" onClick={onTransact} disabled={!sessionOpen} title={!sessionOpen ? "Open a cashier session first" : undefined}>
                 <Repeat className="h-4 w-4" /> Transact
               </Button>
