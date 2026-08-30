@@ -2,17 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import {
-  Receipt,
-  Wallet,
-  DoorOpen,
-  DoorClosed,
-  PlusCircle,
-  Undo2,
-  Lock,
-  ReceiptText,
-} from "lucide-react";
+import { Receipt, Wallet, DoorOpen, Lock, ReceiptText } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatGuestFullName } from "@/lib/formatters";
@@ -71,7 +61,6 @@ export function CashieringClient({
   canViewGuests: boolean;
   canViewRooms: boolean;
 }) {
-  const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -232,18 +221,7 @@ export function CashieringClient({
               ]
             : []
         }
-        quickActions={[
-          ...(canManage
-            ? [
-                { label: "New Transaction", icon: PlusCircle, tone: "bg-blue-50 text-blue-700", onClick: () => openTransactionDialog("charge"), disabled: !sessionOpen },
-                { label: "Receive Payment", icon: Wallet, tone: "bg-emerald-50 text-emerald-700", onClick: () => openTransactionDialog("payment"), disabled: !sessionOpen },
-                { label: "Issue Refund", icon: Undo2, tone: "bg-red-50 text-red-700", onClick: () => setDialog("refund"), disabled: !sessionOpen },
-                { label: "Open Cashier", icon: DoorOpen, tone: "bg-violet-50 text-violet-700", onClick: () => setDialog("open"), disabled: sessionOpen },
-                { label: "Close Cashier", icon: DoorClosed, tone: "bg-slate-100 text-slate-700", onClick: () => setDialog("close"), disabled: !sessionOpen },
-              ]
-            : []),
-          { label: "View Receipts", icon: Receipt, tone: "bg-amber-50 text-amber-700", onClick: () => router.push("/cashiering/receipts") },
-        ]}
+        quickActions={[]}
         search={{ value: search, onChange: setSearch, placeholder: "Search transaction, guest, receipt…" }}
         filters={[
           {
