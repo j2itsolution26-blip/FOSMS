@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import type { ComboboxOption } from "@/components/shared/combobox";
 
 type ReservationRow = {
   id: string;
   reservationNo: string;
-  guest: { firstName: string; lastName: string };
+  guest: { firstName: string; middleName: string | null; lastName: string };
   room: { number: string };
 };
 
@@ -23,7 +24,7 @@ export function useReservationOptions(status: string, active: boolean) {
           setOptions(
             res.data.map((r) => ({
               value: r.id,
-              label: `${r.reservationNo} — ${r.guest.firstName} ${r.guest.lastName}`,
+              label: `${r.reservationNo} — ${formatGuestFullName(r.guest)}`,
               description: `Room ${r.room.number}`,
             }))
           );
