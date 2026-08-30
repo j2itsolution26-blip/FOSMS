@@ -21,32 +21,23 @@ import { apiFetch } from "@/lib/api-client";
 import { parseCsv } from "@/lib/csv";
 
 type ReportTypeOption = { value: string; label: string; category: string };
-type Meta = {
-  reportTypes: ReportTypeOption[];
-  batches: { id: string; code: string }[];
-  competencies: { id: string; code: string; title: string }[];
-  assessors: { id: string; firstName: string; lastName: string }[];
-};
+type Meta = { reportTypes: ReportTypeOption[] };
+
+const RESERVATION_STATUS_OPTIONS = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"];
+const TRANSACTION_TYPE_OPTIONS = ["CHARGE", "PAYMENT", "REFUND", "DISCOUNT"];
 
 export function ReportBuilder({ canExport }: { canExport: boolean }) {
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [reportType, setReportType] = useState("trainee-master-list");
+  const [reportType, setReportType] = useState("reservations");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [batchId, setBatchId] = useState("");
-  const [competencyId, setCompetencyId] = useState("");
-  const [assessorId, setAssessorId] = useState("");
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState<string[][] | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const isAssessmentReport = ["assessment-summary", "competent-trainees", "not-yet-competent"].includes(reportType);
   const isReservationReport = reportType === "reservations";
-  const statusOptions = isAssessmentReport
-    ? ["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "UNDER_REVIEW", "COMPLETED", "CANCELLED"]
-    : isReservationReport
-      ? ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"]
-      : [];
+  const isTransactionReport = reportType === "cashiering-transactions";
+  const statusOptions = isReservationReport ? RESERVATION_STATUS_OPTIONS : isTransactionReport ? TRANSACTION_TYPE_OPTIONS : [];
 
   useEffect(() => {
     apiFetch<Meta>("/api/reports/meta").then((res) => {
@@ -58,9 +49,6 @@ export function ReportBuilder({ canExport }: { canExport: boolean }) {
     const params = new URLSearchParams({ type: reportType });
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
-    if (batchId) params.set("batchId", batchId);
-    if (competencyId) params.set("competencyId", competencyId);
-    if (assessorId) params.set("assessorId", assessorId);
     if (status) params.set("status", status);
     return params;
   }
@@ -107,7 +95,7 @@ export function ReportBuilder({ canExport }: { canExport: boolean }) {
         <CardTitle>Report Builder</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Report Type</Label>
             <Select
@@ -115,7 +103,6 @@ export function ReportBuilder({ canExport }: { canExport: boolean }) {
               onValueChange={(v) => {
                 setReportType(v);
                 setRows(null);
-                setAssessorId("");
                 setStatus("");
               }}
             >
@@ -144,65 +131,15 @@ export function ReportBuilder({ canExport }: { canExport: boolean }) {
             <Label>To</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Training Batch</Label>
-            <Select value={batchId || "all"} onValueChange={(v) => setBatchId(v === "all" ? "" : v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All batches" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All batches</SelectItem>
-                {(meta?.batches ?? []).map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Competency</Label>
-            <Select value={competencyId || "all"} onValueChange={(v) => setCompetencyId(v === "all" ? "" : v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="All competencies" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All competencies</SelectItem>
-                {(meta?.competencies ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {isAssessmentReport ? (
-            <div className="space-y-1.5">
-              <Label>Assessor</Label>
-              <Select value={assessorId || "all"} onValueChange={(v) => setAssessorId(v === "all" ? "" : v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="All assessors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All assessors</SelectItem>
-                  {(meta?.assessors ?? []).map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.firstName} {a.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
           {statusOptions.length > 0 ? (
             <div className="space-y-1.5">
-              <Label>Status</Label>
+              <Label>{isTransactionReport ? "Type" : "Status"}</Label>
               <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="All statuses" />
+                  <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   {statusOptions.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s.replaceAll("_", " ")}

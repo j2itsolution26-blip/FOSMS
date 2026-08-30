@@ -1,33 +1,30 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getRoomOccupancySummary } from "@/services/room.service";
+import { getCashieringKpis, getOutstandingBalanceTotal } from "@/services/cashiering.service";
+import { getFrontOfficeKpis } from "@/services/front-office.service";
 import { toCsv } from "@/lib/csv";
 import { recordAudit } from "@/lib/audit";
-import { ROOM_STATUS_ORDER, isOccupiedCategory, roomStatusLabel } from "@/config/room-status";
+import { formatGuestFullName } from "@/lib/formatters";
+import { isAvailableCategory, isOccupiedCategory, roomStatusLabel } from "@/config/room-status";
+import type { RoomStatus } from "@prisma/client";
 
 export const REPORT_TYPES = [
-  { value: "trainee-master-list", label: "Trainee Master List", category: "Training" },
-  { value: "training-progress", label: "Training Progress", category: "Training" },
-  { value: "competency-completion", label: "Competency Completion", category: "Training" },
-  { value: "assessment-summary", label: "Assessment Summary", category: "Assessment" },
-  { value: "competent-trainees", label: "Competent Trainees", category: "Assessment" },
-  { value: "not-yet-competent", label: "Not Yet Competent", category: "Assessment" },
   { value: "reservations", label: "Reservations", category: "Operational" },
   { value: "room-occupancy", label: "Room Occupancy", category: "Operational" },
+  { value: "cashiering-transactions", label: "Cashiering Transactions", category: "Financial" },
+  { value: "receipts", label: "Receipts (Payments & Refunds)", category: "Financial" },
 ] as const;
 
 export type ReportType = (typeof REPORT_TYPES)[number]["value"];
 
-const ASSESSMENT_STATUSES = ["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "UNDER_REVIEW", "COMPLETED", "CANCELLED"] as const;
 const RESERVATION_STATUSES = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"] as const;
+const TRANSACTION_TYPES = ["CHARGE", "PAYMENT", "REFUND", "DISCOUNT"] as const;
 
 type ReportFilters = {
   dateFrom?: string;
   dateTo?: string;
-  competencyId?: string;
-  batchId?: string;
   status?: string;
-  assessorId?: string;
 };
 
 export async function previewReportCsv(type: ReportType, filters: ReportFilters, actor: { userId: string; role: string | null }) {
@@ -68,82 +65,68 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
       : undefined;
 
   switch (type) {
-    case "training-progress": {
-      const rows = await prisma.traineeCompetency.findMany({
-        where: { ...(filters.competencyId ? { competencyId: filters.competencyId } : {}) },
-        include: {
-          trainee: { include: { user: { select: { firstName: true, lastName: true } } } },
-          competency: { select: { title: true, code: true } },
-        },
-        orderBy: [{ trainee: { studentNumber: "asc" } }],
-      });
+    case "room-occupancy": {
+      const rooms = await prisma.room.findMany({ include: { roomType: true }, orderBy: [{ floor: "asc" }, { number: "asc" }] });
       return toCsv(
-        ["Student Number", "Trainee", "Competency", "Status", "Progress %"],
-        rows.map((r) => [
-          r.trainee.studentNumber,
-          `${r.trainee.user.firstName} ${r.trainee.user.lastName}`,
-          `${r.competency.code} — ${r.competency.title}`,
-          r.status,
-          r.progress,
-        ])
+        ["Room", "Floor", "Type", "Status"],
+        rooms.map((r) => [r.number, String(r.floor), r.roomType.name, roomStatusLabel(r.status)])
       );
     }
 
-    case "competency-completion": {
-      const competencies = await prisma.competency.findMany({
-        orderBy: { displayOrder: "asc" },
-        include: { traineeProgress: true },
-      });
-      return toCsv(
-        ["Code", "Title", "Trainees", "Competent", "In Progress", "For Assessment", "Completion %"],
-        competencies.map((c) => {
-          const trainees = c.traineeProgress.length;
-          const competent = c.traineeProgress.filter((t) => t.status === "COMPETENT" || t.status === "COMPLETED").length;
-          const inProgress = c.traineeProgress.filter((t) => t.status === "IN_PROGRESS").length;
-          const forAssessment = c.traineeProgress.filter((t) => t.status === "FOR_ASSESSMENT").length;
-          const completion = trainees ? Math.round(c.traineeProgress.reduce((s, t) => s + t.progress, 0) / trainees) : 0;
-          return [c.code, c.title, trainees, competent, inProgress, forAssessment, completion];
-        })
-      );
-    }
-
-    case "assessment-summary":
-    case "competent-trainees":
-    case "not-yet-competent": {
-      const resultFilter =
-        type === "competent-trainees" ? "COMPETENT" : type === "not-yet-competent" ? "NOT_YET_COMPETENT" : undefined;
-      const rows = await prisma.assessment.findMany({
+    case "cashiering-transactions": {
+      const rows = await prisma.cashierTransaction.findMany({
         where: {
-          ...(resultFilter ? { result: resultFilter } : {}),
-          ...(filters.competencyId ? { competencyId: filters.competencyId } : {}),
-          ...(filters.assessorId ? { assessorId: filters.assessorId } : {}),
-          ...(filters.status && ASSESSMENT_STATUSES.includes(filters.status as (typeof ASSESSMENT_STATUSES)[number])
-            ? { status: filters.status as (typeof ASSESSMENT_STATUSES)[number] }
-            : {}),
           ...(dateRange ? { createdAt: dateRange } : {}),
+          ...(filters.status && TRANSACTION_TYPES.includes(filters.status as (typeof TRANSACTION_TYPES)[number])
+            ? { type: filters.status as (typeof TRANSACTION_TYPES)[number] }
+            : {}),
         },
-        include: {
-          trainee: { include: { user: { select: { firstName: true, lastName: true } } } },
-          competency: { select: { title: true, code: true } },
-          assessor: { select: { firstName: true, lastName: true } },
-        },
+        include: { reservation: { include: { guest: true } } },
         orderBy: { createdAt: "desc" },
+        take: 1000,
       });
       return toCsv(
-        ["Assessment #", "Trainee", "Competency", "Assessor", "Status", "Result", "Date"],
+        ["Transaction #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Discount Type", "VAT", "Date"],
         rows.map((r) => [
-          r.assessmentNo,
-          `${r.trainee.user.firstName} ${r.trainee.user.lastName}`,
-          `${r.competency.code} — ${r.competency.title}`,
-          `${r.assessor.firstName} ${r.assessor.lastName}`,
-          r.status,
-          r.result,
+          r.transactionNo,
+          r.type,
+          r.reservation ? formatGuestFullName(r.reservation.guest) : "—",
+          r.reservation?.reservationNo ?? "—",
+          Number(r.amount).toFixed(2),
+          r.paymentMethod ?? "—",
+          r.discountType ?? "—",
+          r.vatAmount ? Number(r.vatAmount).toFixed(2) : "—",
           r.createdAt.toISOString().slice(0, 10),
         ])
       );
     }
 
-    case "reservations": {
+    case "receipts": {
+      const rows = await prisma.cashierTransaction.findMany({
+        where: {
+          type: { in: ["PAYMENT", "REFUND"] },
+          ...(dateRange ? { createdAt: dateRange } : {}),
+        },
+        include: { reservation: { include: { guest: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 1000,
+      });
+      return toCsv(
+        ["Receipt #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Date"],
+        rows.map((r) => [
+          r.transactionNo,
+          r.type,
+          r.reservation ? formatGuestFullName(r.reservation.guest) : "—",
+          r.reservation?.reservationNo ?? "—",
+          Number(r.amount).toFixed(2),
+          r.paymentMethod ?? "—",
+          r.createdAt.toISOString().slice(0, 10),
+        ])
+      );
+    }
+
+    case "reservations":
+    default: {
       const rows = await prisma.reservation.findMany({
         where: {
           ...(dateRange ? { createdAt: dateRange } : {}),
@@ -159,7 +142,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
         ["Reservation #", "Guest", "Room", "Room Type", "Arrival", "Departure", "Status", "Source"],
         rows.map((r) => [
           r.reservationNo,
-          `${r.guest.firstName} ${r.guest.lastName}`,
+          formatGuestFullName(r.guest),
           r.room.number,
           r.room.roomType.name,
           r.arrivalDate.toISOString().slice(0, 10),
@@ -169,190 +152,225 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
         ])
       );
     }
-
-    case "room-occupancy": {
-      const rooms = await prisma.room.findMany({ include: { roomType: true }, orderBy: [{ floor: "asc" }, { number: "asc" }] });
-      return toCsv(
-        ["Room", "Floor", "Type", "Status"],
-        rooms.map((r) => [r.number, r.floor, r.roomType.name, roomStatusLabel(r.status)])
-      );
-    }
-
-    case "trainee-master-list":
-    default: {
-      const { exportTraineesCsv } = await import("@/services/trainee.service");
-      return exportTraineesCsv({ batchId: filters.batchId });
-    }
   }
 }
 
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  return d;
+// ---------------------------------------------------------------------------
+// Front Office Reports & Analytics — every figure below is a real aggregate
+// over Reservation/Room/CashierTransaction records, never estimated. Financial
+// figures (revenue, payment methods, discounts, VAT, financial summary) are
+// gated by PERMISSIONS.CASHIERING_VIEW at the API route, not here — this
+// service always computes the full picture; the route decides what to return.
+// ---------------------------------------------------------------------------
+
+export type DateRange = { from: Date; to: Date };
+
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
 }
 
-export async function getAnalyticsKpis() {
-  const [totalTrainees, competencyAgg, assessmentCompleted, assessmentTotal, competentCount, attendanceRows, activeReservations, roomOccupancy] =
-    await Promise.all([
-      prisma.trainee.count({ where: { deletedAt: null } }),
-      prisma.traineeCompetency.aggregate({ _avg: { progress: true } }),
-      prisma.assessment.count({ where: { status: "COMPLETED" } }),
-      prisma.assessment.count(),
-      prisma.assessment.count({ where: { status: "COMPLETED", result: "COMPETENT" } }),
-      prisma.attendance.findMany({ where: { date: { gte: daysAgo(30) } }, select: { status: true } }),
-      prisma.reservation.count({ where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } } }),
-      getRoomOccupancySummary(),
-    ]);
+/** Resolves a date-filter preset (or explicit custom bounds) into a concrete [from, to] range. */
+export function resolveDateRange(preset: string, customFrom?: string, customTo?: string): DateRange {
+  const now = new Date();
+  switch (preset) {
+    case "yesterday": {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      return { from: startOfDay(y), to: endOfDay(y) };
+    }
+    case "week": {
+      const start = new Date(now);
+      start.setDate(start.getDate() - start.getDay()); // Sunday-start week
+      return { from: startOfDay(start), to: endOfDay(now) };
+    }
+    case "month": {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: startOfDay(start), to: endOfDay(now) };
+    }
+    case "custom": {
+      if (customFrom && customTo) {
+        return { from: startOfDay(new Date(customFrom)), to: endOfDay(new Date(customTo)) };
+      }
+      return { from: startOfDay(now), to: endOfDay(now) };
+    }
+    case "today":
+    default:
+      return { from: startOfDay(now), to: endOfDay(now) };
+  }
+}
 
-  const attendanceRate = attendanceRows.length
-    ? Math.round((attendanceRows.filter((a) => a.status === "PRESENT" || a.status === "LATE").length / attendanceRows.length) * 100)
-    : 0;
-  const occupiedRoomCount = ROOM_STATUS_ORDER.filter(isOccupiedCategory).reduce(
-    (sum, status) => sum + (roomOccupancy.byStatus[status] ?? 0),
+/**
+ * Always-live operational snapshot — not affected by the date filter, since
+ * "today's revenue," "room occupancy," and "outstanding balance" are current
+ * states, not activity-over-a-range figures. Consolidated into one set of
+ * queries so the dashboard's 8 summary cards + Front Office Activity panel
+ * cost a single request, not one per card.
+ */
+export async function getFrontOfficeSnapshot() {
+  const [cashieringKpis, frontOfficeKpis, roomSummary, outstandingBalance, activeReservations] = await Promise.all([
+    getCashieringKpis(),
+    getFrontOfficeKpis(),
+    getRoomOccupancySummary(),
+    getOutstandingBalanceTotal(),
+    prisma.reservation.count({ where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } } }),
+  ]);
+
+  const occupiedCount = Object.entries(roomSummary.byStatus).reduce(
+    (sum, [status, count]) => (isOccupiedCategory(status as RoomStatus) ? sum + count : sum),
     0
   );
-  const occupancyRate = roomOccupancy.total ? Math.round((occupiedRoomCount / roomOccupancy.total) * 100) : 0;
+  const availableCount = Object.entries(roomSummary.byStatus).reduce(
+    (sum, [status, count]) => (isAvailableCategory(status as RoomStatus) ? sum + count : sum),
+    0
+  );
+  const occupancyRate = roomSummary.total ? Math.round((occupiedCount / roomSummary.total) * 100) : 0;
 
   return {
-    totalTrainees,
-    competencyCompletion: Math.round(competencyAgg._avg.progress ?? 0),
-    competentRate: assessmentCompleted > 0 ? Math.round((competentCount / assessmentCompleted) * 100) : 0,
-    assessmentCompletion: assessmentTotal > 0 ? Math.round((assessmentCompleted / assessmentTotal) * 100) : 0,
-    attendanceRate,
+    todaysRevenue: cashieringKpis.todaysRevenue,
+    todaysTransactions: cashieringKpis.todaysTransactions,
     activeReservations,
     roomOccupancyRate: occupancyRate,
+    occupiedRooms: occupiedCount,
+    availableRooms: availableCount,
+    totalRooms: roomSummary.total,
+    checkInsToday: frontOfficeKpis.todaysCheckIns,
+    checkOutsToday: frontOfficeKpis.todaysCheckOuts,
+    activeGuests: frontOfficeKpis.inHouseGuests,
+    outstandingBalance,
   };
 }
 
-export async function getCompetencyCompletionChart() {
-  const competencies = await prisma.competency.findMany({
-    where: { status: "ACTIVE" },
-    orderBy: { displayOrder: "asc" },
-    include: { traineeProgress: { select: { progress: true } } },
-  });
-
-  return competencies.map((c) => ({
-    code: c.code,
-    title: c.title,
-    completion: c.traineeProgress.length
-      ? Math.round(c.traineeProgress.reduce((sum, p) => sum + p.progress, 0) / c.traineeProgress.length)
-      : 0,
-  }));
-}
-
-export async function getAssessmentResultsChart() {
-  const [grouped, openCount] = await Promise.all([
-    prisma.assessment.groupBy({ by: ["result"], where: { status: "COMPLETED" }, _count: { _all: true } }),
-    prisma.assessment.count({ where: { status: { in: ["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "UNDER_REVIEW"] } } }),
-  ]);
-  const byResult = Object.fromEntries(grouped.map((g) => [g.result, g._count._all]));
-
-  return {
-    competent: byResult.COMPETENT ?? 0,
-    notYetCompetent: byResult.NOT_YET_COMPETENT ?? 0,
-    pending: openCount,
-  };
-}
-
-export async function getTrainingStatusChart() {
-  const grouped = await prisma.trainee.groupBy({ by: ["status"], where: { deletedAt: null }, _count: { _all: true } });
-  return grouped.map((g) => ({ status: g.status, count: g._count._all }));
-}
-
-export async function getAttendanceTrendChart(days = 14) {
-  const start = daysAgo(days - 1);
-  const rows = await prisma.attendance.findMany({ where: { date: { gte: start } }, select: { date: true, status: true } });
-
-  const byDay = new Map<string, { present: number; total: number }>();
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    byDay.set(d.toISOString().slice(0, 10), { present: 0, total: 0 });
-  }
-  for (const row of rows) {
-    const key = row.date.toISOString().slice(0, 10);
-    const bucket = byDay.get(key);
-    if (!bucket) continue;
-    bucket.total += 1;
-    if (row.status === "PRESENT" || row.status === "LATE") bucket.present += 1;
-  }
-
-  return Array.from(byDay.entries()).map(([date, { present, total }]) => ({
-    date,
-    label: new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
-  }));
-}
-
-export async function getReservationTrendChart(days = 14) {
-  const start = daysAgo(days - 1);
-  const [reservations, cancellations, noShows] = await Promise.all([
-    prisma.reservation.findMany({ where: { createdAt: { gte: start } }, select: { createdAt: true } }),
-    prisma.reservation.findMany({ where: { status: "CANCELLED", updatedAt: { gte: start } }, select: { updatedAt: true } }),
-    prisma.reservation.findMany({ where: { status: "NO_SHOW", updatedAt: { gte: start } }, select: { updatedAt: true } }),
-  ]);
-
-  const byDay = new Map<string, { confirmed: number; cancelled: number; noShow: number }>();
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    byDay.set(d.toISOString().slice(0, 10), { confirmed: 0, cancelled: 0, noShow: 0 });
-  }
-  for (const r of reservations) {
-    const bucket = byDay.get(r.createdAt.toISOString().slice(0, 10));
-    if (bucket) bucket.confirmed += 1;
-  }
-  for (const r of cancellations) {
-    const bucket = byDay.get(r.updatedAt.toISOString().slice(0, 10));
-    if (bucket) bucket.cancelled += 1;
-  }
-  for (const r of noShows) {
-    const bucket = byDay.get(r.updatedAt.toISOString().slice(0, 10));
-    if (bucket) bucket.noShow += 1;
-  }
-
-  return Array.from(byDay.entries()).map(([date, v]) => ({
-    date,
-    label: new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    ...v,
-  }));
-}
-
-export async function getOccupancyChart() {
+/** Live room-status breakdown — reused as-is from Room Management; never date-filtered (a room has one current status, not a history-over-range). */
+export async function getRoomOccupancyReport() {
   return getRoomOccupancySummary();
 }
 
-export async function getFrontOfficeActivityChart(days = 14) {
-  const start = daysAgo(days - 1);
-  const [checkIns, checkOuts, transfers, requests] = await Promise.all([
-    prisma.checkIn.count({ where: { checkedInAt: { gte: start } } }),
-    prisma.checkOut.count({ where: { checkedOutAt: { gte: start } } }),
-    prisma.auditLog.count({ where: { action: "ROOM_TRANSFER", createdAt: { gte: start } } }),
-    prisma.serviceRequest.count({ where: { createdAt: { gte: start } } }),
-  ]);
-  return { checkIns, checkOuts, transfers, requests };
+/** Reservation-status breakdown over the selected range, by when each reservation was created. */
+export async function getReservationStatusReport(range: DateRange) {
+  const grouped = await prisma.reservation.groupBy({
+    by: ["status"],
+    where: { createdAt: { gte: range.from, lte: range.to } },
+    _count: { _all: true },
+  });
+  const byStatus = Object.fromEntries(grouped.map((g) => [g.status, g._count._all]));
+  return RESERVATION_STATUSES.map((status) => ({ status, count: byStatus[status] ?? 0 })).filter((s) => s.count > 0);
 }
 
-export async function getCashieringChart(days = 14) {
-  const start = daysAgo(days - 1);
+/**
+ * Daily revenue (payments − refunds) and transaction-count series over the
+ * selected range. Buckets by real Date-object day boundaries (local time),
+ * not by converting to toISOString() date-strings — that conversion shifts
+ * to UTC and silently drops/misplaces rows in any timezone ahead of UTC.
+ */
+export async function getRevenueTransactionsTrend(range: DateRange) {
+  const rows = await prisma.cashierTransaction.findMany({
+    where: { createdAt: { gte: range.from, lte: range.to } },
+    select: { type: true, amount: true, createdAt: true },
+  });
+
+  const days: { start: Date; end: Date; date: string; label: string; revenue: number; transactionCount: number }[] = [];
+  const cursor = startOfDay(range.from);
+  while (cursor <= range.to) {
+    const start = new Date(cursor);
+    const end = endOfDay(cursor);
+    days.push({
+      start,
+      end,
+      date: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`,
+      label: start.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      revenue: 0,
+      transactionCount: 0,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  for (const row of rows) {
+    const bucket = days.find((d) => row.createdAt >= d.start && row.createdAt <= d.end);
+    if (!bucket) continue;
+    bucket.transactionCount += 1;
+    if (row.type === "PAYMENT") bucket.revenue += Number(row.amount);
+    if (row.type === "REFUND") bucket.revenue -= Number(row.amount);
+  }
+
+  return days.map((d) => ({
+    date: d.date,
+    label: d.label,
+    revenue: Math.round(d.revenue * 100) / 100,
+    transactionCount: d.transactionCount,
+  }));
+}
+
+/** Payment-method breakdown (count + total) over the selected range — actual PAYMENT transactions only. */
+export async function getPaymentMethodReport(range: DateRange) {
   const grouped = await prisma.cashierTransaction.groupBy({
-    by: ["type"],
-    where: { createdAt: { gte: start } },
+    by: ["paymentMethod"],
+    where: { createdAt: { gte: range.from, lte: range.to }, type: "PAYMENT" },
     _sum: { amount: true },
     _count: { _all: true },
   });
-  const byMethod = await prisma.cashierTransaction.groupBy({
-    by: ["paymentMethod"],
-    where: { createdAt: { gte: start }, type: "PAYMENT" },
-    _sum: { amount: true },
-  });
+
+  return grouped
+    .filter((g) => g.paymentMethod)
+    .map((g) => ({ method: g.paymentMethod as string, count: g._count._all, amount: Number(g._sum.amount ?? 0) }));
+}
+
+/** Gross charges, discounts, VAT, net revenue, payments, refunds — all authoritative Cashiering aggregates. Outstanding balance is the same live figure as the snapshot (a point-in-time state, not a range total). */
+export async function getFinancialSummaryReport(range: DateRange) {
+  const where = { createdAt: { gte: range.from, lte: range.to } };
+
+  const [chargeAgg, paymentAgg, refundAgg, outstandingBalance] = await Promise.all([
+    prisma.cashierTransaction.aggregate({
+      where: { ...where, type: "CHARGE" },
+      _sum: { subtotal: true, discountAmount: true, vatAmount: true, amount: true },
+    }),
+    prisma.cashierTransaction.aggregate({ where: { ...where, type: "PAYMENT" }, _sum: { amount: true } }),
+    prisma.cashierTransaction.aggregate({ where: { ...where, type: "REFUND" }, _sum: { amount: true } }),
+    getOutstandingBalanceTotal(),
+  ]);
 
   return {
-    byType: grouped.map((g) => ({ type: g.type, amount: Number(g._sum.amount ?? 0), count: g._count._all })),
-    byMethod: byMethod
-      .filter((m) => m.paymentMethod)
-      .map((m) => ({ method: m.paymentMethod, amount: Number(m._sum.amount ?? 0) })),
+    grossCharges: Number(chargeAgg._sum.subtotal ?? 0),
+    discounts: Number(chargeAgg._sum.discountAmount ?? 0),
+    vat: Number(chargeAgg._sum.vatAmount ?? 0),
+    netRevenue: Number(chargeAgg._sum.amount ?? 0),
+    paymentsReceived: Number(paymentAgg._sum.amount ?? 0),
+    refunds: Number(refundAgg._sum.amount ?? 0),
+    outstandingBalance,
   };
+}
+
+/** Discount usage by configured discount type over the selected range — empty array means no discounts were applied (render "No discount data available"), never invented. */
+export async function getDiscountReport(range: DateRange) {
+  const grouped = await prisma.cashierTransaction.groupBy({
+    by: ["discountType"],
+    where: { createdAt: { gte: range.from, lte: range.to }, type: "CHARGE", discountType: { not: null } },
+    _sum: { discountAmount: true },
+    _count: { _all: true },
+  });
+
+  return grouped
+    .filter((g) => g.discountType)
+    .map((g) => ({
+      discountType: g.discountType as string,
+      transactionCount: g._count._all,
+      totalAmount: Number(g._sum.discountAmount ?? 0),
+    }));
+}
+
+/** VAT actually recorded on charges over the selected range (the same rate/amount Cashiering computed at charge time — never recalculated here). */
+export async function getVatReport(range: DateRange) {
+  const agg = await prisma.cashierTransaction.aggregate({
+    where: { createdAt: { gte: range.from, lte: range.to }, type: "CHARGE", vatAmount: { gt: 0 } },
+    _sum: { vatAmount: true },
+    _count: { _all: true },
+  });
+
+  return { vatCollected: Number(agg._sum.vatAmount ?? 0), vatTransactionCount: agg._count._all };
 }

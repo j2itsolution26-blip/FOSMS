@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
@@ -38,7 +39,7 @@ type RequestRow = {
   roomNumber: string | null;
   description: string | null;
   createdAt: string;
-  guest: { firstName: string; lastName: string } | null;
+  guest: { firstName: string; middleName?: string | null; lastName: string } | null;
   assignedTo: { firstName: string; lastName: string } | null;
 };
 
@@ -100,7 +101,7 @@ export function ConciergeClient({ canManage }: { canManage: boolean }) {
 
   const columns: ModuleColumn<RequestRow>[] = [
     { key: "requestNo", header: "Request #", render: (r) => <span className="font-medium text-blue-600">{r.requestNo}</span> },
-    { key: "guest", header: "Guest", render: (r) => (r.guest ? `${r.guest.firstName} ${r.guest.lastName}` : "—") },
+    { key: "guest", header: "Guest", render: (r) => (r.guest ? formatGuestFullName(r.guest) : "—") },
     { key: "room", header: "Room", render: (r) => r.roomNumber ?? "—" },
     { key: "service", header: "Service", render: (r) => toLabel(r.type) },
     {

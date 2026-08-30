@@ -5,6 +5,7 @@ import { Moon, Receipt, Wallet, ReceiptText, DoorOpen, LogIn, LogOut, BedDouble 
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
@@ -20,14 +21,14 @@ type TransactionRow = {
   amount: string;
   paymentMethod: string | null;
   createdAt: string;
-  reservation: { reservationNo: string; guest: { firstName: string; lastName: string } } | null;
+  reservation: { reservationNo: string; guest: { firstName: string; middleName?: string | null; lastName: string } } | null;
   user: { firstName: string; lastName: string };
 };
 
 type ReservationRow = {
   id: string;
   reservationNo: string;
-  guest: { firstName: string; lastName: string };
+  guest: { firstName: string; middleName?: string | null; lastName: string };
   room: { number: string };
   arrivalDate?: string;
   departureDate?: string;
@@ -74,7 +75,7 @@ export function NightAuditClient({ canManage }: { canManage: boolean }) {
   const searchLower = debouncedSearch.trim().toLowerCase();
   const rows = (data?.transactions ?? []).filter((t) => {
     if (!searchLower) return true;
-    const guest = t.reservation ? `${t.reservation.guest.firstName} ${t.reservation.guest.lastName}`.toLowerCase() : "";
+    const guest = t.reservation ? formatGuestFullName(t.reservation.guest).toLowerCase() : "";
     return (
       t.transactionNo.toLowerCase().includes(searchLower) ||
       guest.includes(searchLower) ||
@@ -84,7 +85,7 @@ export function NightAuditClient({ canManage }: { canManage: boolean }) {
 
   const columns: ModuleColumn<TransactionRow>[] = [
     { key: "no", header: "Transaction #", render: (r) => <span className="font-medium text-blue-600">{r.transactionNo}</span> },
-    { key: "guest", header: "Guest", render: (r) => (r.reservation ? `${r.reservation.guest.firstName} ${r.reservation.guest.lastName}` : "—") },
+    { key: "guest", header: "Guest", render: (r) => (r.reservation ? formatGuestFullName(r.reservation.guest) : "—") },
     { key: "type", header: "Type", render: (r) => r.type },
     { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
     { key: "cashier", header: "Cashier", render: (r) => `${r.user.firstName} ${r.user.lastName}` },
@@ -169,7 +170,7 @@ export function NightAuditClient({ canManage }: { canManage: boolean }) {
               ) : (
                 data.arrivals.map((r) => (
                   <div key={r.id} className="flex items-center justify-between text-sm">
-                    <span>{r.guest.firstName} {r.guest.lastName}</span>
+                    <span>{formatGuestFullName(r.guest)}</span>
                     <span className="text-muted-foreground">Rm {r.room.number}</span>
                   </div>
                 ))
@@ -189,7 +190,7 @@ export function NightAuditClient({ canManage }: { canManage: boolean }) {
               ) : (
                 data.departures.map((r) => (
                   <div key={r.id} className="flex items-center justify-between text-sm">
-                    <span>{r.guest.firstName} {r.guest.lastName}</span>
+                    <span>{formatGuestFullName(r.guest)}</span>
                     <span className="text-muted-foreground">Rm {r.room.number}</span>
                   </div>
                 ))

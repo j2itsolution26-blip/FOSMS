@@ -37,7 +37,7 @@ export function WalkInDialog({
 
   const form = useForm({
     resolver: zodResolver(walkInSchema),
-    defaultValues: { firstName: "", lastName: "", phone: "", email: "", roomId: "", nights: 1, numGuests: 1 },
+    defaultValues: { firstName: "", middleName: "", lastName: "", phone: "", email: "", roomId: "", nights: 1, numGuests: 1 },
   });
 
   useEffect(() => {
@@ -59,20 +59,33 @@ export function WalkInDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Walk-In Guest</DialogTitle>
           <DialogDescription>Registers a new guest, creates a reservation, and checks them in immediately.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <FormField
                 control={form.control}
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>First Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="middleName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Middle Name</FormLabel>
                     <FormControl>
                       <Input {...field} />
                     </FormControl>

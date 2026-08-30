@@ -678,6 +678,7 @@ model RoomStatusHistory {
 model Guest {
   id                 String              @id @default(cuid())
   firstName          String
+  middleName         String?
   lastName           String
   email              String?
   phone              String?

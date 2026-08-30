@@ -33,10 +33,11 @@ import {
 } from "@/components/ui/form";
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import { createReservationSchema, type CreateReservationInput } from "@/validators/reservation.schema";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 
-type GuestRow = { id: string; firstName: string; lastName: string; email: string | null };
+type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
 type RoomRow = { id: string; number: string; status: string; roomType: { name: string } };
 
 const SOURCE_OPTIONS = [
@@ -93,7 +94,7 @@ export function ReservationFormDialog({
 
   const guestOptions: ComboboxOption[] = guests.map((g) => ({
     value: g.id,
-    label: `${g.firstName} ${g.lastName}`,
+    label: formatGuestFullName(g),
     description: g.email ?? undefined,
   }));
 

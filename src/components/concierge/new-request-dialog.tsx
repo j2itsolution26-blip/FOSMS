@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import {
   createServiceRequestSchema,
   type CreateServiceRequestInput,
@@ -45,7 +46,7 @@ const PRIORITY_OPTIONS = [
   { value: "URGENT", label: "Urgent" },
 ];
 
-type GuestRow = { id: string; firstName: string; lastName: string };
+type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string };
 
 export function NewRequestDialog({
   open,
@@ -91,7 +92,7 @@ export function NewRequestDialog({
     onDone();
   }
 
-  const guestOptions = guests.map((g) => ({ value: g.id, label: `${g.firstName} ${g.lastName}` }));
+  const guestOptions = guests.map((g) => ({ value: g.id, label: formatGuestFullName(g) }));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

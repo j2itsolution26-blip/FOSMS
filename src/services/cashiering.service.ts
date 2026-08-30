@@ -6,6 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
+import { formatGuestFullName } from "@/lib/formatters";
 import type {
   CloseCashierInput,
   CreateTransactionInput,
@@ -66,6 +67,20 @@ export async function getCashieringKpis() {
   return { todaysTransactions, todaysRevenue, openCashiers, pendingPayments };
 }
 
+/**
+ * Total unsettled balance across every reservation still active (not yet
+ * checked out or cancelled) — the same reservationBalance() math the
+ * check-out gate and cashiering KPIs use, summed instead of counted, so
+ * Reports & Analytics never computes this differently than Cashiering does.
+ */
+export async function getOutstandingBalanceTotal() {
+  const reservations = await prisma.reservation.findMany({
+    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
+    select: { transactions: { select: { type: true, amount: true } } },
+  });
+  return reservations.reduce((sum, r) => sum + Math.max(0, reservationBalance(r.transactions)), 0);
+}
+
 export async function listTodayTransactions(search = "") {
   const now = new Date();
   const todayStart = startOfDay(now);
@@ -99,6 +114,33 @@ export async function listTodayTransactions(search = "") {
     },
     take: 200,
   });
+}
+
+/**
+ * Reservations eligible for a manual Cashiering transaction, with each one's
+ * real running balance attached — powers the New Transaction dialog's
+ * reservation picker/summary/amount pre-fill so it never has to guess or
+ * hardcode a balance.
+ */
+export async function listOpenReservationsForTransactions() {
+  const reservations = await prisma.reservation.findMany({
+    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      guest: { select: { firstName: true, lastName: true } },
+      room: { select: { number: true, roomType: { select: { name: true } } } },
+      transactions: { select: { type: true, amount: true } },
+    },
+    take: 100,
+  });
+
+  return reservations.map((r) => ({
+    id: r.id,
+    reservationNo: r.reservationNo,
+    guest: r.guest,
+    room: r.room,
+    balance: reservationBalance(r.transactions),
+  }));
 }
 
 export async function getMyOpenSession(userId: string) {
@@ -235,7 +277,7 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
       transactionNo: result.transaction.transactionNo,
       type: result.transaction.type,
       amount: result.transaction.amount,
-      guestName: `${result.reservation.guest.firstName} ${result.reservation.guest.lastName}`,
+      guestName: formatGuestFullName(result.reservation.guest),
     },
   });
 
@@ -308,7 +350,7 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
       transactionNo: result.refund.transactionNo,
       amount: input.amount,
       guestName: result.original.reservation
-        ? `${result.original.reservation.guest.firstName} ${result.original.reservation.guest.lastName}`
+        ? formatGuestFullName(result.original.reservation.guest)
         : undefined,
     },
   });
@@ -325,7 +367,7 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
 const receiptInclude = {
   reservation: {
     include: {
-      guest: { select: { firstName: true, lastName: true } },
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, isSmoking: true, roomType: { select: { name: true, baseRate: true } } } },
     },
   },
@@ -350,7 +392,7 @@ function toReceiptRow(t: ReceiptTransaction) {
     paymentMethod: t.paymentMethod,
     description: t.reference,
     paymentDate: t.createdAt,
-    guestName: t.reservation ? `${t.reservation.guest.firstName} ${t.reservation.guest.lastName}` : null,
+    guestName: t.reservation ? formatGuestFullName(t.reservation.guest) : null,
     reservationNo: t.reservation?.reservationNo ?? null,
     createdBy: `${t.user.firstName} ${t.user.lastName}`,
     // Folio pricing breakdown — null for plain (non-room) transactions.

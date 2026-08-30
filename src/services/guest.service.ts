@@ -31,6 +31,7 @@ export async function listGuests(pagination: PaginationInput) {
       ? {
           OR: [
             { firstName: { contains: search, mode: "insensitive" } },
+            { middleName: { contains: search, mode: "insensitive" } },
             { lastName: { contains: search, mode: "insensitive" } },
           ],
         }
@@ -95,6 +96,7 @@ export async function getGuestById(id: string) {
 function toGuestData(input: GuestInput) {
   return {
     firstName: input.firstName,
+    middleName: input.middleName || null,
     lastName: input.lastName,
     email: input.email || null,
     phone: input.phone || null,
@@ -120,7 +122,7 @@ export async function createGuest(input: GuestInput, actor: ActorContext) {
     recordId: guest.id,
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
-    newValue: { firstName: guest.firstName, lastName: guest.lastName },
+    newValue: { firstName: guest.firstName, middleName: guest.middleName, lastName: guest.lastName },
   });
 
   return guest;

@@ -23,7 +23,13 @@ export function LoginMobileHero() {
       />
       <div className="relative flex h-full flex-col justify-center px-5 text-white">
         <div className="flex items-center gap-2.5">
-          <Image src="/images/asian-college-logo.png" alt="Asian College of Science and Technology" width={36} height={36} className="h-9 w-9 shrink-0" />
+          <Image
+            src="/images/diploma-program-department-logo.png"
+            alt="Diploma Program Department, Asian College"
+            width={41}
+            height={36}
+            className="h-9 w-auto shrink-0"
+          />
           <p className="text-xs font-bold tracking-wide">
             ASIAN COLLEGE OF SCIENCE AND TECHNOLOGY
           </p>

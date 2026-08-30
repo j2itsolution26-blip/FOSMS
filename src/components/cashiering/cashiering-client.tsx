@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
@@ -35,7 +37,7 @@ type TransactionRow = {
   createdAt: string;
   reservation: {
     reservationNo: string;
-    guest: { firstName: string; lastName: string };
+    guest: { firstName: string; middleName?: string | null; lastName: string };
     room: { number: string; roomType: { name: string } } | null;
   } | null;
   user: { firstName: string; lastName: string };
@@ -100,7 +102,7 @@ export function CashieringClient({ canManage }: { canManage: boolean }) {
 
   const columns: ModuleColumn<TransactionRow>[] = [
     { key: "no", header: "Transaction #", render: (r) => <span className="font-medium text-blue-600">{r.transactionNo}</span> },
-    { key: "guest", header: "Guest", render: (r) => (r.reservation ? `${r.reservation.guest.firstName} ${r.reservation.guest.lastName}` : "—") },
+    { key: "guest", header: "Guest", render: (r) => (r.reservation ? formatGuestFullName(r.reservation.guest) : "—") },
     { key: "reservation", header: "Reservation", render: (r) => r.reservation?.reservationNo ?? "—" },
     { key: "room", header: "Room", render: (r) => r.reservation?.room?.number ?? "—" },
     { key: "roomType", header: "Room Type", render: (r) => r.roomType?.name ?? r.reservation?.room?.roomType.name ?? "—" },

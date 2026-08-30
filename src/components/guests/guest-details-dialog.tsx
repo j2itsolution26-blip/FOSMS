@@ -11,11 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import { FOLIO_DISCOUNT_TYPE_OPTIONS, FOLIO_PAYMENT_METHOD_OPTIONS } from "@/validators/folio-room-assignment.schema";
 
 type GuestDetails = {
   id: string;
   firstName: string;
+  middleName: string | null;
   lastName: string;
   email: string | null;
   phone: string | null;
@@ -40,13 +42,6 @@ type GuestDetails = {
       paymentMethod: string | null;
     }>;
   }>;
-};
-
-const ID_TYPE_LABELS: Record<string, string> = {
-  PASSPORT: "Passport",
-  DRIVER_LICENSE: "Driver License",
-  NATIONAL_ID: "National ID",
-  OTHER: "Other",
 };
 
 function fmtDate(d: string | null) {
@@ -99,7 +94,7 @@ export function GuestDetailsDialog({
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 pt-5 pb-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#0b1c3f] uppercase">
-              {guest ? `${guest.firstName} ${guest.lastName}` : "Guest Details"}
+              {guest ? formatGuestFullName(guest) : "Guest Details"}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
               Complete guest profile and reservation/folio history.
@@ -120,21 +115,8 @@ export function GuestDetailsDialog({
             <>
               <Section title="Guest Information">
                 <Field label="First Name" value={guest.firstName} />
+                <Field label="Middle Name" value={guest.middleName} />
                 <Field label="Last Name" value={guest.lastName} />
-                <Field label="Address" value={guest.address} />
-                <Field label="Nationality" value={guest.nationality} />
-                <Field label="Date of Birth" value={fmtDate(guest.dateOfBirth)} />
-              </Section>
-
-              <Section title="Identification">
-                <Field label="ID Type" value={guest.identificationType ? ID_TYPE_LABELS[guest.identificationType] : null} />
-                <Field label="ID Number" value={guest.identificationNo} />
-              </Section>
-
-              <Section title="Contact">
-                <Field label="Email" value={guest.email} />
-                <Field label="Phone" value={guest.phone} />
-                <Field label="Emergency Contact" value={guest.emergencyContact} />
               </Section>
 
               <Section title="Preferences">

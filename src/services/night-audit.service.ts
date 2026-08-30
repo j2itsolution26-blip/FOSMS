@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
+import { formatGuestFullName } from "@/lib/formatters";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
@@ -48,18 +49,18 @@ export async function getNightAuditWorkbook() {
         where: { createdAt: { gte: todayStart, lte: todayEnd } },
         orderBy: { createdAt: "desc" },
         include: {
-          reservation: { select: { reservationNo: true, guest: { select: { firstName: true, lastName: true } } } },
+          reservation: { select: { reservationNo: true, guest: { select: { firstName: true, middleName: true, lastName: true } } } },
           user: { select: { firstName: true, lastName: true } },
         },
       }),
       prisma.reservation.findMany({
         where: { arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
-        include: { guest: { select: { firstName: true, lastName: true } }, room: { select: { number: true } } },
+        include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
         orderBy: { arrivalDate: "asc" },
       }),
       prisma.reservation.findMany({
         where: { departureDate: { gte: todayStart, lte: todayEnd }, status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
-        include: { guest: { select: { firstName: true, lastName: true } }, room: { select: { number: true } } },
+        include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
         orderBy: { departureDate: "asc" },
       }),
       prisma.room.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -72,7 +73,7 @@ export async function getNightAuditWorkbook() {
         select: {
           id: true,
           reservationNo: true,
-          guest: { select: { firstName: true, lastName: true } },
+          guest: { select: { firstName: true, middleName: true, lastName: true } },
           transactions: { select: { type: true, amount: true } },
         },
       }),
@@ -82,7 +83,7 @@ export async function getNightAuditWorkbook() {
     .map((r) => ({
       id: r.id,
       reservationNo: r.reservationNo,
-      guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+      guestName: formatGuestFullName(r.guest),
       balance: reservationBalance(r.transactions),
     }))
     .filter((r) => r.balance > 0);

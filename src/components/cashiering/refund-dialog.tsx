@@ -18,6 +18,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import { issueRefundSchema, type IssueRefundInput } from "@/validators/cashiering.schema";
 
 type TransactionRow = {
@@ -26,7 +27,7 @@ type TransactionRow = {
   amount: string;
   reversedById: string | null;
   type: string;
-  reservation: { guest: { firstName: string; lastName: string } } | null;
+  reservation: { guest: { firstName: string; middleName?: string | null; lastName: string } } | null;
 };
 
 export function RefundDialog({
@@ -68,7 +69,7 @@ export function RefundDialog({
   const options = transactions.map((t) => ({
     value: t.id,
     label: `${t.transactionNo} — ₱${Number(t.amount).toFixed(2)}`,
-    description: t.reservation ? `${t.reservation.guest.firstName} ${t.reservation.guest.lastName}` : undefined,
+    description: t.reservation ? formatGuestFullName(t.reservation.guest) : undefined,
   }));
 
   return (

@@ -19,6 +19,7 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
 import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
 import { FOLIO_DISCOUNT_TYPE_OPTIONS, FOLIO_PAYMENT_METHOD_OPTIONS } from "@/validators/folio-room-assignment.schema";
@@ -33,6 +34,7 @@ type FolioReservation = {
 type GuestRow = {
   id: string;
   firstName: string;
+  middleName: string | null;
   lastName: string;
   email: string | null;
   phone: string | null;
@@ -107,6 +109,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
       id: g.id,
       values: {
         firstName: g.firstName,
+        middleName: g.middleName ?? "",
         lastName: g.lastName,
         email: g.email ?? "",
         phone: g.phone ?? "",
@@ -203,7 +206,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                           setDetailsOpen(true);
                         }}
                       >
-                        {g.firstName} {g.lastName}
+                        {formatGuestFullName(g)}
                       </button>
                     </TableCell>
                     <TableCell>{folio?.room.roomType.name ?? "—"}</TableCell>

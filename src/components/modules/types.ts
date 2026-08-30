@@ -5,7 +5,7 @@ export type ModuleKpi = {
   value: number | string;
   unit: string;
   icon: LucideIcon;
-  tone: "blue" | "green" | "amber" | "purple";
+  tone: "blue" | "green" | "amber" | "purple" | "red" | "slate";
 };
 
 export type ModuleQuickAction = {

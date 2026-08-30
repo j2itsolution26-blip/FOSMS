@@ -3,6 +3,7 @@ import type { Prisma, RoomStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { formatGuestFullName } from "@/lib/formatters";
 import { NotFoundError, AppError } from "@/lib/errors";
 import { findRoomStatusesMatching, isAvailableCategory, isOccupiedCategory, isRestrictedStatus } from "@/config/room-status";
 import type { RoomInput, RoomTypeInput } from "@/validators/room.schema";
@@ -75,9 +76,9 @@ export async function listRooms(
   // occupied room; a room holds at most one CHECKED_IN reservation at a time.
   const inHouse = await prisma.reservation.findMany({
     where: { roomId: { in: rooms.map((r) => r.id) }, status: "CHECKED_IN" },
-    select: { roomId: true, guest: { select: { firstName: true, lastName: true } } },
+    select: { roomId: true, guest: { select: { firstName: true, middleName: true, lastName: true } } },
   });
-  const guestByRoomId = new Map(inHouse.map((r) => [r.roomId, `${r.guest.firstName} ${r.guest.lastName}`]));
+  const guestByRoomId = new Map(inHouse.map((r) => [r.roomId, formatGuestFullName(r.guest)]));
 
   return rooms.map((room) => ({ ...room, currentGuestName: guestByRoomId.get(room.id) ?? null }));
 }

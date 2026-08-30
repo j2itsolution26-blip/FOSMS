@@ -2,6 +2,7 @@ import "server-only";
 import type { AuditAction } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { formatGuestFullName } from "@/lib/formatters";
 import { getRoomOccupancySummary } from "@/services/room.service";
 import { getConciergeKpis, listServiceRequests } from "@/services/concierge.service";
 import { ASSIGNABLE_ROOM_STATUSES, ROOM_STATUS_ORDER, isOccupiedCategory } from "@/config/room-status";
@@ -131,14 +132,14 @@ export async function getTodaysArrivals(): Promise<SupervisorArrivalRow[]> {
   const now = new Date();
   const rows = await prisma.reservation.findMany({
     where: { arrivalDate: { gte: startOfDay(now), lte: endOfDay(now) }, status: { in: ["PENDING", "CONFIRMED", "CANCELLED", "NO_SHOW"] } },
-    include: { guest: { select: { firstName: true, lastName: true } }, room: { select: { number: true } } },
+    include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
     orderBy: { arrivalDate: "asc" },
   });
 
   return rows.map((r) => ({
     id: r.id,
     reservationNo: r.reservationNo,
-    guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+    guestName: formatGuestFullName(r.guest),
     roomNumber: r.room.number,
     expectedArrival: r.arrivalDate,
     status: r.status,
@@ -160,7 +161,7 @@ export async function getTodaysDepartures(): Promise<SupervisorDepartureRow[]> {
   const rows = await prisma.reservation.findMany({
     where: { departureDate: { gte: startOfDay(now), lte: endOfDay(now) }, status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
     include: {
-      guest: { select: { firstName: true, lastName: true } },
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true } },
       transactions: { select: { type: true, amount: true } },
     },
@@ -180,7 +181,7 @@ export async function getTodaysDepartures(): Promise<SupervisorDepartureRow[]> {
     return {
       id: r.id,
       reservationNo: r.reservationNo,
-      guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+      guestName: formatGuestFullName(r.guest),
       roomNumber: r.room.number,
       departureTime: r.departureDate,
       balance,

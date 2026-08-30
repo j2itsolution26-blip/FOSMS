@@ -55,6 +55,7 @@ function tomorrowIso() {
 
 const EMPTY: GuestInput = {
   firstName: "",
+  middleName: "",
   lastName: "",
   preferences: "",
   notes: "",
@@ -251,7 +252,7 @@ export function GuestFormDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
             <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
               {/* Name Details */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
                   name="firstName"
@@ -263,6 +264,25 @@ export function GuestFormDialog({
                       <FormControl>
                         <Input
                           placeholder="Enter first name"
+                          className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs text-red-600" />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="middleName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        Middle Name
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter middle name"
                           className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
                           {...field}
                         />

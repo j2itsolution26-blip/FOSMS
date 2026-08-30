@@ -4,6 +4,7 @@ export const identificationTypeEnum = z.enum(["PASSPORT", "DRIVER_LICENSE", "NAT
 
 export const guestSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required.").max(100),
+  middleName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
   email: z.string().trim().toLowerCase().email("Enter a valid email address.").optional().or(z.literal("")),
   phone: z.string().trim().max(30).optional().or(z.literal("")),

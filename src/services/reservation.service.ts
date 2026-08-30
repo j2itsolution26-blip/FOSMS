@@ -57,7 +57,7 @@ export type ReservationListFilters = {
 };
 
 const listInclude = {
-  guest: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+  guest: { select: { id: true, firstName: true, middleName: true, lastName: true, email: true, phone: true } },
   room: { select: { id: true, number: true, roomType: { select: { name: true } } } },
 } satisfies Prisma.ReservationInclude;
 
@@ -74,6 +74,7 @@ export async function listReservations(pagination: PaginationInput, filters: Res
           OR: [
             { reservationNo: { contains: search, mode: "insensitive" } },
             { guest: { firstName: { contains: search, mode: "insensitive" } } },
+            { guest: { middleName: { contains: search, mode: "insensitive" } } },
             { guest: { lastName: { contains: search, mode: "insensitive" } } },
             { room: { number: { contains: search, mode: "insensitive" } } },
           ],

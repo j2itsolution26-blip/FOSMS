@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReservationStatusBadge, RoomStatusBadge } from "@/components/shared/status-badge";
+import { formatGuestFullName } from "@/lib/formatters";
 import { ROOM_STATUS_ORDER } from "@/config/room-status";
 import type {
   getSupervisorKpis,
@@ -361,7 +362,7 @@ export function SupervisorDashboard({
                         <p className="truncate text-sm font-medium">{toLabel(r.type)}</p>
                       </div>
                       <p className="truncate text-xs text-muted-foreground">
-                        {r.guest ? `${r.guest.firstName} ${r.guest.lastName}` : "—"}
+                        {r.guest ? formatGuestFullName(r.guest) : "—"}
                         {r.roomNumber ? ` · Room ${r.roomNumber}` : ""} · {formatTime(r.createdAt)}
                       </p>
                     </div>

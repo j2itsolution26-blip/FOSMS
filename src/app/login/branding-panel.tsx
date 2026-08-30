@@ -71,7 +71,14 @@ export function LoginBrandingPanel() {
       />
 
       <div className="relative">
-        <Image src="/images/asian-college-logo.png" alt="Asian College of Science and Technology" width={56} height={56} className="h-14 w-14" priority />
+        <Image
+          src="/images/diploma-program-department-logo.png"
+          alt="Diploma Program Department, Asian College"
+          width={64}
+          height={56}
+          className="h-14 w-auto"
+          priority
+        />
 
         <p className="mt-6 text-sm font-bold tracking-wide">
           ASIAN COLLEGE

@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
+import { formatGuestFullName } from "@/lib/formatters";
 import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
 import { ASSIGNABLE_ROOM_STATUSES } from "@/config/room-status";
 import type {
@@ -109,7 +110,7 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
   const rows: FrontOfficeOperation[] = [
     ...arrivals.map((r) => ({
       id: `arr-${r.id}`,
-      guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+      guestName: formatGuestFullName(r.guest),
       roomNumber: r.room.number,
       transaction: "Arrival" as const,
       time: r.arrivalDate,
@@ -119,7 +120,7 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
     })),
     ...departures.map((r) => ({
       id: `dep-${r.id}`,
-      guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+      guestName: formatGuestFullName(r.guest),
       roomNumber: r.room.number,
       transaction: "Departure" as const,
       time: r.departureDate,
@@ -129,7 +130,7 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
     })),
     ...checkIns.map((c) => ({
       id: `ci-${c.id}`,
-      guestName: `${c.reservation.guest.firstName} ${c.reservation.guest.lastName}`,
+      guestName: formatGuestFullName(c.reservation.guest),
       roomNumber: c.reservation.room.number,
       transaction: "Check-in" as const,
       time: c.checkedInAt,
@@ -139,7 +140,7 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
     })),
     ...checkOuts.map((c) => ({
       id: `co-${c.id}`,
-      guestName: `${c.reservation.guest.firstName} ${c.reservation.guest.lastName}`,
+      guestName: formatGuestFullName(c.reservation.guest),
       roomNumber: c.reservation.room.number,
       transaction: "Check-out" as const,
       time: c.checkedOutAt,
@@ -212,7 +213,7 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
     recordId: result.id,
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
-    newValue: { reservationNo: result.reservationNo, guestName: `${result.guest.firstName} ${result.guest.lastName}`, roomNumber: result.room.number },
+    newValue: { reservationNo: result.reservationNo, guestName: formatGuestFullName(result.guest), roomNumber: result.room.number },
   });
 
   return result;
@@ -266,7 +267,7 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
     recordId: result.id,
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
-    newValue: { reservationNo: result.reservationNo, guestName: `${result.guest.firstName} ${result.guest.lastName}`, roomNumber: result.room.number },
+    newValue: { reservationNo: result.reservationNo, guestName: formatGuestFullName(result.guest), roomNumber: result.room.number },
   });
 
   return result;
@@ -330,7 +331,7 @@ export async function transferRoom(input: RoomTransferInput, actor: ActorContext
     userAgent: actor.userAgent,
     previousValue: { roomNumber: result.fromRoomNumber },
     newValue: {
-      guestName: `${result.reservation.guest.firstName} ${result.reservation.guest.lastName}`,
+      guestName: formatGuestFullName(result.reservation.guest),
       roomNumber: result.toRoomNumber,
     },
   });
@@ -354,7 +355,7 @@ export async function verifyGuest(input: GuestVerificationInput, actor: ActorCon
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
     newValue: {
-      guestName: `${reservation.guest.firstName} ${reservation.guest.lastName}`,
+      guestName: formatGuestFullName(reservation.guest),
       roomNumber: reservation.room.number,
       notes: input.notes || undefined,
     },
@@ -379,6 +380,7 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
     const guest = await tx.guest.create({
       data: {
         firstName: input.firstName,
+        middleName: input.middleName || null,
         lastName: input.lastName,
         phone: input.phone || null,
         email: input.email || null,
@@ -419,7 +421,7 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
     userAgent: actor.userAgent,
     newValue: {
       reservationNo: result.reservation.reservationNo,
-      guestName: `${result.guest.firstName} ${result.guest.lastName}`,
+      guestName: formatGuestFullName(result.guest),
       roomNumber: result.room.number,
     },
   });

@@ -158,13 +158,14 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               {receipt.bedCount ? <LineItem label={`BED (${receipt.bedCount})`} value={currency(bedCharge)} /> : null}
               <div className="my-1.5 border-t border-dashed" />
               <LineItem label="SUBTOTAL" value={currency(Number(receipt.subtotal))} />
-              {receipt.discountType && receipt.discountAmount ? (
-                <LineItem
-                  label={`DISCOUNT: ${DISCOUNT_LABELS[receipt.discountType].toUpperCase()}`}
-                  value={`-${currency(Number(receipt.discountAmount))}`}
-                  muted
-                />
-              ) : null}
+              {receipt.discountType && discountAmount > 0 ? (
+                <>
+                  <LineItem label="DISCOUNT TYPE" value={DISCOUNT_LABELS[receipt.discountType]} muted />
+                  <LineItem label="DISCOUNT" value={`-${currency(discountAmount)}`} muted />
+                </>
+              ) : (
+                <LineItem label="DISCOUNT" value="None" muted />
+              )}
               <LineItem label="VAT" value={currency(vatAmount)} />
               <div className="my-1.5 border-t" />
               <LineItem label="TOTAL" value={currency(folioTotal)} />

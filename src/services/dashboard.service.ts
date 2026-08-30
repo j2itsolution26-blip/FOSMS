@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { formatGuestFullName } from "@/lib/formatters";
 
 function startOfDay(date: Date) {
   const d = new Date(date);
@@ -44,17 +45,17 @@ export async function getTodaysActivities(): Promise<TodayActivity[]> {
   const [arrivals, departures, created] = await Promise.all([
     prisma.reservation.findMany({
       where: { arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
-      include: { guest: { select: { firstName: true, lastName: true } }, room: { select: { number: true } } },
+      include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
       take: 10,
     }),
     prisma.reservation.findMany({
       where: { departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
-      include: { guest: { select: { firstName: true, lastName: true } }, room: { select: { number: true } } },
+      include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
       take: 10,
     }),
     prisma.reservation.findMany({
       where: { createdAt: { gte: todayStart, lte: todayEnd } },
-      include: { guest: { select: { firstName: true, lastName: true } } },
+      include: { guest: { select: { firstName: true, middleName: true, lastName: true } } },
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
@@ -65,19 +66,19 @@ export async function getTodaysActivities(): Promise<TodayActivity[]> {
       id: `arr-${r.id}`,
       type: "ARRIVAL" as const,
       time: r.arrivalDate,
-      label: `Check-in: ${r.guest.firstName} ${r.guest.lastName} (Rm ${r.room.number})`,
+      label: `Check-in: ${formatGuestFullName(r.guest)} (Rm ${r.room.number})`,
     })),
     ...departures.map((r) => ({
       id: `dep-${r.id}`,
       type: "DEPARTURE" as const,
       time: r.departureDate,
-      label: `Check-out: ${r.guest.firstName} ${r.guest.lastName} (Rm ${r.room.number})`,
+      label: `Check-out: ${formatGuestFullName(r.guest)} (Rm ${r.room.number})`,
     })),
     ...created.map((r) => ({
       id: `new-${r.id}`,
       type: "NEW_RESERVATION" as const,
       time: r.createdAt,
-      label: `Reservation ${r.reservationNo}: ${r.guest.firstName} ${r.guest.lastName}`,
+      label: `Reservation ${r.reservationNo}: ${formatGuestFullName(r.guest)}`,
     })),
   ];
 
@@ -126,7 +127,7 @@ export async function getDashboardSummary() {
     prisma.reservation.findMany({
       orderBy: { createdAt: "desc" },
       take: 6,
-      include: { guest: { select: { firstName: true, lastName: true } } },
+      include: { guest: { select: { firstName: true, middleName: true, lastName: true } } },
     }),
   ]);
 
@@ -180,7 +181,7 @@ export async function getDashboardSummary() {
     recentReservations: recentReservations.map((r) => ({
       id: r.id,
       reservationNo: r.reservationNo,
-      guestName: `${r.guest.firstName} ${r.guest.lastName}`,
+      guestName: formatGuestFullName(r.guest),
       arrivalDate: r.arrivalDate,
       status: r.status,
     })),

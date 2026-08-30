@@ -21,6 +21,7 @@ import { ReservationStatusMenu } from "@/components/reservations/reservation-sta
 import { ReservationFormDialog } from "@/components/reservations/reservation-form-dialog";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
+import { formatGuestFullName } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 type ReservationRow = {
@@ -30,7 +31,7 @@ type ReservationRow = {
   arrivalDate: string;
   departureDate: string;
   numGuests: number;
-  guest: { firstName: string; lastName: string; email: string | null };
+  guest: { firstName: string; middleName?: string | null; lastName: string; email: string | null };
   room: { number: string; roomType: { name: string } };
 };
 
@@ -170,7 +171,7 @@ export function ReservationsTable({
                 <TableRow key={r.id}>
                   <TableCell className="font-medium text-blue-600">{r.reservationNo}</TableCell>
                   <TableCell>
-                    {r.guest.firstName} {r.guest.lastName}
+                    {formatGuestFullName(r.guest)}
                   </TableCell>
                   <TableCell>
                     {r.room.number} <span className="text-muted-foreground">({r.room.roomType.name})</span>

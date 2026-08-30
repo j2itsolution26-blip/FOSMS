@@ -30,6 +30,7 @@ export type GuestVerificationInput = z.infer<typeof guestVerificationSchema>;
 
 export const walkInSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required.").max(100),
+  middleName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
   email: z.string().trim().toLowerCase().email("Enter a valid email address.").optional().or(z.literal("")),

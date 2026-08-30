@@ -1,15 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  Users,
-  TrendingUp,
-  Award,
-  CheckCircle2,
-  CalendarCheck,
-  BedDouble,
-  ClipboardCheck,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Wallet, Receipt, BedDouble, CheckCircle2, DoorOpen, LogIn, LogOut, AlertCircle } from "lucide-react";
 
 import { ModuleHeader } from "@/components/modules/module-header";
 import { ModuleKpiGrid } from "@/components/modules/module-kpi-grid";
@@ -17,75 +9,112 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
 import type { ModuleKpi } from "@/components/modules/types";
-import { CompetencyCompletionChart } from "@/components/analytics/competency-completion-chart";
-import { AssessmentResultsChart } from "@/components/analytics/assessment-results-chart";
-import { TrainingStatusChart } from "@/components/analytics/training-status-chart";
-import { AttendanceTrendChart } from "@/components/analytics/attendance-trend-chart";
-import { ReservationStatusTrendChart } from "@/components/analytics/reservation-status-trend-chart";
-import { FrontOfficeActivityChart } from "@/components/analytics/front-office-activity-chart";
-import { CashieringChart } from "@/components/analytics/cashiering-chart";
+import { DateRangeFilter, type DateRangePreset } from "@/components/analytics/date-range-filter";
+import { RevenueTransactionsChart } from "@/components/analytics/revenue-transactions-chart";
+import { ReservationStatusChart } from "@/components/analytics/reservation-status-chart";
+import { PaymentMethodsTable } from "@/components/analytics/payment-methods-table";
+import { FinancialSummaryList } from "@/components/analytics/financial-summary-list";
+import { DiscountReportTable } from "@/components/analytics/discount-report-table";
+import { VatSummary } from "@/components/analytics/vat-summary";
+import { FrontOfficeActivityPanel } from "@/components/analytics/front-office-activity-panel";
 import { RoomStatusChart } from "@/components/dashboard/room-status-chart";
 import { ReportBuilder } from "@/components/analytics/report-builder";
 
-type AnalyticsData = {
-  kpis: {
-    totalTrainees: number;
-    competencyCompletion: number;
-    competentRate: number;
-    assessmentCompletion: number;
-    attendanceRate: number;
-    activeReservations: number;
-    roomOccupancyRate: number;
-  };
-  competencyCompletion: { code: string; title: string; completion: number }[];
-  assessmentResults: { competent: number; notYetCompetent: number; pending: number };
-  trainingStatus: { status: string; count: number }[];
-  attendanceTrend: { date: string; label: string; attendanceRate: number }[];
-  reservationTrend: { date: string; label: string; confirmed: number; cancelled: number; noShow: number }[];
-  occupancy: { total: number; byStatus: Record<string, number> };
-  frontOfficeActivity: { checkIns: number; checkOuts: number; transfers: number; requests: number };
-  cashiering: {
-    byType: { type: string; amount: number; count: number }[];
-    byMethod: { method: string | null; amount: number }[];
-  };
+type Snapshot = {
+  todaysRevenue?: number;
+  todaysTransactions?: number;
+  activeReservations: number;
+  roomOccupancyRate: number;
+  occupiedRooms: number;
+  availableRooms: number;
+  totalRooms: number;
+  checkInsToday: number;
+  checkOutsToday: number;
+  activeGuests: number;
+  outstandingBalance?: number;
 };
+
+type AnalyticsData = {
+  canViewFinancial: boolean;
+  snapshot: Snapshot;
+  roomOccupancy: { total: number; byStatus: Record<string, number> };
+  reservationStatus: { status: string; count: number }[];
+  revenueTrend: { date: string; label: string; revenue: number; transactionCount: number }[] | null;
+  paymentMethods: { method: string; count: number; amount: number }[] | null;
+  financialSummary: {
+    grossCharges: number;
+    discounts: number;
+    vat: number;
+    netRevenue: number;
+    paymentsReceived: number;
+    refunds: number;
+    outstandingBalance: number;
+  } | null;
+  discounts: { discountType: string; transactionCount: number; totalAmount: number }[] | null;
+  vat: { vatCollected: number; vatTransactionCount: number } | null;
+};
+
+function currency(n: number) {
+  return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export function AnalyticsDashboard({ canExport }: { canExport: boolean }) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [preset, setPreset] = useState<DateRangePreset>("today");
+  const [customFrom, setCustomFrom] = useState(todayIso());
+  const [customTo, setCustomTo] = useState(todayIso());
 
-  const load = useCallback(async (showSpinner = false) => {
-    if (showSpinner) setRefreshing(true);
-    else setLoading(true);
-    const res = await apiFetch<AnalyticsData>("/api/reports/analytics");
-    if (res.success) setData(res.data);
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
+  const load = useCallback(
+    async (showSpinner = false) => {
+      if (showSpinner) setRefreshing(true);
+      else setLoading(true);
+      const params = new URLSearchParams({ range: preset });
+      if (preset === "custom") {
+        params.set("from", customFrom);
+        params.set("to", customTo);
+      }
+      const res = await apiFetch<AnalyticsData>(`/api/reports/analytics?${params.toString()}`);
+      if (res.success) setData(res.data);
+      setLoading(false);
+      setRefreshing(false);
+    },
+    [preset, customFrom, customTo]
+  );
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const kpis: ModuleKpi[] = data
-    ? [
-        { label: "Total Trainees", value: data.kpis.totalTrainees, unit: "Enrolled", icon: Users, tone: "blue" },
-        { label: "Competency Completion", value: `${data.kpis.competencyCompletion}%`, unit: "Average progress", icon: TrendingUp, tone: "purple" },
-        { label: "Competent Rate", value: `${data.kpis.competentRate}%`, unit: "Of completed assessments", icon: Award, tone: "green" },
-        { label: "Assessment Completion", value: `${data.kpis.assessmentCompletion}%`, unit: "Of all assessments", icon: ClipboardCheck, tone: "amber" },
-        { label: "Attendance Rate", value: `${data.kpis.attendanceRate}%`, unit: "Last 30 days", icon: CalendarCheck, tone: "blue" },
-        { label: "Active Reservations", value: data.kpis.activeReservations, unit: "Pending / confirmed / in-house", icon: BedDouble, tone: "purple" },
-        { label: "Room Occupancy", value: `${data.kpis.roomOccupancyRate}%`, unit: "Rooms occupied", icon: CheckCircle2, tone: "green" },
-      ]
-    : [];
+  const kpis: ModuleKpi[] = useMemo(() => {
+    if (!data) return [];
+    const list: ModuleKpi[] = [];
+    if (data.canViewFinancial) {
+      list.push({ label: "Today's Revenue", value: currency(data.snapshot.todaysRevenue ?? 0), unit: "Payments − refunds, today", icon: Wallet, tone: "green" });
+      list.push({ label: "Today's Transactions", value: data.snapshot.todaysTransactions ?? 0, unit: "Cashiering entries, today", icon: Receipt, tone: "blue" });
+    }
+    list.push({ label: "Active Reservations", value: data.snapshot.activeReservations, unit: "Pending / confirmed / in-house", icon: BedDouble, tone: "purple" });
+    list.push({ label: "Room Occupancy", value: `${data.snapshot.roomOccupancyRate}%`, unit: `${data.snapshot.occupiedRooms} of ${data.snapshot.totalRooms} rooms`, icon: CheckCircle2, tone: "green" });
+    list.push({ label: "Available Rooms", value: data.snapshot.availableRooms, unit: "Ready for assignment", icon: DoorOpen, tone: "blue" });
+    list.push({ label: "Check-ins Today", value: data.snapshot.checkInsToday, unit: "Guests checked in", icon: LogIn, tone: "amber" });
+    list.push({ label: "Check-outs Today", value: data.snapshot.checkOutsToday, unit: "Guests checked out", icon: LogOut, tone: "amber" });
+    if (data.canViewFinancial) {
+      list.push({ label: "Outstanding Balance", value: currency(data.snapshot.outstandingBalance ?? 0), unit: "Unsettled across active reservations", icon: AlertCircle, tone: "red" });
+    }
+    return list;
+  }, [data]);
 
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="print:hidden">
         <ModuleHeader
           title="Reports & Analytics"
-          description="Training, assessment, and operational performance across the Front Office Servicing NC II program."
+          description="Real-time Front Office operations and financial reporting."
           breadcrumb={["Dashboard", "Reports & Analytics"]}
           onRefresh={() => load(true)}
           refreshing={refreshing}
@@ -93,89 +122,124 @@ export function AnalyticsDashboard({ canExport }: { canExport: boolean }) {
       </div>
 
       <div className="print:hidden">
-        <ModuleKpiGrid kpis={kpis} />
+        <DateRangeFilter
+          preset={preset}
+          onPresetChange={setPreset}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomFromChange={setCustomFrom}
+          onCustomToChange={setCustomTo}
+        />
       </div>
 
       {loading || !data ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 w-full" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 print:hidden lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Competency Completion</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CompetencyCompletionChart data={data.competencyCompletion} />
-            </CardContent>
-          </Card>
+        <>
+          <div className="print:hidden">
+            <ModuleKpiGrid kpis={kpis} />
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Assessment Results</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AssessmentResultsChart data={data.assessmentResults} />
-            </CardContent>
-          </Card>
+          {data.canViewFinancial ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue &amp; Transactions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RevenueTransactionsChart data={data.revenueTrend ?? []} />
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Trainee Status Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TrainingStatusChart data={data.trainingStatus} />
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Room Occupancy</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.roomOccupancy.total === 0 ? (
+                  <p className="py-10 text-center text-sm text-muted-foreground">No data available</p>
+                ) : (
+                  <RoomStatusChart total={data.roomOccupancy.total} byStatus={data.roomOccupancy.byStatus} />
+                )}
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Attendance Trend (14 days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AttendanceTrendChart data={data.attendanceTrend} />
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Reservation Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ReservationStatusChart data={data.reservationStatus} />
+              </CardContent>
+            </Card>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Reservation Trend (14 days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ReservationStatusTrendChart data={data.reservationTrend} />
-            </CardContent>
-          </Card>
+          {data.canViewFinancial ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Payment Methods</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PaymentMethodsTable data={data.paymentMethods ?? []} />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Room Occupancy</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <RoomStatusChart total={data.occupancy.total} byStatus={data.occupancy.byStatus} />
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Financial Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {data.financialSummary ? <FinancialSummaryList data={data.financialSummary} /> : null}
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Front Office Activity (14 days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <FrontOfficeActivityChart data={data.frontOfficeActivity} />
-            </CardContent>
-          </Card>
+          {data.canViewFinancial ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Discount Report</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DiscountReportTable data={data.discounts ?? []} />
+                </CardContent>
+              </Card>
 
-          <Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>VAT Report</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <VatSummary data={data.vat} />
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
+
+          <Card className="print:hidden">
             <CardHeader>
-              <CardTitle>Cashiering (14 days)</CardTitle>
+              <CardTitle>Front Office Activity</CardTitle>
             </CardHeader>
             <CardContent>
-              <CashieringChart byType={data.cashiering.byType} byMethod={data.cashiering.byMethod} />
+              <FrontOfficeActivityPanel
+                checkInsToday={data.snapshot.checkInsToday}
+                checkOutsToday={data.snapshot.checkOutsToday}
+                activeGuests={data.snapshot.activeGuests}
+                activeReservations={data.snapshot.activeReservations}
+                occupiedRooms={data.snapshot.occupiedRooms}
+                availableRooms={data.snapshot.availableRooms}
+                outstandingBalance={data.canViewFinancial ? data.snapshot.outstandingBalance : undefined}
+              />
             </CardContent>
           </Card>
-        </div>
+        </>
       )}
 
       <ReportBuilder canExport={canExport} />
