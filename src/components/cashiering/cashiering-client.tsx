@@ -14,6 +14,7 @@ import type { ModuleColumn } from "@/components/modules/types";
 
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { RefundDialog } from "@/components/cashiering/refund-dialog";
+import { RefundTransactionDialog } from "@/components/cashiering/refund-transaction-dialog";
 import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
 import {
   TransactionDetailsDialog,
@@ -67,6 +68,7 @@ export function CashieringClient({
 
   const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | null>(null);
   const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
+  const [refundTxn, setRefundTxn] = useState<TransactionRow | null>(null);
   const [transactReservationId, setTransactReservationId] = useState<string | undefined>(undefined);
 
   function openTransactionDialog(type: "charge" | "payment", reservationId?: string) {
@@ -193,8 +195,10 @@ export function CashieringClient({
             canViewGuests={canViewGuests}
             canViewRooms={canViewRooms}
             canTransact={canManage}
+            canRefund={canManage}
             onViewTransaction={() => setDetailsTxn(r)}
             onTransact={() => handleTransact(r)}
+            onRefund={() => setRefundTxn(r)}
           />
         </div>
       ),
@@ -218,15 +222,7 @@ export function CashieringClient({
               ]
             : []
         }
-        quickActions={
-          canManage
-            ? [
-                { label: "Receive Payment", icon: Receipt, tone: "bg-emerald-50 text-emerald-700", onClick: () => openTransactionDialog("payment") },
-                { label: "New Charge", icon: Wallet, tone: "bg-blue-50 text-blue-700", onClick: () => openTransactionDialog("charge") },
-                { label: "Issue Refund", icon: Undo2, tone: "bg-red-50 text-red-700", onClick: () => setDialog("refund") },
-              ]
-            : []
-        }
+        quickActions={[]}
         search={{ value: search, onChange: setSearch, placeholder: "Search transaction, guest, receipt…" }}
         filters={[
           {
@@ -279,6 +275,12 @@ export function CashieringClient({
         initialReservationId={transactReservationId}
       />
       <RefundDialog open={dialog === "refund"} onOpenChange={(o) => setDialog(o ? "refund" : null)} onDone={() => load()} />
+      <RefundTransactionDialog
+        transaction={refundTxn}
+        open={!!refundTxn}
+        onOpenChange={(o) => !o && setRefundTxn(null)}
+        onDone={() => load()}
+      />
       <TransactionDetailsDialog
         transaction={detailsTxn}
         open={!!detailsTxn}

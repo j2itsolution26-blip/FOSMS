@@ -314,6 +314,12 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
 
 export async function issueRefund(input: IssueRefundInput, actor: ActorContext) {
   const result = await prisma.$transaction(async (tx) => {
+    // Lock the original payment row for the duration of this transaction so two
+    // concurrent refund requests against the same payment can't both read
+    // reversedById as null before either commits — without this, the second
+    // writer's update would silently clobber the first, double-refunding it.
+    await tx.$queryRaw`SELECT id FROM cashier_transactions WHERE id = ${input.originalTransactionId} FOR UPDATE`;
+
     const original = await tx.cashierTransaction.findUnique({
       where: { id: input.originalTransactionId },
       include: { reservation: { include: { guest: true } } },

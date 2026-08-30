@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, FileText, MoreVertical, Printer, Repeat, User, BedDouble, CalendarClock } from "lucide-react";
+import { Eye, FileText, MoreVertical, Printer, Repeat, Undo2, User, BedDouble, CalendarClock } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -20,20 +20,28 @@ export function TransactionActionsMenu({
   canViewGuests,
   canViewRooms,
   canTransact,
+  canRefund,
   onViewTransaction,
   onTransact,
+  onRefund,
 }: {
   transaction: TransactionDetailsRow;
   canViewReservations: boolean;
   canViewGuests: boolean;
   canViewRooms: boolean;
   canTransact: boolean;
+  canRefund: boolean;
   onViewTransaction: () => void;
   onTransact: () => void;
+  onRefund: () => void;
 }) {
   const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
   const reservation = transaction.reservation;
   const showTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
+  // Refundable only while it's still a completed, unreversed payment — once
+  // reversedById is set the existing business rules treat it as fully
+  // consumed (no partial top-up refunds), so it drops out of eligibility.
+  const showRefund = canRefund && isCompletedPayment(transaction);
 
   return (
     <DropdownMenu>
@@ -105,6 +113,15 @@ export function TransactionActionsMenu({
               <BedDouble className="h-4 w-4" /> View Room
             </Link>
           </DropdownMenuItem>
+        ) : null}
+
+        {showRefund ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onRefund} variant="destructive">
+              <Undo2 className="h-4 w-4" /> Refund
+            </DropdownMenuItem>
+          </>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
