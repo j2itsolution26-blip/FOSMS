@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { FileText, Printer, Repeat } from "lucide-react";
 
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatGuestFullName } from "@/lib/formatters";
 
 export type TransactionDetailsRow = {
@@ -49,6 +50,13 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   VOIDED: { label: "Voided", className: "bg-slate-200 text-slate-800 border-slate-300" },
 };
 
+export const TRANSACTION_TYPE_LABELS: Record<TransactionDetailsRow["type"], string> = {
+  CHARGE: "Charge",
+  PAYMENT: "Payment",
+  DISCOUNT: "Discount",
+  REFUND: "Refund",
+};
+
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -56,10 +64,14 @@ function currency(n: number) {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-sm font-medium text-slate-900">{value}</p>
     </div>
   );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">{children}</h3>;
 }
 
 /**
@@ -76,6 +88,9 @@ export function TransactionDetailsDialog({
   canViewReservations,
   canViewGuests,
   canViewRooms,
+  canTransact,
+  sessionOpen,
+  onTransact,
 }: {
   transaction: TransactionDetailsRow | null;
   open: boolean;
@@ -83,96 +98,148 @@ export function TransactionDetailsDialog({
   canViewReservations: boolean;
   canViewGuests: boolean;
   canViewRooms: boolean;
+  canTransact: boolean;
+  sessionOpen: boolean;
+  onTransact: () => void;
 }) {
   if (!transaction) return null;
 
   const statusMeta = transaction.reversedById ? STATUS_META.VOIDED : STATUS_META[transaction.type];
   const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
+  const reservation = transaction.reservation;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle>{transaction.transactionNo}</DialogTitle>
-            <Badge variant="outline" className={statusMeta.className}>
+          <div className="flex items-start justify-between gap-3 pr-6">
+            <div>
+              <DialogTitle>Transaction Details</DialogTitle>
+              <p className="mt-1 text-base font-semibold text-slate-900">{transaction.transactionNo}</p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(transaction.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+              </p>
+            </div>
+            <Badge variant="outline" className={`shrink-0 ${statusMeta.className}`}>
               {statusMeta.label}
             </Badge>
           </div>
-          <DialogDescription>
-            {new Date(transaction.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field
-            label="Guest"
-            value={
-              transaction.reservation ? (
-                canViewGuests ? (
-                  <Link href={`/guests?guestId=${transaction.reservation.guestId}`} className="text-blue-600 hover:underline">
-                    {formatGuestFullName(transaction.reservation.guest)}
-                  </Link>
-                ) : (
-                  formatGuestFullName(transaction.reservation.guest)
-                )
-              ) : (
-                "—"
-              )
-            }
-          />
-          <Field
-            label="Reservation"
-            value={
-              transaction.reservation ? (
-                canViewReservations ? (
-                  <Link
-                    href={`/reservations?reservationId=${transaction.reservation.id}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {transaction.reservation.reservationNo}
-                  </Link>
-                ) : (
-                  transaction.reservation.reservationNo
-                )
-              ) : (
-                "—"
-              )
-            }
-          />
-          <Field
-            label="Room"
-            value={
-              transaction.reservation ? (
-                canViewRooms ? (
-                  <Link href={`/rooms?roomId=${transaction.reservation.roomId}`} className="text-blue-600 hover:underline">
-                    {transaction.reservation.room.number}
-                  </Link>
-                ) : (
-                  transaction.reservation.room.number
-                )
-              ) : (
-                "—"
-              )
-            }
-          />
-          <Field label="Room Type" value={transaction.roomType?.name ?? transaction.reservation?.room.roomType.name ?? "—"} />
-          <Field label="Type" value={STATUS_META[transaction.type].label.replace("ed", "")} />
-          <Field label="Amount" value={currency(Number(transaction.amount))} />
-          <Field label="Payment Method" value={transaction.paymentMethod ? transaction.paymentMethod.replaceAll("_", " ") : "—"} />
-          <Field label="Discount Type" value={transaction.discountType ? DISCOUNT_LABELS[transaction.discountType] : "—"} />
-          <Field label="VAT" value={transaction.vatAmount ? currency(Number(transaction.vatAmount)) : "—"} />
-          <Field label="Processed By" value={`${transaction.user.firstName} ${transaction.user.lastName}`} />
+        <div className="space-y-5">
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Guest &amp; Reservation</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <Field
+                label="Guest"
+                value={
+                  reservation ? (
+                    canViewGuests ? (
+                      <Link href={`/guests?guestId=${reservation.guestId}`} className="text-blue-600 hover:underline">
+                        {formatGuestFullName(reservation.guest)}
+                      </Link>
+                    ) : (
+                      formatGuestFullName(reservation.guest)
+                    )
+                  ) : (
+                    "—"
+                  )
+                }
+              />
+              <Field
+                label="Reservation"
+                value={
+                  reservation ? (
+                    canViewReservations ? (
+                      <Link href={`/reservations?reservationId=${reservation.id}`} className="text-blue-600 hover:underline">
+                        {reservation.reservationNo}
+                      </Link>
+                    ) : (
+                      reservation.reservationNo
+                    )
+                  ) : (
+                    "—"
+                  )
+                }
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Room Information</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <Field
+                label="Room"
+                value={
+                  reservation ? (
+                    canViewRooms ? (
+                      <Link href={`/rooms?roomId=${reservation.roomId}`} className="text-blue-600 hover:underline">
+                        {reservation.room.number}
+                      </Link>
+                    ) : (
+                      reservation.room.number
+                    )
+                  ) : (
+                    "—"
+                  )
+                }
+              />
+              <Field label="Room Type" value={transaction.roomType?.name ?? reservation?.room.roomType.name ?? "—"} />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Payment Information</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Transaction Type" value={TRANSACTION_TYPE_LABELS[transaction.type]} />
+              <Field label="Payment Method" value={transaction.paymentMethod ? transaction.paymentMethod.replaceAll("_", " ") : "—"} />
+            </div>
+            <div className="rounded-md bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Total Amount</p>
+              <p className="text-2xl font-bold text-slate-900">{currency(Number(transaction.amount))}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Discount &amp; Tax</SectionHeading>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Discount Type" value={transaction.discountType ? DISCOUNT_LABELS[transaction.discountType] : "—"} />
+              <Field label="VAT" value={transaction.vatAmount ? currency(Number(transaction.vatAmount)) : "—"} />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading>Processed By</SectionHeading>
+            <p className="text-sm font-medium text-slate-900">{`${transaction.user.firstName} ${transaction.user.lastName}`}</p>
+          </div>
         </div>
 
-        {isReceiptEligible ? (
-          <Link
-            href={`/cashiering/receipts/${transaction.id}`}
-            className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:underline"
-          >
-            View Receipt <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        ) : null}
+        <DialogFooter className="flex-wrap gap-2 border-t pt-4 sm:justify-between">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            {isReceiptEligible ? (
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/cashiering/receipts/${transaction.id}`}>
+                  <FileText className="h-4 w-4" /> View Receipt
+                </Link>
+              </Button>
+            ) : null}
+            {isReceiptEligible ? (
+              <Button type="button" variant="outline" asChild>
+                <a href={`/cashiering/receipts/${transaction.id}?print=1`} target="_blank" rel="noopener noreferrer">
+                  <Printer className="h-4 w-4" /> Print Receipt
+                </a>
+              </Button>
+            ) : null}
+            {canTransact && reservation ? (
+              <Button type="button" onClick={onTransact} disabled={!sessionOpen} title={!sessionOpen ? "Open a cashier session first" : undefined}>
+                <Repeat className="h-4 w-4" /> Transact
+              </Button>
+            ) : null}
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

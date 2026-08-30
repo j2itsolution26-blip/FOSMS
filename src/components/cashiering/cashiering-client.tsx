@@ -27,7 +27,11 @@ import { RefundDialog } from "@/components/cashiering/refund-dialog";
 import { OpenCashierDialog } from "@/components/cashiering/open-cashier-dialog";
 import { CloseCashierDialog } from "@/components/cashiering/close-cashier-dialog";
 import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
-import { TransactionDetailsDialog, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
+import {
+  TransactionDetailsDialog,
+  TRANSACTION_TYPE_LABELS,
+  type TransactionDetailsRow,
+} from "@/components/cashiering/transaction-details-dialog";
 
 type TransactionRow = TransactionDetailsRow;
 
@@ -77,6 +81,19 @@ export function CashieringClient({
 
   const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | "open" | "close" | null>(null);
   const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
+  const [transactReservationId, setTransactReservationId] = useState<string | undefined>(undefined);
+
+  function openTransactionDialog(type: "charge" | "payment", reservationId?: string) {
+    setTransactReservationId(reservationId);
+    setDialog(type);
+  }
+
+  function handleTransact() {
+    if (!detailsTxn?.reservation) return;
+    const reservationId = detailsTxn.reservation.id;
+    setDetailsTxn(null);
+    openTransactionDialog("payment", reservationId);
+  }
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -159,7 +176,7 @@ export function CashieringClient({
         ),
     },
     { key: "roomType", header: "Room Type", render: (r) => r.roomType?.name ?? r.reservation?.room?.roomType.name ?? "—" },
-    { key: "type", header: "Type", render: (r) => STATUS_META[r.type].label.replace("ed", "") },
+    { key: "type", header: "Type", render: (r) => TRANSACTION_TYPE_LABELS[r.type] },
     { key: "amount", header: "Amount", className: "text-right tabular-nums", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
     { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
@@ -218,8 +235,8 @@ export function CashieringClient({
         quickActions={[
           ...(canManage
             ? [
-                { label: "New Transaction", icon: PlusCircle, tone: "bg-blue-50 text-blue-700", onClick: () => setDialog("charge"), disabled: !sessionOpen },
-                { label: "Receive Payment", icon: Wallet, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("payment"), disabled: !sessionOpen },
+                { label: "New Transaction", icon: PlusCircle, tone: "bg-blue-50 text-blue-700", onClick: () => openTransactionDialog("charge"), disabled: !sessionOpen },
+                { label: "Receive Payment", icon: Wallet, tone: "bg-emerald-50 text-emerald-700", onClick: () => openTransactionDialog("payment"), disabled: !sessionOpen },
                 { label: "Issue Refund", icon: Undo2, tone: "bg-red-50 text-red-700", onClick: () => setDialog("refund"), disabled: !sessionOpen },
                 { label: "Open Cashier", icon: DoorOpen, tone: "bg-violet-50 text-violet-700", onClick: () => setDialog("open"), disabled: sessionOpen },
                 { label: "Close Cashier", icon: DoorClosed, tone: "bg-slate-100 text-slate-700", onClick: () => setDialog("close"), disabled: !sessionOpen },
@@ -274,7 +291,16 @@ export function CashieringClient({
         </p>
       ) : null}
 
-      <TransactionDialog open={dialog === "charge" || dialog === "payment"} onOpenChange={(o) => setDialog(o ? "charge" : null)} onDone={() => load()} defaultType={dialog === "payment" ? "PAYMENT" : "CHARGE"} />
+      <TransactionDialog
+        open={dialog === "charge" || dialog === "payment"}
+        onOpenChange={(o) => {
+          setDialog(o ? "charge" : null);
+          if (!o) setTransactReservationId(undefined);
+        }}
+        onDone={() => load()}
+        defaultType={dialog === "payment" ? "PAYMENT" : "CHARGE"}
+        initialReservationId={transactReservationId}
+      />
       <RefundDialog open={dialog === "refund"} onOpenChange={(o) => setDialog(o ? "refund" : null)} onDone={() => load()} />
       <OpenCashierDialog open={dialog === "open"} onOpenChange={(o) => setDialog(o ? "open" : null)} onDone={() => load()} />
       <CloseCashierDialog open={dialog === "close"} onOpenChange={(o) => setDialog(o ? "close" : null)} onDone={() => load()} />
@@ -285,6 +311,9 @@ export function CashieringClient({
         canViewReservations={canViewReservations}
         canViewGuests={canViewGuests}
         canViewRooms={canViewRooms}
+        canTransact={canManage}
+        sessionOpen={sessionOpen}
+        onTransact={handleTransact}
       />
     </>
   );

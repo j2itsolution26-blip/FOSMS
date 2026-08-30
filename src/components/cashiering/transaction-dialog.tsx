@@ -46,11 +46,14 @@ export function TransactionDialog({
   onOpenChange,
   onDone,
   defaultType,
+  initialReservationId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
   defaultType?: "CHARGE" | "PAYMENT" | "DISCOUNT";
+  /** Pre-selects a reservation (e.g. "Transact" from an existing transaction's details) so the cashier never has to search for the guest again. */
+  initialReservationId?: string;
 }) {
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [loadingReservations, setLoadingReservations] = useState(false);
@@ -58,7 +61,7 @@ export function TransactionDialog({
   const form = useForm({
     resolver: zodResolver(createTransactionSchema),
     defaultValues: {
-      reservationId: "",
+      reservationId: initialReservationId ?? "",
       type: defaultType ?? "PAYMENT",
       amount: undefined as unknown as number,
       paymentMethod: "CASH" as const,
@@ -75,7 +78,7 @@ export function TransactionDialog({
   useEffect(() => {
     if (!open) return;
     form.reset({
-      reservationId: "",
+      reservationId: initialReservationId ?? "",
       type: defaultType ?? "PAYMENT",
       amount: undefined as unknown as number,
       paymentMethod: "CASH",
@@ -88,7 +91,7 @@ export function TransactionDialog({
       })
       .finally(() => setLoadingReservations(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultType]);
+  }, [open, defaultType, initialReservationId]);
 
   // Pre-fill Amount with the guest's real outstanding balance for a Payment
   // (never a hardcoded 0) — but only while the cashier hasn't typed their own
