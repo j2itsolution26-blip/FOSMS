@@ -4,6 +4,7 @@ import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { formatGuestFullName } from "@/lib/formatters";
 import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
+import { reservationBalance } from "@/services/cashiering.service";
 import { ASSIGNABLE_ROOM_STATUSES } from "@/config/room-status";
 import type {
   CheckInInput,
@@ -233,12 +234,7 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
     // A checked-out guest cannot receive normal charges afterward, so outstanding
     // balances must be settled (or explicitly reversed) before check-out proceeds.
     const transactions = await tx.cashierTransaction.findMany({ where: { reservationId: reservation.id } });
-    const balance = transactions.reduce((sum, t) => {
-      const amount = Number(t.amount);
-      if (t.type === "CHARGE") return sum + amount;
-      if (t.type === "PAYMENT" || t.type === "DISCOUNT" || t.type === "REFUND") return sum - amount;
-      return sum;
-    }, 0);
+    const balance = reservationBalance(transactions);
     if (balance > 0) {
       throw new AppError(
         `This guest has an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking out.`,
@@ -271,6 +267,85 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
   });
 
   return result;
+}
+
+/**
+ * The Check-Out modal's guest selector: real, currently-in-house reservations
+ * only (status CHECKED_IN) — never future/cancelled/completed reservations or
+ * demo data. Guest name is always the actual formatted First/Middle/Last
+ * name, never a reservation/folio ID.
+ */
+export async function listInHouseReservations() {
+  const reservations = await prisma.reservation.findMany({
+    where: { status: "CHECKED_IN" },
+    orderBy: { departureDate: "asc" },
+    include: {
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+      room: { select: { number: true, roomType: { select: { name: true } } } },
+    },
+  });
+
+  return reservations.map((r) => ({
+    id: r.id,
+    reservationNo: r.reservationNo,
+    guestName: formatGuestFullName(r.guest),
+    room: r.room.number,
+    roomType: r.room.roomType.name,
+    arrivalDate: r.arrivalDate,
+    departureDate: r.departureDate,
+  }));
+}
+
+/**
+ * The Check-Out review step's folio summary for one in-house reservation.
+ * `balance` is computed with the exact same reservationBalance() math the
+ * checkOut() gate above enforces server-side, so the modal's "ready to
+ * check out" state can never disagree with what the API will actually allow.
+ */
+export async function getCheckoutFolioSummary(reservationId: string) {
+  const reservation = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    include: {
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+      room: { select: { number: true, roomType: { select: { name: true } } } },
+      transactions: {
+        select: { type: true, amount: true, subtotal: true, bedCharge: true, discountAmount: true, vatAmount: true },
+      },
+    },
+  });
+  if (!reservation) throw new NotFoundError("Reservation not found.");
+  if (reservation.status !== "CHECKED_IN") {
+    throw new AppError("This guest is not currently checked in.", "INVALID_RESERVATION_STATE", 409);
+  }
+
+  const charges = reservation.transactions.filter((t) => t.type === "CHARGE");
+  const roomCharges = charges.reduce(
+    (sum, t) => sum + (t.subtotal != null ? Number(t.subtotal) - Number(t.bedCharge ?? 0) : 0),
+    0
+  );
+  const bedCharges = charges.reduce((sum, t) => sum + (t.subtotal != null ? Number(t.bedCharge ?? 0) : 0), 0);
+  const plainCharges = charges.reduce((sum, t) => sum + (t.subtotal == null ? Number(t.amount) : 0), 0);
+  const additionalCharges = bedCharges + plainCharges;
+  const folioDiscount = charges.reduce((sum, t) => sum + Number(t.discountAmount ?? 0), 0);
+  const adHocDiscount = reservation.transactions
+    .filter((t) => t.type === "DISCOUNT")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const discount = folioDiscount + adHocDiscount;
+  const vat = charges.reduce((sum, t) => sum + Number(t.vatAmount ?? 0), 0);
+  const total = roomCharges + additionalCharges - discount + vat;
+  const balance = reservationBalance(reservation.transactions);
+  const paid = total - balance;
+
+  return {
+    id: reservation.id,
+    reservationNo: reservation.reservationNo,
+    guestName: formatGuestFullName(reservation.guest),
+    room: reservation.room.number,
+    roomType: reservation.room.roomType.name,
+    arrivalDate: reservation.arrivalDate,
+    departureDate: reservation.departureDate,
+    folio: { roomCharges, additionalCharges, discount, vat, total, paid, balance },
+  };
 }
 
 export async function transferRoom(input: RoomTransferInput, actor: ActorContext) {

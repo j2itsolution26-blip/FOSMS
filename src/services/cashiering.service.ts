@@ -30,7 +30,7 @@ function endOfDay(d: Date) {
   return x;
 }
 
-function reservationBalance(transactions: { type: string; amount: Prisma.Decimal | number }[]) {
+export function reservationBalance(transactions: { type: string; amount: Prisma.Decimal | number }[]) {
   return transactions.reduce((sum, t) => {
     const amount = Number(t.amount);
     if (t.type === "CHARGE") return sum + amount;
