@@ -16,9 +16,11 @@ import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { RefundTransactionDialog } from "@/components/cashiering/refund-transaction-dialog";
 import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
 import { GuestsAwaitingPayment, type GuestAwaitingPaymentRow } from "@/components/cashiering/guests-awaiting-payment";
+import { TransactionSettleDialog } from "@/components/cashiering/transaction-settle-dialog";
 import {
   TransactionDetailsDialog,
   TRANSACTION_TYPE_LABELS,
+  isChargeFullyPaid,
   type TransactionDetailsRow,
 } from "@/components/cashiering/transaction-details-dialog";
 
@@ -70,6 +72,7 @@ export function CashieringClient({
   const [dialog, setDialog] = useState<"charge" | "payment" | null>(null);
   const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
   const [refundTxn, setRefundTxn] = useState<TransactionRow | null>(null);
+  const [settleTxn, setSettleTxn] = useState<TransactionRow | null>(null);
   const [transactReservationId, setTransactReservationId] = useState<string | undefined>(undefined);
 
   function openTransactionDialog(type: "charge" | "payment", reservationId?: string) {
@@ -77,11 +80,12 @@ export function CashieringClient({
     setDialog(type);
   }
 
+  // "Transact" on a specific row settles that exact charge in place (no new
+  // visible transaction) — a different, narrower flow than the general
+  // reservation-level Receive Payment used by GuestsAwaitingPayment below.
   function handleTransact(txn: TransactionRow) {
-    if (!txn.reservation) return;
-    const reservationId = txn.reservation.id;
     setDetailsTxn(null);
-    openTransactionDialog("payment", reservationId);
+    setSettleTxn(txn);
   }
 
   const load = useCallback(async (showSpinner = false) => {
@@ -174,7 +178,7 @@ export function CashieringClient({
       key: "status",
       header: "Status",
       render: (r) => {
-        const meta = r.reversedById ? STATUS_META.VOIDED : STATUS_META[r.type];
+        const meta = r.reversedById ? STATUS_META.VOIDED : isChargeFullyPaid(r) ? STATUS_META.PAYMENT : STATUS_META[r.type];
         return (
           <button type="button" onClick={() => setDetailsTxn(r)} aria-label={`${meta.label} — view transaction details`}>
             <Badge variant="outline" className={`${meta.className} cursor-pointer hover:opacity-80`}>
@@ -287,6 +291,12 @@ export function CashieringClient({
         transaction={refundTxn}
         open={!!refundTxn}
         onOpenChange={(o) => !o && setRefundTxn(null)}
+        onDone={() => load()}
+      />
+      <TransactionSettleDialog
+        transaction={settleTxn}
+        open={!!settleTxn}
+        onOpenChange={(o) => !o && setSettleTxn(null)}
         onDone={() => load()}
       />
       <TransactionDetailsDialog

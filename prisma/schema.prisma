@@ -857,6 +857,17 @@ model CashierTransaction {
   subtotal       Decimal?      @db.Decimal(10, 2)
   vatAmount      Decimal?      @db.Decimal(10, 2)
 
+  // Set on a PAYMENT row created by "Transact" to settle an existing CHARGE
+  // in place: the charge keeps its own transactionNo/type/amount forever (no
+  // new visible row), while this linked payment carries the real ledger
+  // entry — its own date, amount, and audit trail — needed for revenue
+  // reporting and receipts. listTodayTransactions() excludes rows with this
+  // set from the Cashiering table; the charge's "Paid" status and receipt
+  // are both derived from summing its non-reversed settledBy rows.
+  settlesTransactionId String?
+  settles               CashierTransaction?  @relation("TransactionSettlement", fields: [settlesTransactionId], references: [id])
+  settledBy             CashierTransaction[] @relation("TransactionSettlement")
+
   session     CashierSession @relation(fields: [sessionId], references: [id])
   reservation Reservation?   @relation(fields: [reservationId], references: [id])
   user        User           @relation(fields: [userId], references: [id])
@@ -865,6 +876,7 @@ model CashierTransaction {
   @@index([sessionId])
   @@index([createdAt])
   @@index([type, createdAt])
+  @@index([settlesTransactionId])
   @@map("cashier_transactions")
 }
 

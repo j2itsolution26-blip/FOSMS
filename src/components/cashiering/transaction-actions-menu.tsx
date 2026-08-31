@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { isCompletedPayment, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
+import { isCompletedPayment, isChargeFullyPaid, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 export function TransactionActionsMenu({
   transaction,
@@ -35,13 +35,15 @@ export function TransactionActionsMenu({
   onTransact: () => void;
   onRefund: () => void;
 }) {
-  const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
+  const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND" || isChargeFullyPaid(transaction);
   const reservation = transaction.reservation;
   const showTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
-  // Refundable only while it's still a completed, unreversed payment — once
-  // reversedById is set the existing business rules treat it as fully
-  // consumed (no partial top-up refunds), so it drops out of eligibility.
-  const showRefund = canRefund && isCompletedPayment(transaction);
+  // Refundable only while it's still a completed, unreversed PAYMENT row —
+  // once reversedById is set the existing business rules treat it as fully
+  // consumed (no partial top-up refunds), so it drops out of eligibility. A
+  // charge settled in place by Transact isn't refundable through this menu:
+  // the real PAYMENT row it created is intentionally hidden from the table.
+  const showRefund = canRefund && transaction.type === "PAYMENT" && !transaction.reversedById;
 
   return (
     <DropdownMenu>

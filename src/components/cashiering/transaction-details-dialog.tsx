@@ -22,6 +22,9 @@ export type TransactionDetailsRow = {
   paymentMethod: string | null;
   reversedById: string | null;
   createdAt: string;
+  /** Sum of non-reversed payments that settle this row via "Transact" (0 for
+   * everything except a CHARGE that has been paid in place). */
+  paidAmount: number;
   reservation: {
     id: string;
     reservationNo: string;
@@ -57,15 +60,24 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionDetailsRow["type"], stri
   REFUND: "Refund",
 };
 
+/** A CHARGE settled in place via "Transact" — paidAmount covers the full amount. */
+export function isChargeFullyPaid(t: Pick<TransactionDetailsRow, "type" | "amount" | "paidAmount">): boolean {
+  return t.type === "CHARGE" && t.paidAmount >= Number(t.amount);
+}
+
 /**
  * The single source of truth for "is this transaction a completed payment?" —
  * derived from the real type/reversedById columns (the same data the status
  * badge already uses), never a separate flag. A PAYMENT that was later
  * refunded no longer counts as completed, so Transact becomes available
  * again instead of permanently blocking further transactions on the folio.
+ * A CHARGE fully settled via Transact counts too — it stays type CHARGE
+ * forever, so completeness can't be read off `type` alone here.
  */
-export function isCompletedPayment(t: Pick<TransactionDetailsRow, "type" | "reversedById">): boolean {
-  return t.type === "PAYMENT" && !t.reversedById;
+export function isCompletedPayment(
+  t: Pick<TransactionDetailsRow, "type" | "reversedById" | "amount" | "paidAmount">
+): boolean {
+  return (t.type === "PAYMENT" && !t.reversedById) || isChargeFullyPaid(t);
 }
 
 function paymentStatusMessage(t: TransactionDetailsRow): { icon: typeof CheckCircle2; text: string; className: string } {
@@ -80,6 +92,9 @@ function paymentStatusMessage(t: TransactionDetailsRow): { icon: typeof CheckCir
   }
   if (t.type === "DISCOUNT") {
     return { icon: Circle, text: "Discount applied to the folio", className: "text-blue-600" };
+  }
+  if (t.paidAmount > 0) {
+    return { icon: Circle, text: "Charge — partially paid", className: "text-amber-600" };
   }
   return { icon: Circle, text: "Charge — outstanding transaction", className: "text-amber-600" };
 }
@@ -129,8 +144,12 @@ export function TransactionDetailsDialog({
 }) {
   if (!transaction) return null;
 
-  const statusMeta = transaction.reversedById ? STATUS_META.VOIDED : STATUS_META[transaction.type];
-  const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND";
+  const statusMeta = transaction.reversedById
+    ? STATUS_META.VOIDED
+    : isChargeFullyPaid(transaction)
+      ? STATUS_META.PAYMENT
+      : STATUS_META[transaction.type];
+  const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND" || isChargeFullyPaid(transaction);
   const reservation = transaction.reservation;
   const canShowTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
   const status = paymentStatusMessage(transaction);

@@ -78,6 +78,7 @@ export type FrontOfficeActivityTransaction = {
   paymentMethod: string | null;
   reversedById: string | null;
   createdAt: string;
+  paidAmount: number;
   reservation: {
     id: string;
     reservationNo: string;
@@ -130,6 +131,7 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     paymentMethod: t.paymentMethod,
     reversedById: t.reversedById,
     createdAt: t.createdAt.toISOString(),
+    paidAmount: t.paidAmount,
     reservation: t.reservation
       ? {
           id: t.reservation.id,

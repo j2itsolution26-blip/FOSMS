@@ -89,6 +89,10 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
   const transactions = await prisma.cashierTransaction.findMany({
     where: {
       createdAt: { gte: todayStart, lte: todayEnd },
+      // A payment created by "Transact" to settle an existing charge in place
+      // is never its own row in this list — it's folded into the charge's
+      // own Paid status below instead. See payTransaction().
+      settlesTransactionId: null,
       ...(searchLower
         ? {
             OR: [
@@ -112,6 +116,7 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
       },
       user: { select: { firstName: true, lastName: true } },
       roomType: { select: { name: true } },
+      settledBy: { select: { amount: true, reversedById: true } },
     },
     take: 200,
   });
@@ -142,7 +147,8 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
 
   return transactions.map((t) => {
     const backfill = t.reservationId && discountByReservation.get(t.reservationId);
-    return backfill && !t.discountType ? { ...t, discountType: backfill } : t;
+    const paidAmount = t.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
+    return { ...(backfill && !t.discountType ? { ...t, discountType: backfill } : t), paidAmount };
   });
 }
 
@@ -388,6 +394,90 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
   return result.transaction;
 }
 
+/**
+ * "Transact" on an existing CHARGE: settles it in place rather than posting
+ * a new visible transaction. The charge keeps its own transactionNo/type/
+ * amount forever — this creates a linked PAYMENT row (settlesTransactionId)
+ * purely so revenue/balance/audit keep working off the real ledger math
+ * everywhere else in the app already relies on, but listTodayTransactions()
+ * excludes it from the table, and the charge's own Paid status/receipt are
+ * derived from it. Guest/reservation/room/discount/VAT are never touched —
+ * they already live on the charge row and this never rewrites them.
+ */
+export async function payTransaction(
+  input: { transactionId: string; amount: number; reference?: string },
+  actor: ActorContext
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    // Locked so two cashiers can't both read the same remaining balance and
+    // both post a "full" payment against it.
+    await tx.$queryRaw`SELECT id FROM cashier_transactions WHERE id = ${input.transactionId} FOR UPDATE`;
+
+    const charge = await tx.cashierTransaction.findUnique({
+      where: { id: input.transactionId },
+      include: {
+        reservation: { include: { guest: true } },
+        settledBy: { select: { amount: true, reversedById: true } },
+      },
+    });
+    if (!charge) throw new NotFoundError("Transaction not found.");
+    if (charge.type !== "CHARGE") {
+      throw new AppError("Only a charge can be paid through Transact.", "INVALID_TRANSACTION_TYPE", 400);
+    }
+    if (!charge.reservationId || !charge.reservation) {
+      throw new AppError("This charge has no reservation to settle.", "INVALID_TRANSACTION_STATE", 400);
+    }
+
+    const alreadyPaid = charge.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
+    const remaining = Math.round((Number(charge.amount) - alreadyPaid) * 100) / 100;
+    if (remaining <= 0) {
+      throw new AppError("Transaction is already fully paid.", "ALREADY_PAID", 409);
+    }
+    if (input.amount > remaining) {
+      throw new AppError(
+        `Payment exceeds the remaining balance of ₱${remaining.toFixed(2)}.`,
+        "EXCEEDS_BALANCE",
+        400
+      );
+    }
+
+    const sessionId = await getOrCreateCashierSession(tx, actor.userId);
+    const transactionNo = await nextNumber(tx, "cashier-transaction", "TXN");
+    const payment = await tx.cashierTransaction.create({
+      data: {
+        transactionNo,
+        sessionId,
+        reservationId: charge.reservationId,
+        type: "PAYMENT",
+        amount: input.amount,
+        paymentMethod: charge.paymentMethod,
+        reference: input.reference || null,
+        userId: actor.userId,
+        settlesTransactionId: charge.id,
+      },
+    });
+
+    return { charge, payment };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "PAYMENT_RECEIVED",
+    module: "cashiering",
+    recordId: result.charge.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      transactionNo: result.charge.transactionNo,
+      amount: input.amount,
+      guestName: formatGuestFullName(result.charge.reservation!.guest),
+    },
+  });
+
+  return result.charge;
+}
+
 export async function issueRefund(input: IssueRefundInput, actor: ActorContext) {
   const result = await prisma.$transaction(async (tx) => {
     // Lock the original payment row for the duration of this transaction so two
@@ -577,9 +667,18 @@ export async function getReceiptKpis() {
 export async function getReceiptById(id: string) {
   const transaction = await prisma.cashierTransaction.findUnique({
     where: { id },
-    include: receiptInclude,
+    include: { ...receiptInclude, settledBy: { select: { amount: true, reversedById: true, createdAt: true } } },
   });
-  if (!transaction || (transaction.type !== "PAYMENT" && transaction.type !== "REFUND")) {
+  if (!transaction) throw new NotFoundError("Receipt not found.");
+
+  // A CHARGE row never gets its own PAYMENT/REFUND-only receipt eligibility —
+  // unless "Transact" has fully settled it in place (see payTransaction()),
+  // in which case the receipt is the charge itself, not a separate row.
+  const settledAmount = transaction.settledBy
+    .filter((s) => !s.reversedById)
+    .reduce((sum, s) => sum + Number(s.amount), 0);
+  const isSettledCharge = transaction.type === "CHARGE" && settledAmount >= Number(transaction.amount);
+  if (transaction.type !== "PAYMENT" && transaction.type !== "REFUND" && !isSettledCharge) {
     throw new NotFoundError("Receipt not found.");
   }
 
@@ -599,6 +698,16 @@ export async function getReceiptById(id: string) {
   ]);
 
   const row = toReceiptRow(transaction);
+
+  // A charge fully settled in place by "Transact" — the receipt is the
+  // charge's own transactionNo (never the linked internal payment's), with
+  // the payment date/status pulled from when it was actually paid.
+  if (isSettledCharge) {
+    const lastSettlement = transaction.settledBy
+      .filter((s) => !s.reversedById)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    Object.assign(row, { type: "PAYMENT" as const, paymentDate: lastSettlement?.createdAt ?? row.paymentDate });
+  }
 
   // A PAYMENT settling a folio-priced CHARGE doesn't itself carry the pricing
   // breakdown (only the CHARGE does) — pull it from the originating charge so

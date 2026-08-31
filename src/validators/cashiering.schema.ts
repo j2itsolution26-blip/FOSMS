@@ -37,6 +37,12 @@ export const createTransactionSchema = z
   });
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 
+export const payTransactionSchema = z.object({
+  amount: z.coerce.number().positive("Amount must be greater than 0."),
+  reference: z.string().trim().max(200).optional().or(z.literal("")),
+});
+export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
+
 export const issueRefundSchema = z.object({
   originalTransactionId: z.string().min(1, "Original transaction is required."),
   amount: z.coerce.number().positive("Amount must be greater than 0."),
