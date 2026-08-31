@@ -12,5 +12,13 @@ export default async function FrontOfficePage() {
   const user = await requirePagePermission(PERMISSIONS.FRONT_OFFICE_VIEW);
   if (!user) return <AccessDenied />;
 
-  return <FrontOfficeServicesClient canManage={hasPermission(user, PERMISSIONS.FRONT_OFFICE_MANAGE)} />;
+  return (
+    <FrontOfficeServicesClient
+      canManage={hasPermission(user, PERMISSIONS.FRONT_OFFICE_MANAGE)}
+      canViewReservations={hasPermission(user, PERMISSIONS.RESERVATIONS_VIEW)}
+      canViewGuests={hasPermission(user, PERMISSIONS.GUESTS_VIEW)}
+      canViewRooms={hasPermission(user, PERMISSIONS.ROOMS_VIEW)}
+      canViewCashiering={hasPermission(user, PERMISSIONS.CASHIERING_VIEW)}
+    />
+  );
 }

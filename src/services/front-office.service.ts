@@ -4,7 +4,9 @@ import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { formatGuestFullName } from "@/lib/formatters";
 import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
-import { reservationBalance } from "@/services/cashiering.service";
+import { reservationBalance, listTodayTransactions } from "@/services/cashiering.service";
+import { resolveDateRange, type DateRange } from "@/services/report.service";
+import { paginationMeta } from "@/validators/pagination.schema";
 import { ASSIGNABLE_ROOM_STATUSES } from "@/config/room-status";
 import type {
   CheckInInput,
@@ -52,48 +54,144 @@ export async function getFrontOfficeKpis() {
   };
 }
 
-export type FrontOfficeOperation = {
+export const FRONT_OFFICE_ACTIVITY_TYPES = [
+  "Arrival",
+  "Departure",
+  "Check-in",
+  "Check-out",
+  "Room Transfer",
+  "Guest Verification",
+  "Reservation",
+  "Charge",
+  "Payment",
+  "Refund",
+] as const;
+export type FrontOfficeActivityType = (typeof FRONT_OFFICE_ACTIVITY_TYPES)[number];
+
+/** The exact shape TransactionDetailsDialog (components/cashiering) expects — mirrored
+ * here rather than imported, since this is a server file and that's a client component. */
+export type FrontOfficeActivityTransaction = {
   id: string;
+  transactionNo: string;
+  type: "CHARGE" | "PAYMENT" | "REFUND" | "DISCOUNT";
+  amount: string;
+  paymentMethod: string | null;
+  reversedById: string | null;
+  createdAt: string;
+  reservation: {
+    id: string;
+    reservationNo: string;
+    guestId: string;
+    roomId: string;
+    guest: { firstName: string; middleName?: string | null; lastName: string };
+    room: { number: string; roomType: { name: string } };
+  } | null;
+  user: { firstName: string; lastName: string };
+  roomType: { name: string } | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  vatAmount: string | null;
+};
+
+export type FrontOfficeActivityRow = {
+  id: string;
+  activity: FrontOfficeActivityType;
   guestName: string;
+  guestId: string | null;
   roomNumber: string;
-  transaction: "Arrival" | "Departure" | "Check-in" | "Check-out" | "Room Transfer" | "Guest Verification";
+  roomId: string | null;
+  reservationId: string | null;
+  reservationNo: string | null;
   time: Date;
   staff: string;
   status: "AWAITING_CHECK_IN" | "AWAITING_CHECK_OUT" | "COMPLETED";
-  reservationId: string;
+  /** Only present for Charge/Payment/Refund rows — lets the UI reuse the existing
+   * Cashiering transaction-details dialog and receipt route without duplicating them. */
+  transaction: FrontOfficeActivityTransaction | null;
 };
 
-export async function listTodayOperations(search = ""): Promise<FrontOfficeOperation[]> {
-  const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
-  const searchLower = search.trim().toLowerCase();
+export type FrontOfficeActivityFilters = {
+  search?: string;
+  activityType?: string;
+  staff?: string;
+  status?: string;
+  rangePreset?: string;
+  rangeFrom?: string;
+  rangeTo?: string;
+  page?: number;
+  pageSize?: number;
+};
 
-  const [arrivals, departures, checkIns, checkOuts, activityLogs] = await Promise.all([
+function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTransactions>>>[number]): FrontOfficeActivityTransaction {
+  return {
+    id: t.id,
+    transactionNo: t.transactionNo,
+    type: t.type,
+    amount: t.amount.toString(),
+    paymentMethod: t.paymentMethod,
+    reversedById: t.reversedById,
+    createdAt: t.createdAt.toISOString(),
+    reservation: t.reservation
+      ? {
+          id: t.reservation.id,
+          reservationNo: t.reservation.reservationNo,
+          guestId: t.reservation.guestId,
+          roomId: t.reservation.roomId,
+          guest: t.reservation.guest,
+          room: t.reservation.room,
+        }
+      : null,
+    user: t.user,
+    roomType: t.roomType,
+    discountType: t.discountType,
+    vatAmount: t.vatAmount?.toString() ?? null,
+  };
+}
+
+/**
+ * Every real front-office activity for the selected date range, merged from
+ * their actual source tables (never a single "events" table — this system
+ * doesn't have one): reservation arrivals/departures/creation, CheckIn/CheckOut
+ * records, ROOM_TRANSFER/GUEST_VERIFICATION audit entries (the only source for
+ * those two — no dedicated table), and CashierTransaction rows for
+ * Charge/Payment/Refund. Filtered, sorted, and paginated in memory, which is
+ * fine at the scale of one property's daily/weekly/monthly activity.
+ */
+export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilters = {}) {
+  const range: DateRange = resolveDateRange(filters.rangePreset ?? "today", filters.rangeFrom, filters.rangeTo);
+  const searchLower = (filters.search ?? "").trim().toLowerCase();
+  const page = filters.page && filters.page > 0 ? filters.page : 1;
+  const pageSize = filters.pageSize && filters.pageSize > 0 ? filters.pageSize : 25;
+
+  const [arrivals, departures, checkIns, checkOuts, activityLogs, reservationsCreated, transactions] = await Promise.all([
     prisma.reservation.findMany({
-      where: { arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { arrivalDate: { gte: range.from, lte: range.to }, status: { in: ["PENDING", "CONFIRMED"] } },
       include: { guest: true, room: true },
     }),
     prisma.reservation.findMany({
-      where: { departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
+      where: { departureDate: { gte: range.from, lte: range.to }, status: "CHECKED_IN" },
       include: { guest: true, room: true },
     }),
     prisma.checkIn.findMany({
-      where: { checkedInAt: { gte: todayStart, lte: todayEnd } },
+      where: { checkedInAt: { gte: range.from, lte: range.to } },
       include: { reservation: { include: { guest: true, room: true } } },
     }),
     prisma.checkOut.findMany({
-      where: { checkedOutAt: { gte: todayStart, lte: todayEnd } },
+      where: { checkedOutAt: { gte: range.from, lte: range.to } },
       include: { reservation: { include: { guest: true, room: true } } },
     }),
     prisma.auditLog.findMany({
       where: {
         module: "front-office",
         action: { in: ["ROOM_TRANSFER", "GUEST_VERIFICATION", "CHECK_IN", "CHECK_OUT", "WALK_IN"] },
-        createdAt: { gte: todayStart, lte: todayEnd },
+        createdAt: { gte: range.from, lte: range.to },
       },
       include: { user: true },
     }),
+    prisma.reservation.findMany({
+      where: { createdAt: { gte: range.from, lte: range.to } },
+      include: { guest: true, room: true, createdBy: { select: { firstName: true, lastName: true } } },
+    }),
+    listTodayTransactions("", range),
   ]);
 
   // CheckIn/CheckOut records don't carry who performed them; the audit trail does.
@@ -108,70 +206,135 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
     }
   }
 
-  const rows: FrontOfficeOperation[] = [
+  const rows: FrontOfficeActivityRow[] = [
     ...arrivals.map((r) => ({
       id: `arr-${r.id}`,
+      activity: "Arrival" as const,
       guestName: formatGuestFullName(r.guest),
+      guestId: r.guestId,
       roomNumber: r.room.number,
-      transaction: "Arrival" as const,
+      roomId: r.roomId,
+      reservationId: r.id,
+      reservationNo: r.reservationNo,
       time: r.arrivalDate,
       staff: "—",
       status: "AWAITING_CHECK_IN" as const,
-      reservationId: r.id,
+      transaction: null,
     })),
     ...departures.map((r) => ({
       id: `dep-${r.id}`,
+      activity: "Departure" as const,
       guestName: formatGuestFullName(r.guest),
+      guestId: r.guestId,
       roomNumber: r.room.number,
-      transaction: "Departure" as const,
+      roomId: r.roomId,
+      reservationId: r.id,
+      reservationNo: r.reservationNo,
       time: r.departureDate,
       staff: "—",
       status: "AWAITING_CHECK_OUT" as const,
-      reservationId: r.id,
+      transaction: null,
     })),
     ...checkIns.map((c) => ({
       id: `ci-${c.id}`,
+      activity: "Check-in" as const,
       guestName: formatGuestFullName(c.reservation.guest),
+      guestId: c.reservation.guestId,
       roomNumber: c.reservation.room.number,
-      transaction: "Check-in" as const,
+      roomId: c.reservation.roomId,
+      reservationId: c.reservationId,
+      reservationNo: c.reservation.reservationNo,
       time: c.checkedInAt,
       staff: staffByReservationAction.get(`${c.reservationId}:CHECK_IN`) ?? "—",
       status: "COMPLETED" as const,
-      reservationId: c.reservationId,
+      transaction: null,
     })),
     ...checkOuts.map((c) => ({
       id: `co-${c.id}`,
+      activity: "Check-out" as const,
       guestName: formatGuestFullName(c.reservation.guest),
+      guestId: c.reservation.guestId,
       roomNumber: c.reservation.room.number,
-      transaction: "Check-out" as const,
+      roomId: c.reservation.roomId,
+      reservationId: c.reservationId,
+      reservationNo: c.reservation.reservationNo,
       time: c.checkedOutAt,
       staff: staffByReservationAction.get(`${c.reservationId}:CHECK_OUT`) ?? "—",
       status: "COMPLETED" as const,
-      reservationId: c.reservationId,
+      transaction: null,
     })),
     ...activityLogs
       .filter((t) => t.action === "ROOM_TRANSFER" || t.action === "GUEST_VERIFICATION")
       .map((t) => ({
         id: `tr-${t.id}`,
+        activity: (t.action === "ROOM_TRANSFER" ? "Room Transfer" : "Guest Verification") as FrontOfficeActivityType,
         guestName: (t.newValue as { guestName?: string } | null)?.guestName ?? "—",
+        guestId: null,
         roomNumber: (t.newValue as { roomNumber?: string } | null)?.roomNumber ?? "—",
-        transaction: (t.action === "ROOM_TRANSFER" ? "Room Transfer" : "Guest Verification") as FrontOfficeOperation["transaction"],
+        roomId: null,
+        reservationId: t.recordId,
+        reservationNo: null,
         time: t.createdAt,
         staff: t.user ? `${t.user.firstName} ${t.user.lastName}` : "—",
         status: "COMPLETED" as const,
-        reservationId: t.recordId ?? "",
+        transaction: null,
+      })),
+    ...reservationsCreated.map((r) => ({
+      id: `res-${r.id}`,
+      activity: "Reservation" as const,
+      guestName: formatGuestFullName(r.guest),
+      guestId: r.guestId,
+      roomNumber: r.room.number,
+      roomId: r.roomId,
+      reservationId: r.id,
+      reservationNo: r.reservationNo,
+      time: r.createdAt,
+      staff: r.createdBy ? `${r.createdBy.firstName} ${r.createdBy.lastName}` : "—",
+      status: "COMPLETED" as const,
+      transaction: null,
+    })),
+    ...transactions
+      .filter((t) => t.type === "CHARGE" || t.type === "PAYMENT" || t.type === "REFUND")
+      .map((t) => ({
+        id: `txn-${t.id}`,
+        activity: (t.type === "CHARGE" ? "Charge" : t.type === "PAYMENT" ? "Payment" : "Refund") as FrontOfficeActivityType,
+        guestName: t.reservation ? formatGuestFullName(t.reservation.guest) : "—",
+        guestId: t.reservation?.guestId ?? null,
+        roomNumber: t.reservation?.room.number ?? "—",
+        roomId: t.reservation?.roomId ?? null,
+        reservationId: t.reservation?.id ?? null,
+        reservationNo: t.reservation?.reservationNo ?? null,
+        time: t.createdAt,
+        staff: `${t.user.firstName} ${t.user.lastName}`,
+        status: "COMPLETED" as const,
+        transaction: toTransactionShape(t),
       })),
   ];
 
-  const filtered = searchLower
-    ? rows.filter(
-        (r) =>
-          r.guestName.toLowerCase().includes(searchLower) ||
-          r.roomNumber.toLowerCase().includes(searchLower)
-      )
-    : rows;
+  const filterOptions = {
+    activityTypes: [...new Set(rows.map((r) => r.activity))].sort(),
+    staff: [...new Set(rows.map((r) => r.staff).filter((s) => s !== "—"))].sort(),
+  };
 
-  return filtered.sort((a, b) => b.time.getTime() - a.time.getTime());
+  const filtered = rows.filter((r) => {
+    if (filters.activityType && r.activity !== filters.activityType) return false;
+    if (filters.staff && r.staff !== filters.staff) return false;
+    if (filters.status && r.status !== filters.status) return false;
+    if (searchLower) {
+      const haystack = [r.guestName, r.roomNumber, r.reservationNo ?? "", r.transaction?.transactionNo ?? "", r.activity]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(searchLower)) return false;
+    }
+    return true;
+  });
+
+  const sorted = filtered.sort((a, b) => b.time.getTime() - a.time.getTime());
+  const total = sorted.length;
+  const start = (page - 1) * pageSize;
+  const pageRows = sorted.slice(start, start + pageSize);
+
+  return { rows: pageRows, meta: paginationMeta(total, { page, pageSize }), filterOptions };
 }
 
 export async function checkIn(input: CheckInInput, actor: ActorContext) {

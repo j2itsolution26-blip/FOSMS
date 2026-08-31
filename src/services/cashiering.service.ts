@@ -80,10 +80,10 @@ export async function getOutstandingBalanceTotal() {
   return reservations.reduce((sum, r) => sum + Math.max(0, reservationBalance(r.transactions)), 0);
 }
 
-export async function listTodayTransactions(search = "") {
+export async function listTodayTransactions(search = "", range?: { from: Date; to: Date }) {
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const todayStart = range?.from ?? startOfDay(now);
+  const todayEnd = range?.to ?? endOfDay(now);
   const searchLower = search.trim();
 
   const transactions = await prisma.cashierTransaction.findMany({

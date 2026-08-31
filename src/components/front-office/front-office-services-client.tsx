@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
 import {
   LogIn,
   LogOut,
@@ -9,82 +11,204 @@ import {
   UserPlus,
   Users,
   DoorOpen,
+  CalendarPlus,
+  Receipt,
+  Wallet,
+  Undo2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
 import { ModuleEmptyState } from "@/components/modules/module-empty-state";
-import type { ModuleColumn } from "@/components/modules/types";
+import type { ModuleColumn, ModuleFilterSelect } from "@/components/modules/types";
 
 import { CheckInDialog } from "@/components/front-office/check-in-dialog";
 import { CheckOutDialog } from "@/components/front-office/check-out-dialog";
 import { RoomTransferDialog } from "@/components/front-office/room-transfer-dialog";
 import { GuestVerificationDialog } from "@/components/front-office/guest-verification-dialog";
 import { WalkInDialog } from "@/components/front-office/walk-in-dialog";
-
-type Operation = {
-  id: string;
-  guestName: string;
-  roomNumber: string;
-  transaction: string;
-  time: string;
-  staff: string;
-  status: "AWAITING_CHECK_IN" | "AWAITING_CHECK_OUT" | "COMPLETED";
-  reservationId: string;
-};
+import { FrontOfficeActivityActionsMenu } from "@/components/front-office/front-office-activity-actions-menu";
+import { TransactionDetailsDialog } from "@/components/cashiering/transaction-details-dialog";
+import type { FrontOfficeActivityRow, FrontOfficeActivityType } from "@/services/front-office.service";
 
 type Summary = {
   kpis: { todaysCheckIns: number; todaysCheckOuts: number; inHouseGuests: number; pendingRequests: number };
-  operations: Operation[];
+  operations: FrontOfficeActivityRow[];
+  meta: PaginationMeta;
+  filterOptions: { activityTypes: FrontOfficeActivityType[]; staff: string[] };
   activity: { id: string; time: string; action: string; label: string }[];
 };
 
-const STATUS_META: Record<Operation["status"], { label: string; className: string }> = {
+const STATUS_META: Record<FrontOfficeActivityRow["status"], { label: string; className: string }> = {
   AWAITING_CHECK_IN: { label: "Awaiting Check-in", className: "bg-amber-100 text-amber-800 border-amber-200" },
   AWAITING_CHECK_OUT: { label: "Awaiting Check-out", className: "bg-blue-100 text-blue-800 border-blue-200" },
   COMPLETED: { label: "Completed", className: "bg-emerald-100 text-emerald-800 border-emerald-200" },
 };
 
-export function FrontOfficeServicesClient({ canManage }: { canManage: boolean }) {
+// Subtle, semantic — reuses the same Charge=amber/Payment=emerald/Refund=red
+// convention Cashiering already uses, so an activity reads the same color
+// everywhere in the app rather than inventing a second palette.
+const ACTIVITY_META: Record<FrontOfficeActivityType, { icon: LucideIcon; className: string }> = {
+  Arrival: { icon: LogIn, className: "bg-slate-100 text-slate-700 border-slate-200" },
+  Departure: { icon: LogOut, className: "bg-slate-100 text-slate-700 border-slate-200" },
+  "Check-in": { icon: LogIn, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "Check-out": { icon: LogOut, className: "bg-blue-50 text-blue-700 border-blue-200" },
+  "Room Transfer": { icon: ArrowLeftRight, className: "bg-violet-50 text-violet-700 border-violet-200" },
+  "Guest Verification": { icon: BadgeCheck, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  Reservation: { icon: CalendarPlus, className: "bg-blue-50 text-blue-700 border-blue-200" },
+  Charge: { icon: Receipt, className: "bg-amber-50 text-amber-700 border-amber-200" },
+  Payment: { icon: Wallet, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  Refund: { icon: Undo2, className: "bg-red-50 text-red-700 border-red-200" },
+};
+
+const RANGE_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "week", label: "This Week" },
+  { value: "month", label: "This Month" },
+];
+
+function ActivityBadge({ activity }: { activity: FrontOfficeActivityType }) {
+  const meta = ACTIVITY_META[activity];
+  const Icon = meta.icon;
+  return (
+    <Badge variant="outline" className={`gap-1 font-medium ${meta.className}`}>
+      <Icon className="h-3 w-3" /> {activity}
+    </Badge>
+  );
+}
+
+export function FrontOfficeServicesClient({
+  canManage,
+  canViewReservations,
+  canViewGuests,
+  canViewRooms,
+  canViewCashiering,
+}: {
+  canManage: boolean;
+  canViewReservations: boolean;
+  canViewGuests: boolean;
+  canViewRooms: boolean;
+  canViewCashiering: boolean;
+}) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
+  const [activityFilter, setActivityFilter] = useState("");
+  const [staffFilter, setStaffFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [rangeFilter, setRangeFilter] = useState("today");
+  const [page, setPage] = useState(1);
   const debouncedSearch = useDebouncedValue(search);
 
   const [dialog, setDialog] = useState<
     "check-in" | "check-out" | "transfer" | "verify" | "walk-in" | null
   >(null);
   const [prefillReservationId, setPrefillReservationId] = useState<string | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<FrontOfficeActivityRow["transaction"]>(null);
 
-  const load = useCallback(async (showSpinner = false) => {
-    if (showSpinner) setRefreshing(true);
-    else setLoading(true);
-    const params = new URLSearchParams();
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    const result = await apiFetch<Summary>(`/api/front-office/summary?${params.toString()}`);
-    if (result.success) setSummary(result.data);
-    setLoading(false);
-    setRefreshing(false);
-  }, [debouncedSearch]);
+  const load = useCallback(
+    async (showSpinner = false) => {
+      if (showSpinner) setRefreshing(true);
+      else setLoading(true);
+      const params = new URLSearchParams({ page: String(page), pageSize: "25", range: rangeFilter });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (activityFilter) params.set("activityType", activityFilter);
+      if (staffFilter) params.set("staff", staffFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      const result = await apiFetch<Summary>(`/api/front-office/summary?${params.toString()}`);
+      if (result.success) setSummary(result.data);
+      setLoading(false);
+      setRefreshing(false);
+    },
+    [debouncedSearch, activityFilter, staffFilter, statusFilter, rangeFilter, page]
+  );
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, activityFilter, staffFilter, statusFilter, rangeFilter]);
 
   function openDialog(name: typeof dialog, reservationId?: string) {
     setPrefillReservationId(reservationId ?? null);
     setDialog(name);
   }
 
-  const columns: ModuleColumn<Operation>[] = [
-    { key: "guest", header: "Guest", render: (r) => <span className="font-medium">{r.guestName}</span> },
-    { key: "room", header: "Room", render: (r) => r.roomNumber },
-    { key: "transaction", header: "Transaction", render: (r) => r.transaction },
-    { key: "time", header: "Time", render: (r) => new Date(r.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) },
+  const filters: ModuleFilterSelect[] = [
+    {
+      label: "Activity",
+      value: activityFilter,
+      placeholder: "All Activities",
+      onChange: setActivityFilter,
+      options: (summary?.filterOptions.activityTypes ?? []).map((a) => ({ value: a, label: a })),
+    },
+    {
+      label: "Staff",
+      value: staffFilter,
+      placeholder: "All Staff",
+      onChange: setStaffFilter,
+      options: (summary?.filterOptions.staff ?? []).map((s) => ({ value: s, label: s })),
+    },
+    {
+      label: "Status",
+      value: statusFilter,
+      placeholder: "All Status",
+      onChange: setStatusFilter,
+      options: Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label })),
+    },
+    {
+      label: "Date",
+      // "today" is the page's natural default, not a user-applied filter —
+      // keep the select showing its placeholder (and Clear Filters hidden)
+      // until they actually pick something else.
+      value: rangeFilter === "today" ? "" : rangeFilter,
+      placeholder: "Today",
+      onChange: (v) => setRangeFilter(v || "today"),
+      options: RANGE_OPTIONS.filter((o) => o.value !== "today"),
+    },
+  ];
+
+  const columns: ModuleColumn<FrontOfficeActivityRow>[] = [
+    {
+      key: "guest",
+      header: "Guest",
+      render: (r) =>
+        r.guestId && canViewGuests ? (
+          <Link href={`/guests?guestId=${r.guestId}`} className="font-medium text-blue-600 hover:underline">
+            {r.guestName}
+          </Link>
+        ) : (
+          <span className="font-medium">{r.guestName}</span>
+        ),
+    },
+    {
+      key: "room",
+      header: "Room",
+      render: (r) =>
+        r.roomId && canViewRooms ? (
+          <Link href={`/rooms?roomId=${r.roomId}`} className="text-blue-600 hover:underline">
+            {r.roomNumber}
+          </Link>
+        ) : (
+          r.roomNumber
+        ),
+    },
+    { key: "activity", header: "Activity", render: (r) => <ActivityBadge activity={r.activity} /> },
+    {
+      key: "time",
+      header: "Time",
+      render: (r) =>
+        rangeFilter === "today"
+          ? new Date(r.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+          : new Date(r.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+    },
     { key: "staff", header: "Staff", render: (r) => r.staff },
     {
       key: "status",
@@ -98,30 +222,34 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
     {
       key: "action",
       header: "Action",
-      render: (r) => {
-        if (!canManage) return null;
-        if (r.status === "AWAITING_CHECK_IN") {
-          return (
-            <Button size="sm" variant="outline" onClick={() => openDialog("check-in", r.reservationId)}>
+      className: "text-right",
+      render: (r) => (
+        <div className="flex items-center justify-end gap-2">
+          {canManage && r.status === "AWAITING_CHECK_IN" ? (
+            <Button size="sm" variant="outline" onClick={() => openDialog("check-in", r.reservationId ?? undefined)}>
               Check In
             </Button>
-          );
-        }
-        if (r.status === "AWAITING_CHECK_OUT") {
-          return (
-            <Button size="sm" variant="outline" onClick={() => openDialog("check-out", r.reservationId)}>
+          ) : null}
+          {canManage && r.status === "AWAITING_CHECK_OUT" ? (
+            <Button size="sm" variant="outline" onClick={() => openDialog("check-out", r.reservationId ?? undefined)}>
               Check Out
             </Button>
-          );
-        }
-        return null;
-      },
+          ) : null}
+          <FrontOfficeActivityActionsMenu
+            row={r}
+            canViewReservations={canViewReservations}
+            canViewGuests={canViewGuests}
+            canViewCashiering={canViewCashiering}
+            onViewTransaction={() => setViewingTransaction(r.transaction)}
+          />
+        </div>
+      ),
     },
   ];
 
   return (
     <>
-      <FrontOfficeModuleLayout<Operation>
+      <FrontOfficeModuleLayout<FrontOfficeActivityRow>
         title="Front Office Services"
         description="Check-in, check-out, room transfers, and guest verification."
         breadcrumb={["Dashboard", "Operations", "Front Office Services"]}
@@ -147,20 +275,25 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
               ]
             : []
         }
-        search={{ value: search, onChange: setSearch, placeholder: "Search guest, room, reservation…" }}
-        filters={[]}
-        onClearFilters={() => {}}
-        tableTitle="Today's Front Office Operations"
+        search={{ value: search, onChange: setSearch, placeholder: "Search guest, room, reservation #, transaction #, activity…" }}
+        filters={filters}
+        onClearFilters={() => {
+          setActivityFilter("");
+          setStaffFilter("");
+          setStatusFilter("");
+          setRangeFilter("today");
+        }}
+        tableTitle={rangeFilter === "today" ? "Today's Front Office Operations" : "Front Office Operations"}
         columns={columns}
         rows={summary?.operations ?? []}
         loading={loading}
-        meta={null}
-        onPageChange={() => {}}
+        meta={summary?.meta ?? null}
+        onPageChange={setPage}
         emptyState={
           <ModuleEmptyState
             icon={DoorOpen}
-            title="No front office activity today"
-            description="Arrivals, departures, and check-in/out actions for today will appear here."
+            title="No front office activity found"
+            description="Arrivals, departures, check-ins/outs, reservations, and payments for the selected filters will appear here."
             actionLabel={canManage ? "Walk-In Guest" : undefined}
             onAction={canManage ? () => openDialog("walk-in") : undefined}
           />
@@ -190,6 +323,16 @@ export function FrontOfficeServicesClient({ canManage }: { canManage: boolean })
       <RoomTransferDialog open={dialog === "transfer"} onOpenChange={(o) => setDialog(o ? "transfer" : null)} onDone={() => load()} />
       <GuestVerificationDialog open={dialog === "verify"} onOpenChange={(o) => setDialog(o ? "verify" : null)} onDone={() => load()} />
       <WalkInDialog open={dialog === "walk-in"} onOpenChange={(o) => setDialog(o ? "walk-in" : null)} onDone={() => load()} />
+      <TransactionDetailsDialog
+        transaction={viewingTransaction}
+        open={!!viewingTransaction}
+        onOpenChange={(o) => !o && setViewingTransaction(null)}
+        canViewReservations={canViewReservations}
+        canViewGuests={canViewGuests}
+        canViewRooms={canViewRooms}
+        canTransact={false}
+        onTransact={() => {}}
+      />
     </>
   );
 }
