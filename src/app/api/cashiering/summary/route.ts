@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { apiSuccess } from "@/lib/api-response";
 import { authorize } from "@/lib/auth/guard";
 import { PERMISSIONS } from "@/config/permissions";
-import { getCashieringKpis, listTodayTransactions } from "@/services/cashiering.service";
+import { getCashieringKpis, getGuestsAwaitingPayment, listTodayTransactions } from "@/services/cashiering.service";
 import { getRecentModuleActivity } from "@/services/audit.service";
 
 function describeActivity(action: string, newValue: unknown) {
@@ -30,9 +30,10 @@ export async function GET(req: NextRequest) {
 
   const search = req.nextUrl.searchParams.get("search") ?? "";
 
-  const [kpis, transactions, activityLogs] = await Promise.all([
+  const [kpis, transactions, awaitingPayment, activityLogs] = await Promise.all([
     getCashieringKpis(),
     listTodayTransactions(search),
+    getGuestsAwaitingPayment(),
     getRecentModuleActivity("cashiering", 8),
   ]);
 
@@ -43,5 +44,5 @@ export async function GET(req: NextRequest) {
     label: describeActivity(log.action, log.newValue),
   }));
 
-  return apiSuccess({ kpis, transactions, activity });
+  return apiSuccess({ kpis, transactions, awaitingPayment, activity });
 }

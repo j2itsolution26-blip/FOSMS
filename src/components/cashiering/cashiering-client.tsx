@@ -13,9 +13,9 @@ import { ModuleEmptyState } from "@/components/modules/module-empty-state";
 import type { ModuleColumn } from "@/components/modules/types";
 
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
-import { RefundDialog } from "@/components/cashiering/refund-dialog";
 import { RefundTransactionDialog } from "@/components/cashiering/refund-transaction-dialog";
 import { TransactionActionsMenu } from "@/components/cashiering/transaction-actions-menu";
+import { GuestsAwaitingPayment, type GuestAwaitingPaymentRow } from "@/components/cashiering/guests-awaiting-payment";
 import {
   TransactionDetailsDialog,
   TRANSACTION_TYPE_LABELS,
@@ -33,6 +33,7 @@ const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, strin
 type Summary = {
   kpis: { todaysTransactions: number; todaysRevenue: number; pendingPayments: number };
   transactions: TransactionRow[];
+  awaitingPayment: GuestAwaitingPaymentRow[];
   activity: { id: string; time: string; action: string; label: string }[];
 };
 
@@ -66,7 +67,7 @@ export function CashieringClient({
   const [typeFilter, setTypeFilter] = useState("");
   const debouncedSearch = useDebouncedValue(search);
 
-  const [dialog, setDialog] = useState<"charge" | "payment" | "refund" | null>(null);
+  const [dialog, setDialog] = useState<"charge" | "payment" | null>(null);
   const [detailsTxn, setDetailsTxn] = useState<TransactionRow | null>(null);
   const [refundTxn, setRefundTxn] = useState<TransactionRow | null>(null);
   const [transactReservationId, setTransactReservationId] = useState<string | undefined>(undefined);
@@ -223,6 +224,16 @@ export function CashieringClient({
             : []
         }
         quickActions={[]}
+        secondarySection={
+          <GuestsAwaitingPayment
+            rows={summary?.awaitingPayment ?? []}
+            canViewGuests={canViewGuests}
+            canViewReservations={canViewReservations}
+            canViewRooms={canViewRooms}
+            canTransact={canManage}
+            onTransact={(reservationId) => openTransactionDialog("payment", reservationId)}
+          />
+        }
         search={{ value: search, onChange: setSearch, placeholder: "Search transaction, guest, receipt…" }}
         filters={[
           {
@@ -250,8 +261,6 @@ export function CashieringClient({
             icon={Receipt}
             title="No transactions today"
             description="There are currently no cashiering transactions for the selected period."
-            actionLabel={canManage ? "New Transaction" : undefined}
-            onAction={canManage ? () => setDialog("charge") : undefined}
           />
         }
         activityTitle="Recent Activity"
@@ -274,7 +283,6 @@ export function CashieringClient({
         defaultType={dialog === "payment" ? "PAYMENT" : "CHARGE"}
         initialReservationId={transactReservationId}
       />
-      <RefundDialog open={dialog === "refund"} onOpenChange={(o) => setDialog(o ? "refund" : null)} onDone={() => load()} />
       <RefundTransactionDialog
         transaction={refundTxn}
         open={!!refundTxn}

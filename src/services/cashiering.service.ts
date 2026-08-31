@@ -86,7 +86,7 @@ export async function listTodayTransactions(search = "") {
   const todayEnd = endOfDay(now);
   const searchLower = search.trim();
 
-  return prisma.cashierTransaction.findMany({
+  const transactions = await prisma.cashierTransaction.findMany({
     where: {
       createdAt: { gte: todayStart, lte: todayEnd },
       ...(searchLower
@@ -95,7 +95,9 @@ export async function listTodayTransactions(search = "") {
               { transactionNo: { contains: searchLower, mode: "insensitive" } },
               { reservation: { reservationNo: { contains: searchLower, mode: "insensitive" } } },
               { reservation: { guest: { firstName: { contains: searchLower, mode: "insensitive" } } } },
+              { reservation: { guest: { middleName: { contains: searchLower, mode: "insensitive" } } } },
               { reservation: { guest: { lastName: { contains: searchLower, mode: "insensitive" } } } },
+              { reservation: { room: { number: { contains: searchLower, mode: "insensitive" } } } },
             ],
           }
         : {}),
@@ -104,7 +106,7 @@ export async function listTodayTransactions(search = "") {
     include: {
       reservation: {
         include: {
-          guest: { select: { firstName: true, lastName: true } },
+          guest: { select: { firstName: true, middleName: true, lastName: true } },
           room: { select: { number: true, roomType: { select: { name: true } } } },
         },
       },
@@ -112,6 +114,35 @@ export async function listTodayTransactions(search = "") {
       roomType: { select: { name: true } },
     },
     take: 200,
+  });
+
+  // A PAYMENT/REFUND row never carries its own discountType (only the CHARGE
+  // it settles does) — same gap getReceiptById already backfills for a single
+  // receipt; batched here (one extra indexed query, not N+1) for the list.
+  const reservationIdsNeedingDiscount = [
+    ...new Set(
+      transactions
+        .filter((t) => (t.type === "PAYMENT" || t.type === "REFUND") && !t.discountType && t.reservationId)
+        .map((t) => t.reservationId as string)
+    ),
+  ];
+  const discountByReservation = new Map<string, (typeof transactions)[number]["discountType"]>();
+  if (reservationIdsNeedingDiscount.length) {
+    const chargesWithDiscount = await prisma.cashierTransaction.findMany({
+      where: { reservationId: { in: reservationIdsNeedingDiscount }, type: "CHARGE", discountType: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { reservationId: true, discountType: true },
+    });
+    for (const c of chargesWithDiscount) {
+      if (c.reservationId && !discountByReservation.has(c.reservationId)) {
+        discountByReservation.set(c.reservationId, c.discountType);
+      }
+    }
+  }
+
+  return transactions.map((t) => {
+    const backfill = t.reservationId && discountByReservation.get(t.reservationId);
+    return backfill && !t.discountType ? { ...t, discountType: backfill } : t;
   });
 }
 
@@ -140,6 +171,51 @@ export async function listOpenReservationsForTransactions() {
     room: r.room,
     balance: reservationBalance(r.transactions),
   }));
+}
+
+/**
+ * The real checkout-driven Cashiering queue: guests currently in-house or
+ * just checked out who still owe money. A reservation can end up here with
+ * *no* CashierTransaction rows yet at all (nothing charged/paid today), which
+ * is exactly the gap listTodayTransactions can't show — it only lists rows
+ * that already exist. Uses the same reservationBalance() math as the
+ * check-out gate and KPIs so "pending" here never disagrees with them.
+ */
+export async function getGuestsAwaitingPayment() {
+  const reservations = await prisma.reservation.findMany({
+    where: { status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+      room: { select: { number: true, roomType: { select: { name: true } } } },
+      transactions: { select: { type: true, amount: true, discountType: true, createdAt: true } },
+    },
+  });
+
+  return reservations
+    .map((r) => {
+      const total = r.transactions.reduce((sum, t) => (t.type === "CHARGE" ? sum + Number(t.amount) : sum), 0);
+      const paid = r.transactions.reduce((sum, t) => (t.type === "PAYMENT" ? sum + Number(t.amount) : sum), 0);
+      const balance = reservationBalance(r.transactions);
+      const latestCharge = r.transactions
+        .filter((t) => t.type === "CHARGE" && t.discountType)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+      return {
+        id: r.id,
+        reservationNo: r.reservationNo,
+        status: r.status,
+        guestId: r.guestId,
+        roomId: r.roomId,
+        guest: r.guest,
+        room: r.room,
+        total,
+        paid,
+        balance,
+        discountType: latestCharge?.discountType ?? null,
+      };
+    })
+    .filter((r) => r.balance > 0);
 }
 
 async function getOrCreateCashierSession(tx: Prisma.TransactionClient, userId: string): Promise<string> {

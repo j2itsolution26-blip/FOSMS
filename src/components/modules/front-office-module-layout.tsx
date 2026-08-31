@@ -43,6 +43,7 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   emptyState,
   activityTitle,
   activityItems,
+  secondarySection,
 }: {
   title: string;
   description: string;
@@ -63,6 +64,8 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   emptyState: React.ReactNode;
   activityTitle: string;
   activityItems: ModuleActivityItem[];
+  /** Optional extra block rendered between quick actions and the search/table — unused by every existing module page. */
+  secondarySection?: React.ReactNode;
 }) {
   const hasActiveFilters = !!search.value || filters.some((f) => !!f.value);
 
@@ -79,6 +82,8 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
       <ModuleKpiGrid kpis={kpis} />
 
       <ModuleQuickActions actions={quickActions} />
+
+      {secondarySection}
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">{tableTitle}</h2>
