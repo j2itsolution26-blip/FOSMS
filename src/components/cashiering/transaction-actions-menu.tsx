@@ -12,7 +12,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { isCompletedPayment, isChargeFullyPaid, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
+import {
+  isCompletedPayment,
+  isChargeFullyPaid,
+  getActiveSettlementId,
+  type TransactionDetailsRow,
+} from "@/components/cashiering/transaction-details-dialog";
 
 export function TransactionActionsMenu({
   transaction,
@@ -38,12 +43,15 @@ export function TransactionActionsMenu({
   const isReceiptEligible = transaction.type === "PAYMENT" || transaction.type === "REFUND" || isChargeFullyPaid(transaction);
   const reservation = transaction.reservation;
   const showTransact = canTransact && !!reservation && !isCompletedPayment(transaction);
-  // Refundable only while it's still a completed, unreversed PAYMENT row —
-  // once reversedById is set the existing business rules treat it as fully
-  // consumed (no partial top-up refunds), so it drops out of eligibility. A
-  // charge settled in place by Transact isn't refundable through this menu:
-  // the real PAYMENT row it created is intentionally hidden from the table.
-  const showRefund = canRefund && transaction.type === "PAYMENT" && !transaction.reversedById;
+  // Refundable while it's a completed, unreversed PAYMENT row, or a CHARGE
+  // fully settled in place by Transact (refunds the internal payment that
+  // settled it — still hidden from the table, but real and refundable).
+  // Once reversedById is set the existing business rules treat a payment as
+  // fully consumed (no partial top-up refunds), so it drops out either way.
+  const showRefund =
+    canRefund &&
+    ((transaction.type === "PAYMENT" && !transaction.reversedById) ||
+      (isChargeFullyPaid(transaction) && !!getActiveSettlementId(transaction)));
 
   return (
     <DropdownMenu>

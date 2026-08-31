@@ -19,7 +19,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api-client";
 import { formatGuestFullName } from "@/lib/formatters";
-import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
+import { getActiveSettlementId, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 // No existing refund-reason list is configured anywhere in the system (unlike
 // discount types, which come from DiscountType) — these are the categories
@@ -55,18 +55,27 @@ export function RefundTransactionDialog({
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [busy, setBusy] = useState(false);
 
+  // A CHARGE settled via "Transact" has no visible PAYMENT row to refund —
+  // the refund must target the real (hidden) payment that settled it.
+  const refundTargetId = transaction && transaction.type !== "PAYMENT" ? getActiveSettlementId(transaction) : transaction?.id;
+  const refundTargetAmount =
+    transaction && transaction.type !== "PAYMENT"
+      ? Number(transaction.settledBy.find((s) => s.id === refundTargetId)?.amount ?? transaction.amount)
+      : Number(transaction?.amount ?? 0);
+
   useEffect(() => {
     if (open && transaction) {
-      setAmount(String(Number(transaction.amount)));
+      setAmount(String(refundTargetAmount));
       setReason("");
       setCustomReason("");
       setStep("form");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, transaction]);
 
   if (!transaction) return null;
 
-  const originalAmount = Number(transaction.amount);
+  const originalAmount = refundTargetAmount;
   const numericAmount = Number(amount);
   const amountError =
     amount.trim() === "" || Number.isNaN(numericAmount)
@@ -77,15 +86,16 @@ export function RefundTransactionDialog({
           ? `Refund amount cannot exceed the original amount of ${currency(originalAmount)}.`
           : null;
   const reasonValue = reason === "Other" ? customReason.trim() : reason;
-  const canContinue = amount.trim() !== "" && !amountError && numericAmount > 0 && !!reasonValue;
+  const canContinue = amount.trim() !== "" && !amountError && numericAmount > 0 && !!reasonValue && !!refundTargetId;
   const guestName = transaction.reservation ? formatGuestFullName(transaction.reservation.guest) : "—";
 
   async function handleConfirm() {
+    if (!refundTargetId) return;
     setBusy(true);
     const result = await apiFetch("/api/cashiering/refund", {
       method: "POST",
       body: JSON.stringify({
-        originalTransactionId: transaction!.id,
+        originalTransactionId: refundTargetId,
         amount: numericAmount,
         reference: reasonValue,
       }),

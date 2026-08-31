@@ -25,6 +25,9 @@ export type TransactionDetailsRow = {
   /** Sum of non-reversed payments that settle this row via "Transact" (0 for
    * everything except a CHARGE that has been paid in place). */
   paidAmount: number;
+  /** The internal payment(s) that settled this CHARGE via "Transact" — hidden
+   * from the main table but needed to resolve what Refund should target. */
+  settledBy: Array<{ id: string; amount: string; reversedById: string | null; createdAt: string }>;
   reservation: {
     id: string;
     reservationNo: string;
@@ -63,6 +66,21 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionDetailsRow["type"], stri
 /** A CHARGE settled in place via "Transact" — paidAmount covers the full amount. */
 export function isChargeFullyPaid(t: Pick<TransactionDetailsRow, "type" | "amount" | "paidAmount">): boolean {
   return t.type === "CHARGE" && t.paidAmount >= Number(t.amount);
+}
+
+/**
+ * The real PAYMENT row to refund against for a CHARGE settled via "Transact"
+ * — that internal payment is what actually moved money, even though it's
+ * hidden from the table. Picks the most recent non-reversed settlement (the
+ * same "most recent wins" convention used for discount backfill above);
+ * refunding one payment at a time already matches how Refund works
+ * everywhere else in the app.
+ */
+export function getActiveSettlementId(t: Pick<TransactionDetailsRow, "settledBy">): string | null {
+  const active = t.settledBy
+    .filter((s) => !s.reversedById)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return active[0]?.id ?? null;
 }
 
 /**

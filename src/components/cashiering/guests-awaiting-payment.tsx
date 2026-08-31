@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatGuestFullName } from "@/lib/formatters";
+import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 export type GuestAwaitingPaymentRow = {
   id: string;
@@ -19,6 +20,9 @@ export type GuestAwaitingPaymentRow = {
   paid: number;
   balance: number;
   discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  /** The specific unpaid CHARGE this balance traces to, if any — lets
+   * Transact settle it in place instead of posting a new standalone payment. */
+  charge: TransactionDetailsRow | null;
 };
 
 const DISCOUNT_LABELS: Record<NonNullable<GuestAwaitingPaymentRow["discountType"]>, string> = {
@@ -51,7 +55,7 @@ export function GuestsAwaitingPayment({
   canViewReservations: boolean;
   canViewRooms: boolean;
   canTransact: boolean;
-  onTransact: (reservationId: string) => void;
+  onTransact: (row: GuestAwaitingPaymentRow) => void;
 }) {
   if (rows.length === 0) return null;
 
@@ -122,7 +126,7 @@ export function GuestsAwaitingPayment({
                 </TableCell>
                 <TableCell className="text-right">
                   {canTransact ? (
-                    <Button size="sm" onClick={() => onTransact(r.id)}>
+                    <Button size="sm" onClick={() => onTransact(r)}>
                       Transact
                     </Button>
                   ) : null}

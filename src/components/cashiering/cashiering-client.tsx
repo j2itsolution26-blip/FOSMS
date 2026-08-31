@@ -80,12 +80,23 @@ export function CashieringClient({
     setDialog(type);
   }
 
-  // "Transact" on a specific row settles that exact charge in place (no new
-  // visible transaction) — a different, narrower flow than the general
-  // reservation-level Receive Payment used by GuestsAwaitingPayment below.
+  // "Transact" always settles a specific existing CHARGE in place (no new
+  // visible transaction) — whether triggered from a transaction row or from
+  // Guests Awaiting Payment below, which resolves to the same underlying
+  // unpaid charge server-side.
   function handleTransact(txn: TransactionRow) {
     setDetailsTxn(null);
     setSettleTxn(txn);
+  }
+
+  function handleTransactFromAwaitingPayment(row: GuestAwaitingPaymentRow) {
+    if (row.charge) {
+      handleTransact(row.charge);
+    } else {
+      // No resolvable charge to settle in place (shouldn't normally happen
+      // while a balance is owed) — fall back to a reservation-level payment.
+      openTransactionDialog("payment", row.id);
+    }
   }
 
   const load = useCallback(async (showSpinner = false) => {
@@ -235,7 +246,7 @@ export function CashieringClient({
             canViewReservations={canViewReservations}
             canViewRooms={canViewRooms}
             canTransact={canManage}
-            onTransact={(reservationId) => openTransactionDialog("payment", reservationId)}
+            onTransact={handleTransactFromAwaitingPayment}
           />
         }
         search={{ value: search, onChange: setSearch, placeholder: "Search transaction, guest, receipt…" }}

@@ -116,7 +116,7 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
       },
       user: { select: { firstName: true, lastName: true } },
       roomType: { select: { name: true } },
-      settledBy: { select: { amount: true, reversedById: true } },
+      settledBy: { select: { id: true, amount: true, reversedById: true, createdAt: true } },
     },
     take: 200,
   });
@@ -186,6 +186,12 @@ export async function listOpenReservationsForTransactions() {
  * is exactly the gap listTodayTransactions can't show — it only lists rows
  * that already exist. Uses the same reservationBalance() math as the
  * check-out gate and KPIs so "pending" here never disagrees with them.
+ *
+ * Also resolves `charge`: the specific unpaid CHARGE row (if any) this
+ * reservation's balance traces back to, in the same shape the main table
+ * uses — so its "Transact" button can settle that exact charge in place
+ * (via payTransaction/TransactionSettleDialog) instead of posting a new,
+ * unlinked standalone payment that would show up as a second visible row.
  */
 export async function getGuestsAwaitingPayment() {
   const reservations = await prisma.reservation.findMany({
@@ -194,7 +200,23 @@ export async function getGuestsAwaitingPayment() {
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, roomType: { select: { name: true } } } },
-      transactions: { select: { type: true, amount: true, discountType: true, createdAt: true } },
+      transactions: {
+        select: {
+          id: true,
+          transactionNo: true,
+          type: true,
+          amount: true,
+          paymentMethod: true,
+          reversedById: true,
+          createdAt: true,
+          discountType: true,
+          vatAmount: true,
+          roomType: { select: { name: true } },
+          user: { select: { firstName: true, lastName: true } },
+          settledBy: { select: { id: true, amount: true, reversedById: true, createdAt: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 
@@ -206,6 +228,17 @@ export async function getGuestsAwaitingPayment() {
       const latestCharge = r.transactions
         .filter((t) => t.type === "CHARGE" && t.discountType)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+      // Most recent CHARGE not yet fully settled — falls back to the most
+      // recent CHARGE at all if every one happens to already be settled
+      // (shouldn't happen while balance > 0, but never leaves Transact with
+      // nothing to target).
+      const charges = r.transactions.filter((t) => t.type === "CHARGE");
+      const targetCharge =
+        charges.find((c) => {
+          const paidAmount = c.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
+          return paidAmount < Number(c.amount) - 0.001;
+        }) ?? charges[0] ?? null;
 
       return {
         id: r.id,
@@ -219,6 +252,38 @@ export async function getGuestsAwaitingPayment() {
         paid,
         balance,
         discountType: latestCharge?.discountType ?? null,
+        charge: targetCharge
+          ? {
+              id: targetCharge.id,
+              transactionNo: targetCharge.transactionNo,
+              type: targetCharge.type,
+              amount: targetCharge.amount.toString(),
+              paymentMethod: targetCharge.paymentMethod,
+              reversedById: targetCharge.reversedById,
+              createdAt: targetCharge.createdAt.toISOString(),
+              paidAmount: targetCharge.settledBy
+                .filter((s) => !s.reversedById)
+                .reduce((sum, s) => sum + Number(s.amount), 0),
+              settledBy: targetCharge.settledBy.map((s) => ({
+                id: s.id,
+                amount: s.amount.toString(),
+                reversedById: s.reversedById,
+                createdAt: s.createdAt.toISOString(),
+              })),
+              reservation: {
+                id: r.id,
+                reservationNo: r.reservationNo,
+                guestId: r.guestId,
+                roomId: r.roomId,
+                guest: r.guest,
+                room: r.room,
+              },
+              user: targetCharge.user,
+              roomType: targetCharge.roomType,
+              discountType: targetCharge.discountType,
+              vatAmount: targetCharge.vatAmount?.toString() ?? null,
+            }
+          : null,
       };
     })
     .filter((r) => r.balance > 0);

@@ -79,6 +79,7 @@ export type FrontOfficeActivityTransaction = {
   reversedById: string | null;
   createdAt: string;
   paidAmount: number;
+  settledBy: Array<{ id: string; amount: string; reversedById: string | null; createdAt: string }>;
   reservation: {
     id: string;
     reservationNo: string;
@@ -132,6 +133,12 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     reversedById: t.reversedById,
     createdAt: t.createdAt.toISOString(),
     paidAmount: t.paidAmount,
+    settledBy: t.settledBy.map((s) => ({
+      id: s.id,
+      amount: s.amount.toString(),
+      reversedById: s.reversedById,
+      createdAt: s.createdAt.toISOString(),
+    })),
     reservation: t.reservation
       ? {
           id: t.reservation.id,
