@@ -176,6 +176,8 @@ export async function listTodayOperations(search = ""): Promise<FrontOfficeOpera
 
 export async function checkIn(input: CheckInInput, actor: ActorContext) {
   const result = await prisma.$transaction(async (tx) => {
+    // Row-locked so two front-desk users racing the same reservation/room can't both check it in.
+    await tx.$queryRaw`SELECT id FROM reservations WHERE id = ${input.reservationId} FOR UPDATE`;
     const reservation = await tx.reservation.findUnique({
       where: { id: input.reservationId },
       include: { guest: true, room: true },
@@ -185,6 +187,20 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       throw new AppError(
         `Cannot check in a reservation that is ${reservation.status.toLowerCase().replace("_", " ")}.`,
         "INVALID_RESERVATION_STATE",
+        409
+      );
+    }
+
+    // The room may have changed state since the reservation was made (taken by a
+    // walk-in, flagged out of order, blocked, etc.) — re-verify it's still
+    // assignable right before occupying it, not just trust the booking.
+    await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${reservation.roomId} FOR UPDATE`;
+    const room = await tx.room.findUnique({ where: { id: reservation.roomId } });
+    if (!room) throw new NotFoundError("Room not found.");
+    if (!ASSIGNABLE_ROOM_STATUSES.includes(room.status)) {
+      throw new AppError(
+        `Room ${room.number} is no longer available (status: ${room.status}). Reassign the guest to a different room before checking in.`,
+        "ROOM_UNAVAILABLE",
         409
       );
     }
@@ -218,6 +234,35 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
   });
 
   return result;
+}
+
+/**
+ * The Check-In modal's guest selector. Eligible = not yet checked in, not
+ * cancelled/checked out, AND due to arrive today or earlier — a reservation
+ * years in the future has no business showing up as a check-in candidate.
+ * This arrival-date window is what actually keeps stray future-dated test
+ * bookings out of the list; it isn't a cosmetic frontend filter.
+ */
+export async function listCheckInEligibleReservations() {
+  const reservations = await prisma.reservation.findMany({
+    where: { status: { in: ["PENDING", "CONFIRMED"] }, arrivalDate: { lte: endOfDay(new Date()) } },
+    orderBy: { arrivalDate: "desc" },
+    include: {
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+      room: { select: { number: true, roomType: { select: { name: true } } } },
+    },
+  });
+
+  return reservations.map((r) => ({
+    id: r.id,
+    reservationNo: r.reservationNo,
+    guestName: formatGuestFullName(r.guest),
+    room: r.room.number,
+    roomType: r.room.roomType.name,
+    arrivalDate: r.arrivalDate,
+    departureDate: r.departureDate,
+    status: r.status,
+  }));
 }
 
 export async function checkOut(input: CheckOutInput, actor: ActorContext) {
