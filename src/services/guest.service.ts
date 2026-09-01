@@ -4,7 +4,9 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError } from "@/lib/errors";
+import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
 import type { GuestInput } from "@/validators/guest.schema";
+import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
 
@@ -127,6 +129,109 @@ export async function createGuest(input: GuestInput, actor: ActorContext) {
   });
 
   return guest;
+}
+
+type GuestFolioRoomInput = NonNullable<CreateGuestFolioInput["room"]>;
+
+/**
+ * Atomic Guest Folio save — creates the Guest and, when a room is assigned,
+ * its Reservation and initial Cashiering charge, all inside ONE database
+ * transaction. Replaces the old flow where the Guest Folio dialog drove
+ * Guest -> Reservation -> Charge as three independent client requests: any
+ * one of those could fail (or the charge could post at ₱0, if the last step
+ * ran ahead of a still-loading price quote) while the earlier ones had
+ * already committed, leaving a Reservation with no charge — which made it
+ * permanently invisible to Cashiering's Guests Awaiting Payment list even
+ * though the Guest Folio itself reported as "saved".
+ *
+ * Room pricing/availability is resolved (resolveInitialReservationCharge)
+ * BEFORE any row is written, so a pricing failure never leaves a bare Guest
+ * behind; every write then happens inside one $transaction, so a mid-flow
+ * failure (e.g. the room got booked out from under this request) rolls back
+ * the Guest along with it instead of leaving a partially-saved folio.
+ */
+export async function createGuestFolioWithReservationAndCharge(
+  guestInput: GuestInput,
+  room: GuestFolioRoomInput | null,
+  actor: ActorContext
+) {
+  const resolved = room ? await resolveInitialReservationCharge(room.roomId, room) : null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const guest = await tx.guest.create({ data: toGuestData(guestInput) });
+
+    if (!room || !resolved) {
+      return { guest, reservation: null, transaction: null };
+    }
+
+    const { reservation, transaction } = await createReservationAndChargeInTx(
+      tx,
+      {
+        guestId: guest.id,
+        roomId: room.roomId,
+        arrivalDate: room.arrivalDate,
+        departureDate: room.departureDate,
+        numGuests: 1,
+        source: "WALK_IN",
+        specialRequests: "",
+        notes: "",
+        bedCount: room.bedCount,
+        discountType: room.discountType,
+      },
+      resolved.room,
+      resolved.charge,
+      actor
+    );
+
+    return { guest, reservation, transaction };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "CREATE",
+    module: "guests",
+    recordId: result.guest.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
+  });
+
+  if (result.reservation) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "CREATE",
+      module: "reservations",
+      recordId: result.reservation.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: {
+        reservationNo: result.reservation.reservationNo,
+        roomId: result.reservation.roomId,
+        status: result.reservation.status,
+      },
+    });
+  }
+
+  if (result.transaction) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "PAYMENT_RECEIVED",
+      module: "cashiering",
+      recordId: result.transaction.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: {
+        transactionNo: result.transaction.transactionNo,
+        type: result.transaction.type,
+        amount: result.transaction.amount,
+      },
+    });
+  }
+
+  return result;
 }
 
 export async function updateGuest(id: string, input: GuestInput, actor: ActorContext) {

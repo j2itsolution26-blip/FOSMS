@@ -188,6 +188,17 @@ export async function listOpenReservationsForTransactions() {
  * rows that already exist. Uses the same reservationBalance() math as the
  * check-out gate and KPIs so "pending" here never disagrees with them.
  *
+ * Eligibility is `transactions.length === 0 || balance > 0` — a reservation
+ * with no CashierTransaction rows yet is included (nothing recorded is not
+ * the same as nothing owed), and one with a real balance is included, but a
+ * reservation whose charges are already fully settled (balance === 0 with at
+ * least one CHARGE — including a legitimate ₱0 100%-discounted charge, which
+ * has nothing left to collect) is excluded. createReservation() and
+ * createGuestFolioWithReservationAndCharge() always create the initial
+ * charge atomically with the reservation now, so the empty-transactions case
+ * should only ever apply to reservations created before that guarantee
+ * existed — it's kept here so those aren't silently hidden.
+ *
  * Also resolves `charge`: the specific unpaid CHARGE row (if any) this
  * reservation's balance traces back to, in the same shape the main table
  * uses — so its "Transact" button can settle that exact charge in place
@@ -223,6 +234,7 @@ export async function getGuestsAwaitingPayment() {
   });
 
   return reservations
+    .filter((r) => r.transactions.length === 0 || reservationBalance(r.transactions) > 0)
     .map((r) => {
       const total = r.transactions.reduce((sum, t) => (t.type === "CHARGE" ? sum + Number(t.amount) : sum), 0);
       const paid = r.transactions.reduce((sum, t) => (t.type === "PAYMENT" ? sum + Number(t.amount) : sum), 0);
@@ -288,8 +300,53 @@ export async function getGuestsAwaitingPayment() {
             }
           : null,
       };
-    })
-    .filter((r) => r.balance > 0);
+    });
+}
+
+/**
+ * Creates the initial CHARGE for a freshly created reservation, inside an
+ * already-open DB transaction — the one thing that makes a reservation
+ * reachable by getGuestsAwaitingPayment(). Shared by createReservation() and
+ * the Guest Folio's atomic createGuestFolioWithReservationAndCharge()
+ * (guest.service.ts) so both entry points create a reservation's billing the
+ * exact same way instead of two implementations that could drift apart.
+ *
+ * Idempotent: if this reservation already has a CHARGE (e.g. a retried
+ * request after the DB transaction committed but the response was lost),
+ * returns the existing one instead of creating a duplicate.
+ */
+export async function createInitialReservationCharge(
+  tx: Prisma.TransactionClient,
+  params: { reservationId: string; userId: string; roomTypeId: string; charge: FolioCharge }
+) {
+  const existing = await tx.cashierTransaction.findFirst({
+    where: { reservationId: params.reservationId, type: "CHARGE" },
+  });
+  if (existing) return existing;
+
+  const sessionId = await getOrCreateCashierSession(tx, params.userId);
+  const transactionNo = await nextNumber(tx, "cashier-transaction", "TXN");
+  return tx.cashierTransaction.create({
+    data: {
+      transactionNo,
+      sessionId,
+      reservationId: params.reservationId,
+      type: "CHARGE",
+      amount: params.charge.total,
+      // Money owed, not money received — starts unprocessed. The cashier
+      // types their own name only once they actually take the payment (see
+      // payTransaction()); never copied from the actor creating the charge.
+      processedBy: null,
+      userId: params.userId,
+      roomTypeId: params.roomTypeId,
+      bedCount: params.charge.bedCount,
+      bedCharge: params.charge.bedCharge,
+      discountType: params.charge.discountType,
+      discountAmount: params.charge.discountAmount,
+      subtotal: params.charge.subtotal,
+      vatAmount: params.charge.vatAmount,
+    },
+  });
 }
 
 async function getOrCreateCashierSession(tx: Prisma.TransactionClient, userId: string): Promise<string> {

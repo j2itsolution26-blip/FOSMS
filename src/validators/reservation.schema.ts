@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { discountTypeEnum } from "@/validators/cashiering.schema";
 
 export const reservationStatusEnum = z.enum([
   "PENDING",
@@ -33,6 +34,13 @@ export const createReservationSchema = z
     source: reservationSourceEnum.default("WALK_IN"),
     specialRequests: z.string().trim().max(500).optional().or(z.literal("")),
     notes: z.string().trim().max(1000).optional().or(z.literal("")),
+    // Priced inputs for the reservation's initial Cashiering charge, created
+    // atomically alongside it (see createReservation() /
+    // resolveInitialReservationCharge() in reservation.service.ts). Optional
+    // so a bare reservation still gets a real charge — just at the room
+    // type's base rate, no beds, no discount.
+    bedCount: z.coerce.number().int().min(0).max(10).optional(),
+    discountType: discountTypeEnum.optional(),
   })
   .refine((data) => new Date(data.departureDate) > new Date(data.arrivalDate), {
     message: "Departure date must be after the arrival date.",

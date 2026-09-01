@@ -165,84 +165,67 @@ export function GuestFormDialog({
   }, [open, isCreate]);
 
   async function onSubmit(values: GuestInput) {
-    if (assignRoom) {
-      const roomValid = await roomForm.trigger();
-      if (!roomValid) return;
-    }
-
-    const result = guestId
-      ? await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) })
-      : await apiFetch("/api/guests", { method: "POST", body: JSON.stringify(values) });
-
-    if (!result.success) {
-      toast.error(result.message);
-      return;
-    }
-
-    if (isCreate && assignRoom) {
-      const guest = result.data as { id: string };
-      const room = roomForm.getValues();
-
-      const reservationResult = await apiFetch<{ id: string }>("/api/reservations", {
-        method: "POST",
-        body: JSON.stringify({
-          guestId: guest.id,
-          roomId: room.roomId,
-          arrivalDate: room.arrivalDate,
-          departureDate: room.departureDate,
-          numGuests: 1,
-          source: "WALK_IN",
-        }),
-      });
-      if (!reservationResult.success) {
-        toast.error(`Guest folio saved, but room assignment failed: ${reservationResult.message}`);
-        onOpenChange(false);
-        onSaved();
+    // Editing an existing Guest Folio never touches reservations/cashiering —
+    // unchanged single-call path.
+    if (guestId) {
+      const result = await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) });
+      if (!result.success) {
+        toast.error(result.message);
         return;
       }
-
-      // Re-quote synchronously rather than trusting the `charge` state, which
-      // is only ever set by a debounce-free effect — if the cashier picks a
-      // room type and hits Save before that round-trip resolves, `charge`
-      // would still be null and the charge would silently post as ₱0.
-      let finalCharge = charge;
-      if (!finalCharge) {
-        const quoteResult = await apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
-          method: "POST",
-          body: JSON.stringify({ roomTypeId: room.roomTypeId, bedCount: room.bedCount, discountType: room.discountType }),
-        });
-        if (quoteResult.success) finalCharge = quoteResult.data;
-      }
-
-      // No paymentMethod here — this CHARGE is money owed, not money
-      // received. Cashiering must show it as "Not recorded" until the
-      // cashier actually processes a payment against it; the "Mode of
-      // Payment" field above only matters once that happens.
-      const transactionResult = await apiFetch("/api/cashiering/transactions", {
-        method: "POST",
-        body: JSON.stringify({
-          reservationId: reservationResult.data.id,
-          type: "CHARGE",
-          amount: finalCharge?.total ?? 0,
-          roomTypeId: room.roomTypeId,
-          bedCount: room.bedCount,
-          discountType: room.discountType,
-        }),
-      });
-      if (!transactionResult.success) {
-        toast.error(`Guest folio and room assignment saved, but the Cashiering charge failed: ${transactionResult.message}`);
-        onOpenChange(false);
-        onSaved();
-        return;
-      }
-
-      toast.success("Guest folio saved, room assigned, and charge sent to Cashiering.");
+      toast.success("Guest folio updated successfully.");
       onOpenChange(false);
       onSaved();
       return;
     }
 
-    toast.success(guestId ? "Guest folio updated successfully." : "Guest folio saved successfully.");
+    if (assignRoom) {
+      const roomValid = await roomForm.trigger();
+      if (!roomValid) return;
+      // The live price preview hasn't resolved yet — block the save instead
+      // of letting a room-priced charge post without a confirmed amount.
+      if (quoting || !charge) {
+        toast.error("Room price is not available yet. Please wait for the rate to load before saving the Guest Folio.");
+        return;
+      }
+    }
+
+    const room = roomForm.getValues();
+
+    // Guest + Reservation + initial Cashiering charge are created together in
+    // ONE atomic server-side request (see createGuestFolioWithReservationAndCharge)
+    // instead of three separate calls — so a Reservation can never end up
+    // without the charge that makes it reachable in Cashiering, and a
+    // mid-flow failure rolls back the whole Guest Folio instead of leaving a
+    // partially-saved record.
+    const result = await apiFetch("/api/guests/folio", {
+      method: "POST",
+      body: JSON.stringify({
+        guest: values,
+        room: assignRoom
+          ? {
+              roomId: room.roomId,
+              arrivalDate: room.arrivalDate,
+              departureDate: room.departureDate,
+              bedCount: room.bedCount,
+              discountType: room.discountType,
+            }
+          : undefined,
+      }),
+    });
+
+    if (!result.success) {
+      // The save is atomic server-side — nothing was written, so the guest
+      // must never be reported as saved here.
+      toast.error(
+        assignRoom
+          ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
+          : result.message
+      );
+      return;
+    }
+
+    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
     onOpenChange(false);
     onSaved();
   }
@@ -655,7 +638,7 @@ export function GuestFormDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={form.formState.isSubmitting}
+                disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
                 className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
               >
                 {form.formState.isSubmitting ? (

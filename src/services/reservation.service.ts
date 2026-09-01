@@ -1,10 +1,12 @@
 import "server-only";
-import type { Prisma, ReservationStatus } from "@prisma/client";
+import type { DiscountType, Prisma, ReservationStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
 import { isRestrictedStatus } from "@/config/room-status";
+import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
+import { createInitialReservationCharge } from "@/services/cashiering.service";
 import type { CreateReservationInput, UpdateReservationInput } from "@/validators/reservation.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -119,39 +121,90 @@ type ActorContext = {
   userAgent?: string | null;
 };
 
-export async function createReservation(input: CreateReservationInput, actor: ActorContext) {
+/**
+ * Validates the room and computes its reservation's initial Cashiering
+ * charge BEFORE any row is written — shared by createReservation() and the
+ * Guest Folio's atomic createGuestFolioWithReservationAndCharge()
+ * (guest.service.ts), so both entry points price and validate a room the
+ * exact same way instead of two implementations that could drift apart.
+ * Throwing here (room missing/restricted/mispriced) never leaves a
+ * partially-created guest or reservation behind, since nothing has been
+ * written yet.
+ */
+export async function resolveInitialReservationCharge(
+  roomId: string,
+  pricing: { bedCount?: number; discountType?: DiscountType | null }
+) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!room) throw new NotFoundError("Room not found.");
+  if (isRestrictedStatus(room.status)) {
+    throw new AppError("This room is not available for reservations.", "ROOM_UNAVAILABLE", 409);
+  }
+
+  const charge = await computeFolioCharge({
+    roomTypeId: room.roomTypeId,
+    bedCount: pricing.bedCount,
+    discountType: pricing.discountType ?? null,
+  });
+
+  return { room, charge };
+}
+
+/**
+ * Creates the Reservation and its initial Cashiering CHARGE together, inside
+ * an already-open transaction — the reusable core both createReservation()
+ * (standalone Reservations module) and the Guest Folio's atomic
+ * createGuestFolioWithReservationAndCharge() (guest.service.ts) call, so a
+ * Reservation can never be created without the charge that makes it
+ * reachable by Cashiering's Guests Awaiting Payment query.
+ */
+export async function createReservationAndChargeInTx(
+  tx: Prisma.TransactionClient,
+  input: CreateReservationInput,
+  room: { id: string; roomTypeId: string },
+  charge: FolioCharge,
+  actor: ActorContext
+) {
   const arrivalDate = new Date(input.arrivalDate);
   const departureDate = new Date(input.departureDate);
 
-  const reservation = await prisma.$transaction(async (tx) => {
+  await assertRoomAvailable(tx, input.roomId, arrivalDate, departureDate);
+
+  const reservationNo = await nextReservationNumber(tx);
+  const reservation = await tx.reservation.create({
+    data: {
+      reservationNo,
+      guestId: input.guestId,
+      roomId: input.roomId,
+      arrivalDate,
+      departureDate,
+      numGuests: input.numGuests,
+      source: input.source,
+      specialRequests: input.specialRequests || null,
+      notes: input.notes || null,
+      createdById: actor.userId,
+    },
+    include: listInclude,
+  });
+
+  const transaction = await createInitialReservationCharge(tx, {
+    reservationId: reservation.id,
+    userId: actor.userId,
+    roomTypeId: room.roomTypeId,
+    charge,
+  });
+
+  return { reservation, transaction };
+}
+
+export async function createReservation(input: CreateReservationInput, actor: ActorContext) {
+  const { room, charge } = await resolveInitialReservationCharge(input.roomId, input);
+
+  const { reservation, transaction } = await prisma.$transaction(async (tx) => {
     const guest = await tx.guest.findUnique({ where: { id: input.guestId, deletedAt: null } });
     if (!guest) throw new NotFoundError("Guest not found.");
 
-    const room = await tx.room.findUnique({ where: { id: input.roomId } });
-    if (!room) throw new NotFoundError("Room not found.");
-    if (isRestrictedStatus(room.status)) {
-      throw new AppError("This room is not available for reservations.", "ROOM_UNAVAILABLE", 409);
-    }
-
-    await assertRoomAvailable(tx, input.roomId, arrivalDate, departureDate);
-
-    const reservationNo = await nextReservationNumber(tx);
-
-    return tx.reservation.create({
-      data: {
-        reservationNo,
-        guestId: input.guestId,
-        roomId: input.roomId,
-        arrivalDate,
-        departureDate,
-        numGuests: input.numGuests,
-        source: input.source,
-        specialRequests: input.specialRequests || null,
-        notes: input.notes || null,
-        createdById: actor.userId,
-      },
-      include: listInclude,
-    });
+    return createReservationAndChargeInTx(tx, input, room, charge, actor);
   });
 
   await recordAudit({
@@ -163,6 +216,17 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
     newValue: { reservationNo: reservation.reservationNo, roomId: reservation.roomId, status: reservation.status },
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "PAYMENT_RECEIVED",
+    module: "cashiering",
+    recordId: transaction.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: { transactionNo: transaction.transactionNo, type: transaction.type, amount: transaction.amount },
   });
 
   return reservation;
