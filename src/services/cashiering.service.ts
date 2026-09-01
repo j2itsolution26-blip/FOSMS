@@ -180,11 +180,12 @@ export async function listOpenReservationsForTransactions() {
 }
 
 /**
- * The real checkout-driven Cashiering queue: guests currently in-house or
- * just checked out who still owe money. A reservation can end up here with
- * *no* CashierTransaction rows yet at all (nothing charged/paid today), which
- * is exactly the gap listTodayTransactions can't show — it only lists rows
- * that already exist. Uses the same reservationBalance() math as the
+ * The Cashiering queue of guests who still owe money — from the moment a
+ * Guest Folio is saved with a room assigned (status PENDING/CONFIRMED,
+ * before check-in) straight through check-out. A reservation can end up here
+ * with *no* CashierTransaction rows yet at all (nothing charged/paid today),
+ * which is exactly the gap listTodayTransactions can't show — it only lists
+ * rows that already exist. Uses the same reservationBalance() math as the
  * check-out gate and KPIs so "pending" here never disagrees with them.
  *
  * Also resolves `charge`: the specific unpaid CHARGE row (if any) this
@@ -195,7 +196,7 @@ export async function listOpenReservationsForTransactions() {
  */
 export async function getGuestsAwaitingPayment() {
   const reservations = await prisma.reservation.findMany({
-    where: { status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
+    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] } },
     orderBy: { updatedAt: "desc" },
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
@@ -411,7 +412,7 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
         amount: charge ? charge.total : input.amount,
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
-        processedBy: input.processedBy,
+        processedBy: input.processedBy || null,
         userId: actor.userId,
         ...(charge
           ? {
@@ -526,7 +527,25 @@ export async function payTransaction(
       },
     });
 
-    return { charge, payment };
+    // The charge itself is what the Cashiering list/receipt display — once
+    // this payment fully settles it, the charge's own Processed By becomes
+    // the cashier who took this payment (it started null: nobody had
+    // processed it yet). A partial payment leaves it untouched, since the
+    // charge isn't Paid yet.
+    const nowPaid = Math.round((alreadyPaid + input.amount) * 100) / 100;
+    const fullyPaid = nowPaid >= Number(charge.amount) - 0.001;
+    const settledCharge = fullyPaid
+      ? await tx.cashierTransaction.update({
+          where: { id: charge.id },
+          data: { processedBy: input.processedBy },
+          include: {
+            reservation: { include: { guest: true } },
+            settledBy: { select: { amount: true, reversedById: true } },
+          },
+        })
+      : charge;
+
+    return { charge: settledCharge, payment };
   });
 
   await recordAudit({

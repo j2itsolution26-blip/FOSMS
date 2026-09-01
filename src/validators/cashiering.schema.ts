@@ -33,7 +33,12 @@ export const createTransactionSchema = z
     roomTypeId: z.string().min(1).optional(),
     bedCount: z.coerce.number().int().min(0).max(10).optional(),
     discountType: discountTypeEnum.optional(),
-    processedBy: cashieringProcessedBy,
+    // Only required for a PAYMENT (money actually being received needs an
+    // accountable name). A CHARGE — including the one auto-created when a
+    // Guest Folio is saved with a room assigned — starts with no processor;
+    // it's only set once the cashier completes the payment (see
+    // payTransaction()/payTransactionSchema, which always require it).
+    processedBy: cashieringProcessedBy.optional().or(z.literal("")),
   })
   // A PAYMENT records money actually received, so how it was received must
   // be captured — CHARGE/DISCOUNT don't move money, so they don't need one.
@@ -43,6 +48,13 @@ export const createTransactionSchema = z
         code: z.ZodIssueCode.custom,
         message: "Select a payment method.",
         path: ["paymentMethod"],
+      });
+    }
+    if (data.type === "PAYMENT" && !data.processedBy?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Processed By is required.",
+        path: ["processedBy"],
       });
     }
   });

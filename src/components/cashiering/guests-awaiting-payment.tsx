@@ -8,10 +8,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatGuestFullName } from "@/lib/formatters";
 import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
+const RESERVATION_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Reserved",
+  CONFIRMED: "Reserved",
+  CHECKED_IN: "Checked In",
+  CHECKED_OUT: "Checked Out",
+};
+
 export type GuestAwaitingPaymentRow = {
   id: string;
   reservationNo: string;
-  status: "CHECKED_IN" | "CHECKED_OUT" | string;
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CHECKED_OUT" | string;
   guestId: string;
   roomId: string;
   guest: { firstName: string; middleName?: string | null; lastName: string };
@@ -36,11 +43,12 @@ function currency(n: number) {
 }
 
 /**
- * The checkout-driven queue: guests currently in-house or just checked out
- * who still owe money — populated straight from the reservation/checkout
- * relationship (see getGuestsAwaitingPayment), not from a manually-created
- * transaction. "Transact" reuses the exact same pre-filled TransactionDialog
- * flow the row-level action already uses, so the cashier never re-searches.
+ * Guests with an outstanding balance, from the moment their Guest Folio is
+ * saved with a room assigned — reserved, in-house, or just checked out —
+ * populated straight from the reservation relationship (see
+ * getGuestsAwaitingPayment), not from a manually-created transaction.
+ * "Transact" reuses the exact same pre-filled TransactionDialog flow the
+ * row-level action already uses, so the cashier never re-searches.
  */
 export function GuestsAwaitingPayment({
   rows,
@@ -63,7 +71,7 @@ export function GuestsAwaitingPayment({
     <div className="space-y-3">
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Guests Awaiting Payment</h2>
-        <p className="text-sm text-muted-foreground">In-house or checked-out guests with an outstanding balance.</p>
+        <p className="text-sm text-muted-foreground">Guests with an outstanding balance, reserved through checked-out.</p>
       </div>
       <div className="overflow-x-auto rounded-lg border bg-white">
         <Table>
@@ -94,7 +102,7 @@ export function GuestsAwaitingPayment({
                       formatGuestFullName(r.guest)
                     )}
                   </p>
-                  <p className="text-xs text-muted-foreground">{r.status === "CHECKED_OUT" ? "Checked Out" : "Checked In"}</p>
+                  <p className="text-xs text-muted-foreground">{RESERVATION_STATUS_LABELS[r.status] ?? r.status}</p>
                 </TableCell>
                 <TableCell>
                   {canViewReservations ? (

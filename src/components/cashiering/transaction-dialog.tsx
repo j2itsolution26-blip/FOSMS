@@ -128,6 +128,7 @@ export function TransactionDialog({
 
   const exceedsBalance = type === "PAYMENT" && !!selected && selected.balance > 0 && Number(amount) > selected.balance;
   const showPaymentMethod = type === "PAYMENT";
+  const processedByRequired = type === "PAYMENT";
   const referenceLabel = type === "PAYMENT" ? "Reference / Notes" : type === "DISCOUNT" ? "Reason" : "Notes";
   const referencePlaceholder =
     type === "PAYMENT"
@@ -288,7 +289,7 @@ export function TransactionDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Processed By <span className="text-red-500">*</span>
+                    Processed By {processedByRequired ? <span className="text-red-500">*</span> : null}
                   </FormLabel>
                   <FormControl>
                     <Input
