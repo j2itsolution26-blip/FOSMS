@@ -184,7 +184,7 @@ export function CashieringClient({
     { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
     { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
     { key: "vat", header: "VAT", className: "text-right tabular-nums", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
-    { key: "cashier", header: "Processed By", render: (r) => `${r.user.firstName} ${r.user.lastName}` },
+    { key: "cashier", header: "Processed By", render: (r) => r.processedBy || "Not recorded" },
     {
       key: "status",
       header: "Status",

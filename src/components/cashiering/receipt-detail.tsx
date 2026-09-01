@@ -21,7 +21,7 @@ export type ReceiptDetailData = {
   paymentDate: string;
   guestName: string | null;
   reservationNo: string | null;
-  createdBy: string;
+  processedBy: string | null;
   refundOfReceiptNumber: string | null;
   refundedByReceiptNumber: string | null;
   refundedAt: string | null;
@@ -148,7 +148,7 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               label="Date / Time"
               value={new Date(receipt.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
             />
-            <Field label="Processed By" value={receipt.createdBy} />
+            <Field label="Processed By" value={receipt.processedBy || "Not recorded"} />
             {!hasFolioBreakdown ? <Field label="Description / Purpose" value={receipt.description ?? "—"} /> : null}
           </div>
 

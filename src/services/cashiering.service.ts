@@ -211,6 +211,7 @@ export async function getGuestsAwaitingPayment() {
           createdAt: true,
           discountType: true,
           vatAmount: true,
+          processedBy: true,
           roomType: { select: { name: true } },
           user: { select: { firstName: true, lastName: true } },
           settledBy: { select: { id: true, amount: true, reversedById: true, createdAt: true } },
@@ -282,6 +283,7 @@ export async function getGuestsAwaitingPayment() {
               roomType: targetCharge.roomType,
               discountType: targetCharge.discountType,
               vatAmount: targetCharge.vatAmount?.toString() ?? null,
+              processedBy: targetCharge.processedBy,
             }
           : null,
       };
@@ -409,6 +411,7 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
         amount: charge ? charge.total : input.amount,
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
+        processedBy: input.processedBy,
         userId: actor.userId,
         ...(charge
           ? {
@@ -470,7 +473,7 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
  * they already live on the charge row and this never rewrites them.
  */
 export async function payTransaction(
-  input: { transactionId: string; amount: number; reference?: string },
+  input: { transactionId: string; amount: number; reference?: string; processedBy: string },
   actor: ActorContext
 ) {
   const result = await prisma.$transaction(async (tx) => {
@@ -517,6 +520,7 @@ export async function payTransaction(
         amount: input.amount,
         paymentMethod: charge.paymentMethod,
         reference: input.reference || null,
+        processedBy: input.processedBy,
         userId: actor.userId,
         settlesTransactionId: charge.id,
       },
@@ -577,6 +581,7 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
         amount: input.amount,
         paymentMethod: original.paymentMethod,
         reference: input.reference || `Refund of ${original.transactionNo}`,
+        processedBy: input.processedBy,
         userId: actor.userId,
       },
     });
@@ -642,7 +647,7 @@ function toReceiptRow(t: ReceiptTransaction) {
     paymentDate: t.createdAt,
     guestName: t.reservation ? formatGuestFullName(t.reservation.guest) : null,
     reservationNo: t.reservation?.reservationNo ?? null,
-    createdBy: `${t.user.firstName} ${t.user.lastName}`,
+    processedBy: t.processedBy,
     // Folio pricing breakdown — null for plain (non-room) transactions.
     roomNumber: t.reservation?.room?.number ?? null,
     roomTypeName: t.roomType?.name ?? t.reservation?.room?.roomType?.name ?? null,

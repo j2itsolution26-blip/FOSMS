@@ -52,6 +52,7 @@ export function RefundTransactionDialog({
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [customReason, setCustomReason] = useState("");
+  const [processedBy, setProcessedBy] = useState("");
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [busy, setBusy] = useState(false);
 
@@ -68,6 +69,7 @@ export function RefundTransactionDialog({
       setAmount(String(refundTargetAmount));
       setReason("");
       setCustomReason("");
+      setProcessedBy("");
       setStep("form");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,7 +88,8 @@ export function RefundTransactionDialog({
           ? `Refund amount cannot exceed the original amount of ${currency(originalAmount)}.`
           : null;
   const reasonValue = reason === "Other" ? customReason.trim() : reason;
-  const canContinue = amount.trim() !== "" && !amountError && numericAmount > 0 && !!reasonValue && !!refundTargetId;
+  const canContinue =
+    amount.trim() !== "" && !amountError && numericAmount > 0 && !!reasonValue && !!refundTargetId && !!processedBy.trim();
   const guestName = transaction.reservation ? formatGuestFullName(transaction.reservation.guest) : "—";
 
   async function handleConfirm() {
@@ -98,6 +101,7 @@ export function RefundTransactionDialog({
         originalTransactionId: refundTargetId,
         amount: numericAmount,
         reference: reasonValue,
+        processedBy: processedBy.trim(),
       }),
     });
     setBusy(false);
@@ -180,6 +184,17 @@ export function RefundTransactionDialog({
                 />
               ) : null}
             </div>
+
+            <div className="space-y-1.5">
+              <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
+                Processed By <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="Enter name of person who processed this payment"
+                value={processedBy}
+                onChange={(e) => setProcessedBy(e.target.value)}
+              />
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -201,6 +216,10 @@ export function RefundTransactionDialog({
               <div className="col-span-2">
                 <p className="text-xs text-muted-foreground">Reason</p>
                 <p className="font-medium text-slate-900">{reasonValue}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground">Processed By</p>
+                <p className="font-medium text-slate-900">{processedBy.trim()}</p>
               </div>
             </div>
           </div>

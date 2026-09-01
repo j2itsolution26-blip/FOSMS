@@ -16,6 +16,7 @@ export const guestSchema = z.object({
   preferences: z.string().trim().max(500).optional().or(z.literal("")),
   emergencyContact: z.string().trim().max(200).optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
+  processedBy: z.string().trim().min(1, "Processed By is required.").max(150, "Processed By must be 150 characters or fewer."),
 });
 
 export type GuestInput = z.infer<typeof guestSchema>;

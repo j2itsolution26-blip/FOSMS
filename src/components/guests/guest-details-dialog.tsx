@@ -29,6 +29,7 @@ type GuestDetails = {
   preferences: string | null;
   emergencyContact: string | null;
   notes: string | null;
+  processedBy: string | null;
   reservations: Array<{
     id: string;
     reservationNo: string;
@@ -117,6 +118,7 @@ export function GuestDetailsDialog({
                 <Field label="First Name" value={guest.firstName} />
                 <Field label="Middle Name" value={guest.middleName} />
                 <Field label="Last Name" value={guest.lastName} />
+                <Field label="Processed By" value={guest.processedBy || "Not recorded"} />
               </Section>
 
               <Section title="Preferences">

@@ -108,6 +108,7 @@ function toGuestData(input: GuestInput) {
     preferences: input.preferences || null,
     emergencyContact: input.emergencyContact || null,
     notes: input.notes || null,
+    processedBy: input.processedBy,
   };
 }
 

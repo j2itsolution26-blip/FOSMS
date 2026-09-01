@@ -49,6 +49,7 @@ export function TransactionSettleDialog({
 }) {
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
+  const [processedBy, setProcessedBy] = useState("");
   const [busy, setBusy] = useState(false);
 
   const originalAmount = transaction ? Number(transaction.amount) : 0;
@@ -58,6 +59,7 @@ export function TransactionSettleDialog({
     if (open && transaction) {
       setAmount(remaining > 0 ? String(remaining) : "");
       setReference("");
+      setProcessedBy("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, transaction?.id]);
@@ -75,13 +77,13 @@ export function TransactionSettleDialog({
           ? `Amount cannot exceed the remaining balance of ${currency(remaining)}.`
           : null
       : null;
-  const canSubmit = !alreadyFullyPaid && amount.trim() !== "" && !amountError && numericAmount > 0;
+  const canSubmit = !alreadyFullyPaid && amount.trim() !== "" && !amountError && numericAmount > 0 && !!processedBy.trim();
 
   async function handleSubmit() {
     setBusy(true);
     const result = await apiFetch(`/api/cashiering/transactions/${transaction!.id}/pay`, {
       method: "POST",
-      body: JSON.stringify({ amount: numericAmount, reference: reference || undefined }),
+      body: JSON.stringify({ amount: numericAmount, reference: reference || undefined, processedBy: processedBy.trim() }),
     });
     setBusy(false);
     if (!result.success) {
@@ -172,6 +174,16 @@ export function TransactionSettleDialog({
               <div className="space-y-1.5">
                 <Label>Reference (optional)</Label>
                 <Input placeholder="Optional reference or notes" value={reference} onChange={(e) => setReference(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
+                  Processed By <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  placeholder="Enter name of person who processed this payment"
+                  value={processedBy}
+                  onChange={(e) => setProcessedBy(e.target.value)}
+                />
               </div>
             </>
           )}

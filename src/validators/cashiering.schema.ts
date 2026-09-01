@@ -4,6 +4,16 @@ export const transactionTypeEnum = z.enum(["CHARGE", "PAYMENT", "DISCOUNT"]);
 export const paymentMethodEnum = z.enum(["CASH", "CARD", "BANK_TRANSFER", "ONLINE", "OTHER"]);
 export const discountTypeEnum = z.enum(["SENIOR_CITIZEN", "PWD", "STAKEHOLDER"]);
 
+// The Cashiering transaction's own "Processed By" — a name the cashier
+// manually types on the form, never the logged-in user and never the Guest
+// Folio's own `processedBy` (see prisma schema comment on
+// CashierTransaction.processedBy).
+const cashieringProcessedBy = z
+  .string()
+  .trim()
+  .min(1, "Processed By is required.")
+  .max(150, "Processed By must be 150 characters or fewer.");
+
 // A "receipt" is a PAYMENT or REFUND transaction. PAID = payment not (yet) reversed;
 // REFUNDED = payment that was reversed; REFUND_ISSUED = the reversal transaction itself.
 export const receiptStatusEnum = z.enum(["PAID", "REFUNDED", "REFUND_ISSUED"]);
@@ -23,6 +33,7 @@ export const createTransactionSchema = z
     roomTypeId: z.string().min(1).optional(),
     bedCount: z.coerce.number().int().min(0).max(10).optional(),
     discountType: discountTypeEnum.optional(),
+    processedBy: cashieringProcessedBy,
   })
   // A PAYMENT records money actually received, so how it was received must
   // be captured — CHARGE/DISCOUNT don't move money, so they don't need one.
@@ -40,6 +51,7 @@ export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 export const payTransactionSchema = z.object({
   amount: z.coerce.number().positive("Amount must be greater than 0."),
   reference: z.string().trim().max(200).optional().or(z.literal("")),
+  processedBy: cashieringProcessedBy,
 });
 export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
 
@@ -47,6 +59,7 @@ export const issueRefundSchema = z.object({
   originalTransactionId: z.string().min(1, "Original transaction is required."),
   amount: z.coerce.number().positive("Amount must be greater than 0."),
   reference: z.string().trim().max(200).optional().or(z.literal("")),
+  processedBy: cashieringProcessedBy,
 });
 export type IssueRefundInput = z.infer<typeof issueRefundSchema>;
 

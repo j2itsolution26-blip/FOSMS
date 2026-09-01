@@ -92,6 +92,7 @@ export type FrontOfficeActivityTransaction = {
   roomType: { name: string } | null;
   discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
   vatAmount: string | null;
+  processedBy: string | null;
 };
 
 export type FrontOfficeActivityRow = {
@@ -153,6 +154,7 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     roomType: t.roomType,
     discountType: t.discountType,
     vatAmount: t.vatAmount?.toString() ?? null,
+    processedBy: t.processedBy,
   };
 }
 

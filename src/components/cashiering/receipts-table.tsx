@@ -26,7 +26,7 @@ type ReceiptRow = {
   paymentDate: string;
   guestName: string | null;
   reservationNo: string | null;
-  createdBy: string;
+  processedBy: string | null;
   roomNumber: string | null;
   discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
   vatAmount: string | null;
@@ -135,7 +135,7 @@ export function ReceiptsTable() {
         </Badge>
       ),
     },
-    { key: "createdBy", header: "Processed By", render: (r) => r.createdBy },
+    { key: "processedBy", header: "Processed By", render: (r) => r.processedBy || "Not recorded" },
     {
       key: "actions",
       header: "Actions",

@@ -66,6 +66,7 @@ export function TransactionDialog({
       amount: undefined as unknown as number,
       paymentMethod: "CASH" as const,
       reference: "",
+      processedBy: "",
     },
   });
 
@@ -83,6 +84,7 @@ export function TransactionDialog({
       amount: undefined as unknown as number,
       paymentMethod: "CASH",
       reference: "",
+      processedBy: "",
     });
     setLoadingReservations(true);
     apiFetch<ReservationRow[]>("/api/cashiering/reservations")
@@ -271,6 +273,29 @@ export function TransactionDialog({
                   <FormLabel>{referenceLabel}</FormLabel>
                   <FormControl>
                     <Input placeholder={referencePlaceholder} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Cashiering's own Processed By — manually typed by the cashier
+                for this payment; never auto-filled from the logged-in user,
+                and entirely independent of the Guest Folio's Processed By. */}
+            <FormField
+              control={form.control}
+              name="processedBy"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                    Processed By <span className="text-red-500">*</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Enter name of person who processed this payment"
+                      className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

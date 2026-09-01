@@ -46,6 +46,7 @@ type GuestRow = {
   preferences: string | null;
   emergencyContact: string | null;
   notes: string | null;
+  processedBy: string | null;
   reservations: FolioReservation[];
 };
 
@@ -126,6 +127,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         preferences: g.preferences ?? "",
         emergencyContact: g.emergencyContact ?? "",
         notes: g.notes ?? "",
+        processedBy: g.processedBy ?? "",
       },
     });
     setDialogOpen(true);
@@ -168,6 +170,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
               <TableHead>Full Name</TableHead>
+              <TableHead>Processed By</TableHead>
               <TableHead>Room Type</TableHead>
               <TableHead>Smoking / Non-Smoking</TableHead>
               <TableHead>Room</TableHead>
@@ -183,7 +186,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 10 }).map((__, j) => (
+                  {Array.from({ length: 11 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -192,7 +195,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
                   No guests found.
                 </TableCell>
               </TableRow>
@@ -214,6 +217,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                         {formatGuestFullName(g)}
                       </button>
                     </TableCell>
+                    <TableCell>{g.processedBy || "Not recorded"}</TableCell>
                     <TableCell>{folio?.room.roomType.name ?? "—"}</TableCell>
                     <TableCell>{folio ? (folio.room.isSmoking ? "Smoking" : "Non-Smoking") : "—"}</TableCell>
                     <TableCell>{folio?.room.number ?? "—"}</TableCell>

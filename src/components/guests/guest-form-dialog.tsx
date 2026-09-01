@@ -59,6 +59,7 @@ const EMPTY: GuestInput = {
   lastName: "",
   preferences: "",
   notes: "",
+  processedBy: "",
 };
 
 export function GuestFormDialog({
@@ -311,6 +312,28 @@ export function GuestFormDialog({
                   )}
                 />
               </div>
+
+              {/* Processed By (Full-width) — manually typed by staff; never
+                  auto-filled from the logged-in user's account. */}
+              <FormField
+                control={form.control}
+                name="processedBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                      Processed By <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter name of person who processed this guest"
+                        className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="text-xs text-red-600" />
+                  </FormItem>
+                )}
+              />
 
               {/* Preferences (Full-width) */}
               <FormField

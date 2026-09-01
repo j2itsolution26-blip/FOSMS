@@ -690,6 +690,7 @@ model Guest {
   preferences        String?
   emergencyContact   String?
   notes              String?
+  processedBy        String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
@@ -840,6 +841,12 @@ model CashierTransaction {
   amount        Decimal         @db.Decimal(10, 2)
   paymentMethod PaymentMethod?
   reference     String?
+  // The cashiering transaction's own processor — a name manually typed by
+  // the cashier on the transaction/settle/refund form, independent of both
+  // `userId` (the logged-in account that posted the row) and
+  // `Guest.processedBy` (the Guest Folio's own processor). Never copied
+  // from, or copied into, either of those.
+  processedBy   String?
   reversedById  String?
   userId        String
   createdAt     DateTime        @default(now())

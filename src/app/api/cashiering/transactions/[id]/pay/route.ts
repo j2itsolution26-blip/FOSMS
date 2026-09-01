@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
   try {
     const charge = await payTransaction(
-      { transactionId: id, amount: parsed.data.amount, reference: parsed.data.reference },
+      { transactionId: id, amount: parsed.data.amount, reference: parsed.data.reference, processedBy: parsed.data.processedBy },
       { userId: auth.user.id, role: auth.user.roles[0] ?? null, ...getRequestMeta(req) }
     );
     return apiSuccess(charge);

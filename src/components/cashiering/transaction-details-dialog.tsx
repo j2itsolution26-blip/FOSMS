@@ -40,6 +40,9 @@ export type TransactionDetailsRow = {
   roomType: { name: string } | null;
   discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
   vatAmount: string | null;
+  /** The Cashiering transaction's own manually-typed processor — independent
+   * of `user` (the logged-in account) and of the Guest Folio's processedBy. */
+  processedBy: string | null;
 };
 
 const DISCOUNT_LABELS: Record<NonNullable<TransactionDetailsRow["discountType"]>, string> = {
@@ -269,7 +272,7 @@ export function TransactionDetailsDialog({
 
           <div className="space-y-3 border-t pt-4">
             <SectionHeading>Processed By</SectionHeading>
-            <p className="text-sm font-medium text-slate-900">{`${transaction.user.firstName} ${transaction.user.lastName}`}</p>
+            <p className="text-sm font-medium text-slate-900">{transaction.processedBy || "Not recorded"}</p>
           </div>
 
           <div className="space-y-3 border-t pt-4">
