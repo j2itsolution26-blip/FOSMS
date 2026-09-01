@@ -201,13 +201,29 @@ export function GuestFormDialog({
         return;
       }
 
+      // Re-quote synchronously rather than trusting the `charge` state, which
+      // is only ever set by a debounce-free effect — if the cashier picks a
+      // room type and hits Save before that round-trip resolves, `charge`
+      // would still be null and the charge would silently post as ₱0.
+      let finalCharge = charge;
+      if (!finalCharge) {
+        const quoteResult = await apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
+          method: "POST",
+          body: JSON.stringify({ roomTypeId: room.roomTypeId, bedCount: room.bedCount, discountType: room.discountType }),
+        });
+        if (quoteResult.success) finalCharge = quoteResult.data;
+      }
+
+      // No paymentMethod here — this CHARGE is money owed, not money
+      // received. Cashiering must show it as "Not recorded" until the
+      // cashier actually processes a payment against it; the "Mode of
+      // Payment" field above only matters once that happens.
       const transactionResult = await apiFetch("/api/cashiering/transactions", {
         method: "POST",
         body: JSON.stringify({
           reservationId: reservationResult.data.id,
           type: "CHARGE",
-          amount: charge?.total ?? 0,
-          paymentMethod: room.paymentMethod,
+          amount: finalCharge?.total ?? 0,
           roomTypeId: room.roomTypeId,
           bedCount: room.bedCount,
           discountType: room.discountType,

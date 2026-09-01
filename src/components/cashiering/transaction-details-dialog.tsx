@@ -254,7 +254,7 @@ export function TransactionDetailsDialog({
             <SectionHeading>Payment Information</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Transaction Type" value={TRANSACTION_TYPE_LABELS[transaction.type]} />
-              <Field label="Payment Method" value={transaction.paymentMethod ? transaction.paymentMethod.replaceAll("_", " ") : "—"} />
+              <Field label="Payment Method" value={transaction.paymentMethod ? transaction.paymentMethod.replaceAll("_", " ") : "Not recorded"} />
             </div>
             <div className="rounded-md bg-slate-50 px-4 py-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Total Amount</p>

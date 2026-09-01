@@ -23,7 +23,14 @@ export const createTransactionSchema = z
   .object({
     reservationId: z.string().min(1, "Reservation is required."),
     type: transactionTypeEnum,
-    amount: z.coerce.number().positive("Amount must be greater than 0."),
+    // When roomTypeId is set, the server recomputes amount from
+    // computeFolioCharge() and never trusts this value (see
+    // createTransaction()) — so it only needs to be non-negative here. A
+    // 100%-discounted, VAT-exempt folio charge can legitimately total 0,
+    // and rejecting that would silently break the Guest Folio auto-charge.
+    // Without roomTypeId (manual Cashiering entries), the amount IS what
+    // gets persisted, so it must be positive.
+    amount: z.coerce.number().min(0, "Amount cannot be negative."),
     paymentMethod: paymentMethodEnum.optional(),
     reference: z.string().trim().max(200).optional().or(z.literal("")),
     // Folio pricing breakdown — all optional so a plain charge/payment with no
@@ -43,6 +50,13 @@ export const createTransactionSchema = z
   // A PAYMENT records money actually received, so how it was received must
   // be captured — CHARGE/DISCOUNT don't move money, so they don't need one.
   .superRefine((data, ctx) => {
+    if (!data.roomTypeId && data.amount <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Amount must be greater than 0.",
+        path: ["amount"],
+      });
+    }
     if (data.type === "PAYMENT" && !data.paymentMethod) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
