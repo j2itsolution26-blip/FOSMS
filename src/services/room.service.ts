@@ -6,6 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { formatGuestFullName } from "@/lib/formatters";
 import { NotFoundError, AppError } from "@/lib/errors";
 import { findRoomStatusesMatching, isAvailableCategory, isOccupiedCategory, isRestrictedStatus } from "@/config/room-status";
+import { ACTIVE_STATUSES } from "@/services/reservation.service";
 import type { RoomInput, RoomTypeInput } from "@/validators/room.schema";
 
 type ActorContext = {
@@ -45,7 +46,20 @@ export async function createRoomType(input: RoomTypeInput, actor: ActorContext) 
 }
 
 export async function listRooms(
-  filters: { status?: RoomStatus | RoomStatus[]; search?: string; roomTypeId?: string; isSmoking?: boolean; id?: string } = {}
+  filters: {
+    status?: RoomStatus | RoomStatus[];
+    search?: string;
+    roomTypeId?: string;
+    isSmoking?: boolean;
+    id?: string;
+    /** When both are given (and form a valid range), rooms with an active
+     * reservation overlapping these dates are excluded from the result —
+     * the same ACTIVE_STATUSES + overlap rule assertRoomAvailable enforces
+     * authoritatively at save time, applied here so the room picker doesn't
+     * offer a room the server would reject. */
+    arrivalDate?: string;
+    departureDate?: string;
+  } = {}
 ) {
   const statusMatches = filters.search ? findRoomStatusesMatching(filters.search) : [];
 
@@ -81,7 +95,26 @@ export async function listRooms(
   });
   const guestByRoomId = new Map(inHouse.map((r) => [r.roomId, formatGuestFullName(r.guest)]));
 
-  return rooms.map((room) => ({ ...room, currentGuestName: guestByRoomId.get(room.id) ?? null }));
+  let availableRooms = rooms;
+  if (filters.arrivalDate && filters.departureDate) {
+    const arrivalDate = new Date(filters.arrivalDate);
+    const departureDate = new Date(filters.departureDate);
+    if (!Number.isNaN(arrivalDate.getTime()) && !Number.isNaN(departureDate.getTime()) && departureDate > arrivalDate) {
+      const conflicting = await prisma.reservation.findMany({
+        where: {
+          roomId: { in: rooms.map((r) => r.id) },
+          status: { in: ACTIVE_STATUSES },
+          arrivalDate: { lt: departureDate },
+          departureDate: { gt: arrivalDate },
+        },
+        select: { roomId: true },
+      });
+      const conflictingRoomIds = new Set(conflicting.map((c) => c.roomId));
+      availableRooms = rooms.filter((r) => !conflictingRoomIds.has(r.id));
+    }
+  }
+
+  return availableRooms.map((room) => ({ ...room, currentGuestName: guestByRoomId.get(room.id) ?? null }));
 }
 
 export async function getRoomOccupancySummary() {

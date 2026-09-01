@@ -11,8 +11,35 @@ import type { CreateReservationInput, UpdateReservationInput } from "@/validator
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
 
-/** Statuses that hold a room and therefore participate in overlap detection. */
-const ACTIVE_STATUSES: ReservationStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN"];
+/**
+ * Statuses that hold a room and therefore participate in overlap detection —
+ * CANCELLED and NO_SHOW never block a room, and CHECKED_OUT means the stay
+ * already ended, so none of those count as "occupying" it. Exported so
+ * room.service.ts's date-aware room picker (listRooms) excludes exactly the
+ * same reservations this authoritative check would reject, rather than
+ * maintaining a second, driftable copy of "which statuses block a room."
+ */
+export const ACTIVE_STATUSES: ReservationStatus[] = ["PENDING", "CONFIRMED", "CHECKED_IN"];
+
+/** "September 1–2, 2026" / "September 30–October 2, 2026" — UTC-based since
+ * arrival/departure are date-only (@db.Date) values with no time component;
+ * formatting in the server's local timezone could shift the displayed day. */
+function formatDateRange(arrivalDate: Date, departureDate: Date): string {
+  const utc = { timeZone: "UTC" } as const;
+  const year = departureDate.toLocaleDateString("en-US", { year: "numeric", ...utc });
+  const sameMonth =
+    arrivalDate.getUTCFullYear() === departureDate.getUTCFullYear() &&
+    arrivalDate.getUTCMonth() === departureDate.getUTCMonth();
+
+  if (sameMonth) {
+    const month = arrivalDate.toLocaleDateString("en-US", { month: "long", ...utc });
+    return `${month} ${arrivalDate.getUTCDate()}–${departureDate.getUTCDate()}, ${year}`;
+  }
+
+  const from = arrivalDate.toLocaleDateString("en-US", { month: "long", day: "numeric", ...utc });
+  const to = departureDate.toLocaleDateString("en-US", { month: "long", day: "numeric", ...utc });
+  return `${from}–${to}, ${year}`;
+}
 
 export async function nextReservationNumber(tx: Prisma.TransactionClient): Promise<string> {
   const year = new Date().getFullYear();
@@ -32,9 +59,15 @@ export async function assertRoomAvailable(
   excludeReservationId?: string
 ) {
   // Serialize concurrent reservation attempts for the same room so two requests
-  // racing on the same dates can't both pass the overlap check below.
-  await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${roomId} FOR UPDATE`;
+  // racing on the same dates can't both pass the overlap check below. Also
+  // fetches the room number for a human-readable conflict message below.
+  const [lockedRoom] = await tx.$queryRaw<{ number: string }[]>`SELECT number FROM rooms WHERE id = ${roomId} FOR UPDATE`;
 
+  // Standard half-open interval overlap: [arrivalDate, departureDate) vs each
+  // existing reservation's [existing.arrivalDate, existing.departureDate).
+  // Covers identical dates, partial overlap on either edge, and either stay
+  // fully containing the other — two ranges overlap iff each one's start is
+  // before the other's end.
   const conflict = await tx.reservation.findFirst({
     where: {
       roomId,
@@ -47,8 +80,11 @@ export async function assertRoomAvailable(
   });
 
   if (conflict) {
+    const roomLabel = lockedRoom ? `Room ${lockedRoom.number}` : "This room";
     throw new ReservationConflictError(
-      `Room is already reserved for these dates (conflicts with ${conflict.reservationNo}).`
+      `${roomLabel} is unavailable for ${formatDateRange(arrivalDate, departureDate)}. ` +
+        `Currently reserved under ${conflict.reservationNo}. ` +
+        `Please select another available room or change the dates.`
     );
   }
 }

@@ -103,11 +103,14 @@ export function GuestFormDialog({
   const roomTypeId = roomForm.watch("roomTypeId");
   const bedCount = roomForm.watch("bedCount");
   const discountType = roomForm.watch("discountType");
+  const roomArrivalDate = roomForm.watch("arrivalDate");
+  const roomDepartureDate = roomForm.watch("departureDate");
 
   const { rows: roomRows, loading: roomsLoading } = useRoomOptions(
     ASSIGNABLE_ROOM_STATUS_QUERY,
     open && isCreate && assignRoom,
-    roomTypeId
+    roomTypeId,
+    { arrivalDate: roomArrivalDate, departureDate: roomDepartureDate }
   );
   const roomOptions = useMemo(() => {
     const filtered =
@@ -119,6 +122,15 @@ export function GuestFormDialog({
     [roomRows]
   );
   const selectedRoomType = roomTypes.find((rt) => rt.id === roomTypeId);
+
+  // A previously selected room can stop being available once the dates
+  // change (it may now conflict with an existing reservation) — clear the
+  // selection so a stale, no-longer-offered room can't stay chosen, same as
+  // changing the room type already does.
+  useEffect(() => {
+    roomForm.setValue("roomId", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomArrivalDate, roomDepartureDate]);
 
   useEffect(() => {
     if (open) {
@@ -466,7 +478,7 @@ export function GuestFormDialog({
                                 onChange={field.onChange}
                                 placeholder={!roomTypeId ? "Select a room type first" : roomsLoading ? "Loading rooms…" : "Select room"}
                                 searchPlaceholder="Search rooms…"
-                                emptyText="No available rooms of this type."
+                                emptyText="No rooms of this type are available for the selected dates."
                                 disabled={!roomTypeId || roomsLoading}
                                 ariaLabel="Room"
                               />
