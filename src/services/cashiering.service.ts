@@ -585,7 +585,7 @@ export async function payTransaction(
     });
 
     // The charge itself is what the Cashiering list/receipt display — once
-    // this payment fully settles it, the charge's own Processed By becomes
+    // this payment fully settles it, the charge's own Transacted By becomes
     // the cashier who took this payment (it started null: nobody had
     // processed it yet). A partial payment leaves it untouched, since the
     // charge isn't Paid yet.

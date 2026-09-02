@@ -29,9 +29,19 @@ export const guestFolioRoomSchema = z
     path: ["departureDate"],
   });
 
-export const createGuestFolioSchema = z.object({
-  guest: guestSchema,
-  room: guestFolioRoomSchema.optional(),
-});
+export const createGuestFolioSchema = z
+  .object({
+    guest: guestSchema,
+    room: guestFolioRoomSchema.optional(),
+    // Walk-In is this exact same Guest Folio save with one extra step: the
+    // guest is checked in immediately, in the same transaction, instead of
+    // waiting in Cashiering/Front Office for a later Check-In. Requires a
+    // room, since there's nowhere to check the guest into otherwise.
+    checkInNow: z.boolean().optional().default(false),
+  })
+  .refine((data) => !data.checkInNow || !!data.room, {
+    message: "A room assignment is required to check in a walk-in guest.",
+    path: ["room"],
+  });
 
 export type CreateGuestFolioInput = z.infer<typeof createGuestFolioSchema>;

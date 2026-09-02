@@ -27,15 +27,3 @@ export const guestVerificationSchema = z.object({
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 });
 export type GuestVerificationInput = z.infer<typeof guestVerificationSchema>;
-
-export const walkInSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required.").max(100),
-  middleName: z.string().trim().max(100).optional().or(z.literal("")),
-  lastName: z.string().trim().min(1, "Last name is required.").max(100),
-  phone: z.string().trim().max(30).optional().or(z.literal("")),
-  email: z.string().trim().toLowerCase().email("Enter a valid email address.").optional().or(z.literal("")),
-  roomId: z.string().min(1, "Room is required."),
-  nights: z.coerce.number().int().min(1).max(60).default(1),
-  numGuests: z.coerce.number().int().min(1).max(20).default(1),
-});
-export type WalkInInput = z.infer<typeof walkInSchema>;

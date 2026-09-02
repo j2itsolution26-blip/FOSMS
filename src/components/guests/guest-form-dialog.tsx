@@ -68,12 +68,26 @@ export function GuestFormDialog({
   guestId,
   initialValues,
   onSaved,
+  walkIn = false,
+  initialRoomId,
+  initialRoomTypeId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guestId?: string;
   initialValues?: Partial<GuestInput>;
   onSaved: () => void;
+  /**
+   * Walk-In is this exact same Guest Folio form and save logic, plus one
+   * extra step: the guest is checked in immediately (see the `checkInNow`
+   * flag sent to /api/guests/folio). Room Assignment stops being optional —
+   * there's nowhere to check the guest into without a room — everything
+   * else (fields, validation, pricing, Processed By) is identical.
+   */
+  walkIn?: boolean;
+  /** Pre-selects a room (e.g. from the Rooms board's "Walk-In" action). */
+  initialRoomId?: string;
+  initialRoomTypeId?: string;
 }) {
   const form = useForm<GuestInput>({
     resolver: zodResolver(guestSchema),
@@ -82,8 +96,9 @@ export function GuestFormDialog({
 
   // Room Assignment is optional and only offered when creating a new guest —
   // editing an existing guest folio never touches reservations/cashiering.
+  // Walk-In always creates, and always assigns a room (required to check in).
   const isCreate = !guestId;
-  const [assignRoom, setAssignRoom] = useState(false);
+  const [assignRoom, setAssignRoom] = useState(walkIn);
   const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
@@ -135,12 +150,12 @@ export function GuestFormDialog({
   useEffect(() => {
     if (open) {
       form.reset({ ...EMPTY, ...initialValues });
-      setAssignRoom(false);
+      setAssignRoom(walkIn);
       setSmokingFilter("any");
       setCharge(null);
       roomForm.reset({
-        roomTypeId: "",
-        roomId: "",
+        roomTypeId: initialRoomTypeId ?? "",
+        roomId: initialRoomId ?? "",
         arrivalDate: todayIso(),
         departureDate: tomorrowIso(),
         bedCount: 0,
@@ -223,6 +238,7 @@ export function GuestFormDialog({
               discountType: room.discountType,
             }
           : undefined,
+        checkInNow: walkIn,
       }),
     });
 
@@ -231,13 +247,19 @@ export function GuestFormDialog({
       // must never be reported as saved here.
       toast.error(
         assignRoom
-          ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
+          ? `Unable to ${walkIn ? "register the walk-in guest" : "save the guest folio"}: ${result.message} No guest record was saved. Please try again.`
           : result.message
       );
       return;
     }
 
-    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
+    toast.success(
+      walkIn
+        ? "Walk-in guest registered and checked in."
+        : assignRoom
+          ? "Guest folio saved, room assigned, and charge sent to Cashiering."
+          : "Guest folio saved successfully."
+    );
     onOpenChange(false);
     onSaved();
   }
@@ -249,12 +271,14 @@ export function GuestFormDialog({
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 pt-5 pb-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#0b1c3f] uppercase">
-              {guestId ? "Edit Guest Folio" : "Guest Folio"}
+              {walkIn ? "Walk-In Guest" : guestId ? "Edit Guest Folio" : "Guest Folio"}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              {guestId
-                ? "Update folio details and preferences for this guest."
-                : "Create and register a guest folio record for Front Desk operations."}
+              {walkIn
+                ? "Register a walk-in guest folio and check them in immediately."
+                : guestId
+                  ? "Update folio details and preferences for this guest."
+                  : "Create and register a guest folio record for Front Desk operations."}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -390,17 +414,27 @@ export function GuestFormDialog({
                 )}
               />
 
-              {/* Room Assignment (create only) — optional; when filled in, saving
-                  this folio also creates a Reservation and sends the computed
-                  charge straight to Cashiering. */}
+              {/* Room Assignment — optional on a regular Guest Folio (toggled
+                  by the checkbox below); always on for Walk-In, since there's
+                  nowhere to check the guest into without a room. Either way,
+                  saving creates a Reservation and sends the computed charge
+                  straight to Cashiering. */}
               {isCreate ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50">
-                  <label className="flex cursor-pointer items-center gap-2.5 px-4 py-3">
-                    <Checkbox checked={assignRoom} onCheckedChange={(v) => setAssignRoom(v === true)} />
-                    <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                      <BedDouble className="h-3.5 w-3.5" /> Assign a Room Now
-                    </span>
-                  </label>
+                  {walkIn ? (
+                    <div className="flex items-center gap-2.5 px-4 py-3">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                        <BedDouble className="h-3.5 w-3.5" /> Room Assignment <span className="text-red-500">*</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <label className="flex cursor-pointer items-center gap-2.5 px-4 py-3">
+                      <Checkbox checked={assignRoom} onCheckedChange={(v) => setAssignRoom(v === true)} />
+                      <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                        <BedDouble className="h-3.5 w-3.5" /> Assign a Room Now
+                      </span>
+                    </label>
+                  )}
 
                   {assignRoom ? (
                     <div className="space-y-4 border-t border-slate-200 px-4 py-4">
@@ -656,12 +690,12 @@ export function GuestFormDialog({
                 {form.formState.isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    SAVING GUEST FOLIO…
+                    {walkIn ? "REGISTERING & CHECKING IN…" : "SAVING GUEST FOLIO…"}
                   </>
                 ) : (
                   <>
                     <UserCheck className="mr-2 h-4 w-4" />
-                    SAVE GUEST FOLIO
+                    {walkIn ? "REGISTER & CHECK IN" : "SAVE GUEST FOLIO"}
                   </>
                 )}
               </Button>

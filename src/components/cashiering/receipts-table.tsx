@@ -135,7 +135,7 @@ export function ReceiptsTable() {
         </Badge>
       ),
     },
-    { key: "processedBy", header: "Processed By", render: (r) => r.processedBy || "Not recorded" },
+    { key: "processedBy", header: "Transacted By", render: (r) => r.processedBy || "Not recorded" },
     {
       key: "actions",
       header: "Actions",

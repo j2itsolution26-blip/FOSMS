@@ -4,7 +4,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError } from "@/lib/errors";
-import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
+import { formatGuestFullName } from "@/lib/formatters";
+import {
+  checkInReservationInTx,
+  createReservationAndChargeInTx,
+  resolveInitialReservationCharge,
+} from "@/services/reservation.service";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -149,11 +154,18 @@ type GuestFolioRoomInput = NonNullable<CreateGuestFolioInput["room"]>;
  * behind; every write then happens inside one $transaction, so a mid-flow
  * failure (e.g. the room got booked out from under this request) rolls back
  * the Guest along with it instead of leaving a partially-saved folio.
+ *
+ * Walk-In is this exact same save with one extra step (`checkInNow`): once
+ * the Reservation and charge exist, the guest is checked in immediately —
+ * inside this same transaction, so it either lands with everything else or
+ * rolls back with it. No separate Walk-In implementation exists; the schema
+ * (createGuestFolioSchema) requires a room whenever checkInNow is set.
  */
 export async function createGuestFolioWithReservationAndCharge(
   guestInput: GuestInput,
   room: GuestFolioRoomInput | null,
-  actor: ActorContext
+  actor: ActorContext,
+  options: { checkInNow?: boolean } = {}
 ) {
   const resolved = room ? await resolveInitialReservationCharge(room.roomId, room) : null;
 
@@ -161,7 +173,7 @@ export async function createGuestFolioWithReservationAndCharge(
     const guest = await tx.guest.create({ data: toGuestData(guestInput) });
 
     if (!room || !resolved) {
-      return { guest, reservation: null, transaction: null };
+      return { guest, reservation: null, transaction: null, checkedIn: false };
     }
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
@@ -183,7 +195,12 @@ export async function createGuestFolioWithReservationAndCharge(
       actor
     );
 
-    return { guest, reservation, transaction };
+    if (options.checkInNow) {
+      await checkInReservationInTx(tx, { reservationId: reservation.id, roomId: room.roomId }, actor);
+      reservation.status = "CHECKED_IN";
+    }
+
+    return { guest, reservation, transaction, checkedIn: !!options.checkInNow };
   });
 
   await recordAudit({
@@ -227,6 +244,27 @@ export async function createGuestFolioWithReservationAndCharge(
         transactionNo: result.transaction.transactionNo,
         type: result.transaction.type,
         amount: result.transaction.amount,
+      },
+    });
+  }
+
+  // Recorded under the front-office module/action so listFrontOfficeActivity()
+  // picks it up exactly like the old standalone walk-in flow did — it's what
+  // attributes the resulting Check-in row to the staff member who registered
+  // this guest, since the CheckIn record itself doesn't carry who performed it.
+  if (result.checkedIn && result.reservation) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "WALK_IN",
+      module: "front-office",
+      recordId: result.reservation.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: {
+        reservationNo: result.reservation.reservationNo,
+        guestName: formatGuestFullName(result.guest),
+        roomNumber: result.reservation.room.number,
       },
     });
   }

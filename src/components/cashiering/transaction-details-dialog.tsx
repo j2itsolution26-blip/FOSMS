@@ -271,7 +271,7 @@ export function TransactionDetailsDialog({
           </div>
 
           <div className="space-y-3 border-t pt-4">
-            <SectionHeading>Processed By</SectionHeading>
+            <SectionHeading>Transacted By</SectionHeading>
             <p className="text-sm font-medium text-slate-900">{transaction.processedBy || "Not recorded"}</p>
           </div>
 

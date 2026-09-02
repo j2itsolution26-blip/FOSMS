@@ -177,7 +177,7 @@ export function TransactionSettleDialog({
               </div>
               <div className="space-y-1.5">
                 <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
-                  Processed By <span className="text-red-500">*</span>
+                  Transacted By <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   placeholder="Enter name of person who processed this payment"

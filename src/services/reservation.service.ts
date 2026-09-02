@@ -233,6 +233,38 @@ export async function createReservationAndChargeInTx(
   return { reservation, transaction };
 }
 
+/**
+ * Marks a reservation checked in inside an already-open transaction: creates
+ * the CheckIn record, flips the reservation to CHECKED_IN, and occupies the
+ * room — the same three writes front-office.service.ts's standalone
+ * checkIn() performs, reused here so a Walk-In's immediate check-in (see
+ * createGuestFolioWithReservationAndCharge in guest.service.ts) can never
+ * drift from what a manual Check-In does. Room availability/status is not
+ * re-checked here — callers that just created the reservation in this same
+ * transaction (Walk-In) already validated the room; checkIn() itself
+ * re-verifies before calling this for an older, already-existing reservation.
+ */
+export async function checkInReservationInTx(
+  tx: Prisma.TransactionClient,
+  params: { reservationId: string; roomId: string; keyCardStatus?: string | null; earlyCheckIn?: boolean; notes?: string | null },
+  actor: ActorContext
+) {
+  const checkIn = await tx.checkIn.create({
+    data: {
+      reservationId: params.reservationId,
+      keyCardStatus: params.keyCardStatus ?? null,
+      earlyCheckIn: params.earlyCheckIn ?? false,
+      notes: params.notes ?? null,
+    },
+  });
+  await tx.reservation.update({ where: { id: params.reservationId }, data: { status: "CHECKED_IN" } });
+  await tx.room.update({ where: { id: params.roomId }, data: { status: "OC" } });
+  await tx.roomStatusHistory.create({
+    data: { roomId: params.roomId, status: "OC", note: "Guest checked in", changedById: actor.userId },
+  });
+  return checkIn;
+}
+
 export async function createReservation(input: CreateReservationInput, actor: ActorContext) {
   const { room, charge } = await resolveInitialReservationCharge(input.roomId, input);
 

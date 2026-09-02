@@ -187,7 +187,7 @@ export function RefundTransactionDialog({
 
             <div className="space-y-1.5">
               <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
-                Processed By <span className="text-red-500">*</span>
+                Transacted By <span className="text-red-500">*</span>
               </Label>
               <Input
                 placeholder="Enter name of person who processed this payment"
@@ -218,7 +218,7 @@ export function RefundTransactionDialog({
                 <p className="font-medium text-slate-900">{reasonValue}</p>
               </div>
               <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">Processed By</p>
+                <p className="text-xs text-muted-foreground">Transacted By</p>
                 <p className="font-medium text-slate-900">{processedBy.trim()}</p>
               </div>
             </div>

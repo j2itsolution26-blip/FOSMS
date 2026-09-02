@@ -280,7 +280,7 @@ export function TransactionDialog({
               )}
             />
 
-            {/* Cashiering's own Processed By — manually typed by the cashier
+            {/* Cashiering's own Transacted By — manually typed by the cashier
                 for this payment; never auto-filled from the logged-in user,
                 and entirely independent of the Guest Folio's Processed By. */}
             <FormField
@@ -289,7 +289,7 @@ export function TransactionDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Processed By {processedByRequired ? <span className="text-red-500">*</span> : null}
+                    Transacted By {processedByRequired ? <span className="text-red-500">*</span> : null}
                   </FormLabel>
                   <FormControl>
                     <Input

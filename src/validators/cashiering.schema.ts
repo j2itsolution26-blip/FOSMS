@@ -4,15 +4,16 @@ export const transactionTypeEnum = z.enum(["CHARGE", "PAYMENT", "DISCOUNT"]);
 export const paymentMethodEnum = z.enum(["CASH", "CARD", "BANK_TRANSFER", "ONLINE", "OTHER"]);
 export const discountTypeEnum = z.enum(["SENIOR_CITIZEN", "PWD", "STAKEHOLDER"]);
 
-// The Cashiering transaction's own "Processed By" — a name the cashier
-// manually types on the form, never the logged-in user and never the Guest
-// Folio's own `processedBy` (see prisma schema comment on
-// CashierTransaction.processedBy).
+// The Cashiering transaction's own "Transacted By" (stored as `processedBy`
+// — display label only, see prisma schema comment on
+// CashierTransaction.processedBy) — a name the cashier manually types on the
+// form, never the logged-in user and never the Guest Folio's own
+// `processedBy` ("Processed By").
 const cashieringProcessedBy = z
   .string()
   .trim()
-  .min(1, "Processed By is required.")
-  .max(150, "Processed By must be 150 characters or fewer.");
+  .min(1, "Transacted By is required.")
+  .max(150, "Transacted By must be 150 characters or fewer.");
 
 // A "receipt" is a PAYMENT or REFUND transaction. PAID = payment not (yet) reversed;
 // REFUNDED = payment that was reversed; REFUND_ISSUED = the reversal transaction itself.
@@ -67,7 +68,7 @@ export const createTransactionSchema = z
     if (data.type === "PAYMENT" && !data.processedBy?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Processed By is required.",
+        message: "Transacted By is required.",
         path: ["processedBy"],
       });
     }
