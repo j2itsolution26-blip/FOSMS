@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Loader2, UserCheck, BedDouble } from "lucide-react";
+import { Loader2, UserCheck, BedDouble, AlertCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,34 @@ import {
 import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
+
+// Required-field metadata shared by the top-level error summary and the
+// scroll/focus-to-first-error behavior below. Order matches the order the
+// fields appear in the form, so "first invalid field" always means the one
+// closest to the top.
+type GuestFieldKey = "firstName" | "lastName" | "processedBy";
+type RoomFieldKey = "roomTypeId" | "roomId" | "arrivalDate" | "departureDate" | "paymentMethod";
+
+const FIELD_META: Record<GuestFieldKey | RoomFieldKey, { label: string; domId: string }> = {
+  firstName: { label: "First Name", domId: "guest-folio-field-firstName" },
+  lastName: { label: "Last Name", domId: "guest-folio-field-lastName" },
+  processedBy: { label: "Processed By", domId: "guest-folio-field-processedBy" },
+  roomTypeId: { label: "Room Type", domId: "guest-folio-field-roomTypeId" },
+  roomId: { label: "Room", domId: "guest-folio-field-roomId" },
+  arrivalDate: { label: "Arrival Date", domId: "guest-folio-field-arrivalDate" },
+  departureDate: { label: "Departure Date", domId: "guest-folio-field-departureDate" },
+  paymentMethod: { label: "Mode of Payment", domId: "guest-folio-field-paymentMethod" },
+};
+const GUEST_FIELD_ORDER: GuestFieldKey[] = ["firstName", "lastName", "processedBy"];
+const ROOM_FIELD_ORDER: RoomFieldKey[] = ["roomTypeId", "roomId", "arrivalDate", "departureDate", "paymentMethod"];
+
+function scrollToField(domId: string) {
+  const el = document.getElementById(domId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  const focusable = el.querySelector<HTMLElement>("input, select, button, textarea, [tabindex]");
+  focusable?.focus();
+}
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -103,6 +131,12 @@ export function GuestFormDialog({
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // A ref alongside the isSubmitting state: state updates aren't visible
+  // until the next render, so a ref is what actually blocks a second submit
+  // that fires before that re-render (e.g. a fast double-click).
+  const submittingRef = useRef(false);
 
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
@@ -153,6 +187,7 @@ export function GuestFormDialog({
       setAssignRoom(walkIn);
       setSmokingFilter("any");
       setCharge(null);
+      setHasSubmitted(false);
       roomForm.reset({
         roomTypeId: initialRoomTypeId ?? "",
         roomId: initialRoomId ?? "",
@@ -190,6 +225,57 @@ export function GuestFormDialog({
       if (res.success) setRoomTypes(res.data);
     });
   }, [open, isCreate]);
+
+  // Drives the top-level error summary (§ compact list of missing/invalid
+  // required fields, clickable to jump to the field). Recomputed from both
+  // forms' live error state, so it stays in sync as the user fixes fields.
+  const errorItems = useMemo(() => {
+    const items: { key: string; label: string; domId: string }[] = [];
+    for (const key of GUEST_FIELD_ORDER) {
+      if (form.formState.errors[key]) {
+        items.push({ key, label: FIELD_META[key].label, domId: FIELD_META[key].domId });
+      }
+    }
+    if (isCreate && assignRoom) {
+      for (const key of ROOM_FIELD_ORDER) {
+        if (roomForm.formState.errors[key]) {
+          items.push({ key, label: FIELD_META[key].label, domId: FIELD_META[key].domId });
+        }
+      }
+    }
+    return items;
+  }, [form.formState.errors, roomForm.formState.errors, isCreate, assignRoom]);
+
+  // Validates both forms up front and blocks the save entirely if either is
+  // invalid — no partial guest/reservation/charge/check-in is ever attempted
+  // (that atomic write only happens once both sets of required fields pass).
+  async function handleFormSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (submittingRef.current) return;
+    setHasSubmitted(true);
+
+    const [guestOk, roomOk] = await Promise.all([
+      form.trigger(),
+      isCreate && assignRoom ? roomForm.trigger() : Promise.resolve(true),
+    ]);
+
+    if (!guestOk || !roomOk) {
+      const firstInvalidKey =
+        GUEST_FIELD_ORDER.find((key) => form.formState.errors[key]) ??
+        (isCreate && assignRoom ? ROOM_FIELD_ORDER.find((key) => roomForm.formState.errors[key]) : undefined);
+      if (firstInvalidKey) scrollToField(FIELD_META[firstInvalidKey].domId);
+      return;
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(form.getValues());
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
 
   async function onSubmit(values: GuestInput) {
     // Editing an existing Guest Folio never touches reservations/cashiering —
@@ -285,15 +371,43 @@ export function GuestFormDialog({
 
         {/* Scrollable Form Body */}
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
+          <form onSubmit={handleFormSubmit} className="flex flex-col" noValidate>
             <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
+              {/* Top-level error summary — the modal is scrollable, so a field
+                  error further down can be off-screen; this keeps every
+                  missing/invalid required field visible from the top and lets
+                  staff jump straight to it. */}
+              {hasSubmitted && errorItems.length > 0 ? (
+                <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold">
+                      Please complete all required fields before {walkIn ? "registering the guest" : "saving the guest folio"}.
+                    </p>
+                    <ul className="mt-1.5 space-y-0.5">
+                      {errorItems.map((item) => (
+                        <li key={item.key}>
+                          <button
+                            type="button"
+                            onClick={() => scrollToField(item.domId)}
+                            className="underline decoration-red-300 underline-offset-2 hover:text-red-900"
+                          >
+                            • {item.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : null}
+
               {/* Name Details */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
                   name="firstName"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem id={FIELD_META.firstName.domId}>
                       <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                         First Name <span className="text-red-500">*</span>
                       </FormLabel>
@@ -331,7 +445,7 @@ export function GuestFormDialog({
                   control={form.control}
                   name="lastName"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem id={FIELD_META.lastName.domId}>
                       <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                         Last Name <span className="text-red-500">*</span>
                       </FormLabel>
@@ -354,7 +468,7 @@ export function GuestFormDialog({
                 control={form.control}
                 name="processedBy"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem id={FIELD_META.processedBy.domId}>
                     <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Processed By <span className="text-red-500">*</span>
                     </FormLabel>
@@ -443,7 +557,7 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="roomTypeId"
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem id={FIELD_META.roomTypeId.domId}>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                                 Room Type <span className="text-red-500">*</span>
                               </FormLabel>
@@ -501,7 +615,7 @@ export function GuestFormDialog({
                         control={roomForm.control}
                         name="roomId"
                         render={({ field }) => (
-                          <FormItem>
+                          <FormItem id={FIELD_META.roomId.domId}>
                             <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                               Room <span className="text-red-500">*</span>
                             </FormLabel>
@@ -527,9 +641,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="arrivalDate"
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem id={FIELD_META.arrivalDate.domId}>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Arrival Date
+                                Arrival Date <span className="text-red-500">*</span>
                               </FormLabel>
                               <FormControl>
                                 <Input type="date" {...field} />
@@ -542,9 +656,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="departureDate"
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem id={FIELD_META.departureDate.domId}>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Departure Date
+                                Departure Date <span className="text-red-500">*</span>
                               </FormLabel>
                               <FormControl>
                                 <Input type="date" {...field} />
@@ -608,9 +722,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="paymentMethod"
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem id={FIELD_META.paymentMethod.domId}>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Mode of Payment
+                                Mode of Payment <span className="text-red-500">*</span>
                               </FormLabel>
                               <Select value={field.value} onValueChange={field.onChange}>
                                 <FormControl>
@@ -684,10 +798,15 @@ export function GuestFormDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
+                // Only block on the price quote once a room type has actually
+                // been picked — with nothing picked yet there's no quote to
+                // wait for, and the button must stay clickable so an empty
+                // form still gets a real validation pass instead of just
+                // sitting disabled with no feedback.
+                disabled={isSubmitting || (isCreate && assignRoom && !!roomTypeId && (quoting || !charge))}
                 className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
               >
-                {form.formState.isSubmitting ? (
+                {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {walkIn ? "REGISTERING & CHECKING IN…" : "SAVING GUEST FOLIO…"}
