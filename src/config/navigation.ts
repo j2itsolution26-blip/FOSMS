@@ -21,6 +21,7 @@ import {
   Award,
   FolderOpen,
   AlertTriangle,
+  FlaskConical,
 } from "lucide-react";
 
 import { PERMISSIONS, type PermissionKey } from "@/config/permissions";
@@ -77,6 +78,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Roles & Permissions", href: "/admin/roles", icon: ShieldCheck, permission: PERMISSIONS.ROLES_MANAGE },
       { label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW },
       { label: "System Settings", href: "/admin/settings", icon: Settings, permission: PERMISSIONS.SETTINGS_MANAGE },
+      { label: "Laboratory Data", href: "/admin/laboratory-data", icon: FlaskConical, permission: PERMISSIONS.LAB_DATA_RESET },
     ],
   },
 ];
@@ -140,7 +142,10 @@ export const SUPERVISOR_NAV_SECTIONS: NavSection[] = [
     items: [{ label: "Reports & Analytics", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS_VIEW }],
   },
   {
-    label: "",
-    items: [{ label: "Activity Log", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW }],
+    label: "Administration",
+    items: [
+      { label: "Activity Log", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW },
+      { label: "Laboratory Data", href: "/admin/laboratory-data", icon: FlaskConical, permission: PERMISSIONS.LAB_DATA_RESET },
+    ],
   },
 ];

@@ -14,7 +14,7 @@ import { RoomStatusMenu } from "@/components/rooms/room-status-menu";
 import { RoomStatusHistoryDialog } from "@/components/rooms/room-status-history-dialog";
 import { RoomFormDialog } from "@/components/rooms/room-form-dialog";
 import { RoomTypeFormDialog } from "@/components/rooms/room-type-form-dialog";
-import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
+import { WalkInDialog } from "@/components/front-office/walk-in-dialog";
 import { apiFetch } from "@/lib/api-client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -57,7 +57,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [historyRoom, setHistoryRoom] = useState<{ id: string; number: string } | null>(null);
-  const [assignRoom, setAssignRoomTarget] = useState<{ roomId: string; roomTypeId: string } | null>(null);
+  const [assignRoomId, setAssignRoomId] = useState<string | null>(null);
   const [walkInOpen, setWalkInOpen] = useState(false);
 
   const debouncedSearch = useDebouncedValue(search);
@@ -96,8 +96,8 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
   const visibleRooms = floorFilter ? rooms.filter((r) => String(r.floor) === floorFilter) : rooms;
   const floors = Array.from(new Set(visibleRooms.map((r) => r.floor))).sort((a, b) => a - b);
 
-  function openAssign(room: RoomRow) {
-    setAssignRoomTarget({ roomId: room.id, roomTypeId: room.roomType.id });
+  function openAssign(roomId: string) {
+    setAssignRoomId(roomId);
     setWalkInOpen(true);
   }
 
@@ -308,7 +308,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {assignable && canManage ? (
-                          <Button variant="outline" size="sm" onClick={() => openAssign(room)}>
+                          <Button variant="outline" size="sm" onClick={() => openAssign(room.id)}>
                             <UserPlus className="h-4 w-4" /> Assign
                           </Button>
                         ) : null}
@@ -373,7 +373,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            openAssign(room);
+                            openAssign(room.id);
                           }}
                         >
                           Assign
@@ -405,13 +405,11 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           onOpenChange={(open) => !open && setHistoryRoom(null)}
         />
       ) : null}
-      <GuestFormDialog
+      <WalkInDialog
         open={walkInOpen}
         onOpenChange={setWalkInOpen}
-        onSaved={load}
-        walkIn
-        initialRoomId={assignRoom?.roomId}
-        initialRoomTypeId={assignRoom?.roomTypeId}
+        onDone={load}
+        initialRoomId={assignRoomId}
       />
     </div>
   );

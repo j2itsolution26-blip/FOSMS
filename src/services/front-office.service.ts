@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { formatGuestFullName } from "@/lib/formatters";
-import { assertRoomAvailable, checkInReservationInTx } from "@/services/reservation.service";
+import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
 import { reservationBalance, listTodayTransactions } from "@/services/cashiering.service";
 import { resolveDateRange, type DateRange } from "@/services/report.service";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -13,6 +13,7 @@ import type {
   CheckOutInput,
   GuestVerificationInput,
   RoomTransferInput,
+  WalkInInput,
 } from "@/validators/front-office.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
@@ -378,11 +379,19 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       );
     }
 
-    await checkInReservationInTx(
-      tx,
-      { reservationId: reservation.id, roomId: reservation.roomId, keyCardStatus: input.keyCardStatus, earlyCheckIn: input.earlyCheckIn, notes: input.notes },
-      actor
-    );
+    await tx.checkIn.create({
+      data: {
+        reservationId: reservation.id,
+        keyCardStatus: input.keyCardStatus || null,
+        earlyCheckIn: input.earlyCheckIn,
+        notes: input.notes || null,
+      },
+    });
+    await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CHECKED_IN" } });
+    await tx.room.update({ where: { id: reservation.roomId }, data: { status: "OC" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: reservation.roomId, status: "OC", note: "Guest checked in", changedById: actor.userId },
+    });
 
     return reservation;
   });
@@ -649,8 +658,67 @@ export async function verifyGuest(input: GuestVerificationInput, actor: ActorCon
   return reservation;
 }
 
-// Walk-In is now just the Guest Folio's atomic creation with immediate
-// check-in — see createGuestFolioWithReservationAndCharge() in
-// guest.service.ts (checkInNow option) and the "WALK_IN" audit action it
-// records, which is what listFrontOfficeActivity() above reads to attribute
-// the resulting Check-in row to the staff member who registered the guest.
+export async function walkIn(input: WalkInInput, actor: ActorContext) {
+  const arrivalDate = new Date();
+  const departureDate = new Date();
+  departureDate.setDate(departureDate.getDate() + input.nights);
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${input.roomId} FOR UPDATE`;
+    const room = await tx.room.findUnique({ where: { id: input.roomId } });
+    if (!room) throw new NotFoundError("Room not found.");
+    if (!ASSIGNABLE_ROOM_STATUSES.includes(room.status)) {
+      throw new AppError("This room is not available for a walk-in.", "ROOM_UNAVAILABLE", 409);
+    }
+
+    const guest = await tx.guest.create({
+      data: {
+        firstName: input.firstName,
+        middleName: input.middleName || null,
+        lastName: input.lastName,
+        phone: input.phone || null,
+        email: input.email || null,
+      },
+    });
+
+    const reservationNo = await nextReservationNumber(tx);
+    const reservation = await tx.reservation.create({
+      data: {
+        reservationNo,
+        guestId: guest.id,
+        roomId: input.roomId,
+        status: "CHECKED_IN",
+        source: "WALK_IN",
+        arrivalDate,
+        departureDate,
+        numGuests: input.numGuests,
+        createdById: actor.userId,
+      },
+    });
+
+    await tx.checkIn.create({ data: { reservationId: reservation.id } });
+    await tx.room.update({ where: { id: input.roomId }, data: { status: "OC" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: input.roomId, status: "OC", note: "Walk-in guest checked in", changedById: actor.userId },
+    });
+
+    return { guest, reservation, room };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "WALK_IN",
+    module: "front-office",
+    recordId: result.reservation.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      reservationNo: result.reservation.reservationNo,
+      guestName: formatGuestFullName(result.guest),
+      roomNumber: result.room.number,
+    },
+  });
+
+  return result;
+}

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Loader2, UserCheck, BedDouble, AlertCircle } from "lucide-react";
+import { Loader2, UserCheck, BedDouble } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,34 +40,6 @@ import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
 
-// Required-field metadata shared by the top-level error summary and the
-// scroll/focus-to-first-error behavior below. Order matches the order the
-// fields appear in the form, so "first invalid field" always means the one
-// closest to the top.
-type GuestFieldKey = "firstName" | "lastName" | "processedBy";
-type RoomFieldKey = "roomTypeId" | "roomId" | "arrivalDate" | "departureDate" | "paymentMethod";
-
-const FIELD_META: Record<GuestFieldKey | RoomFieldKey, { label: string; domId: string }> = {
-  firstName: { label: "First Name", domId: "guest-folio-field-firstName" },
-  lastName: { label: "Last Name", domId: "guest-folio-field-lastName" },
-  processedBy: { label: "Processed By", domId: "guest-folio-field-processedBy" },
-  roomTypeId: { label: "Room Type", domId: "guest-folio-field-roomTypeId" },
-  roomId: { label: "Room", domId: "guest-folio-field-roomId" },
-  arrivalDate: { label: "Arrival Date", domId: "guest-folio-field-arrivalDate" },
-  departureDate: { label: "Departure Date", domId: "guest-folio-field-departureDate" },
-  paymentMethod: { label: "Mode of Payment", domId: "guest-folio-field-paymentMethod" },
-};
-const GUEST_FIELD_ORDER: GuestFieldKey[] = ["firstName", "lastName", "processedBy"];
-const ROOM_FIELD_ORDER: RoomFieldKey[] = ["roomTypeId", "roomId", "arrivalDate", "departureDate", "paymentMethod"];
-
-function scrollToField(domId: string) {
-  const el = document.getElementById(domId);
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  const focusable = el.querySelector<HTMLElement>("input, select, button, textarea, [tabindex]");
-  focusable?.focus();
-}
-
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -96,26 +68,12 @@ export function GuestFormDialog({
   guestId,
   initialValues,
   onSaved,
-  walkIn = false,
-  initialRoomId,
-  initialRoomTypeId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guestId?: string;
   initialValues?: Partial<GuestInput>;
   onSaved: () => void;
-  /**
-   * Walk-In is this exact same Guest Folio form and save logic, plus one
-   * extra step: the guest is checked in immediately (see the `checkInNow`
-   * flag sent to /api/guests/folio). Room Assignment stops being optional —
-   * there's nowhere to check the guest into without a room — everything
-   * else (fields, validation, pricing, Processed By) is identical.
-   */
-  walkIn?: boolean;
-  /** Pre-selects a room (e.g. from the Rooms board's "Walk-In" action). */
-  initialRoomId?: string;
-  initialRoomTypeId?: string;
 }) {
   const form = useForm<GuestInput>({
     resolver: zodResolver(guestSchema),
@@ -124,19 +82,12 @@ export function GuestFormDialog({
 
   // Room Assignment is optional and only offered when creating a new guest —
   // editing an existing guest folio never touches reservations/cashiering.
-  // Walk-In always creates, and always assigns a room (required to check in).
   const isCreate = !guestId;
-  const [assignRoom, setAssignRoom] = useState(walkIn);
+  const [assignRoom, setAssignRoom] = useState(false);
   const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  // A ref alongside the isSubmitting state: state updates aren't visible
-  // until the next render, so a ref is what actually blocks a second submit
-  // that fires before that re-render (e.g. a fast double-click).
-  const submittingRef = useRef(false);
 
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
@@ -184,13 +135,12 @@ export function GuestFormDialog({
   useEffect(() => {
     if (open) {
       form.reset({ ...EMPTY, ...initialValues });
-      setAssignRoom(walkIn);
+      setAssignRoom(false);
       setSmokingFilter("any");
       setCharge(null);
-      setHasSubmitted(false);
       roomForm.reset({
-        roomTypeId: initialRoomTypeId ?? "",
-        roomId: initialRoomId ?? "",
+        roomTypeId: "",
+        roomId: "",
         arrivalDate: todayIso(),
         departureDate: tomorrowIso(),
         bedCount: 0,
@@ -225,57 +175,6 @@ export function GuestFormDialog({
       if (res.success) setRoomTypes(res.data);
     });
   }, [open, isCreate]);
-
-  // Drives the top-level error summary (§ compact list of missing/invalid
-  // required fields, clickable to jump to the field). Recomputed from both
-  // forms' live error state, so it stays in sync as the user fixes fields.
-  const errorItems = useMemo(() => {
-    const items: { key: string; label: string; domId: string }[] = [];
-    for (const key of GUEST_FIELD_ORDER) {
-      if (form.formState.errors[key]) {
-        items.push({ key, label: FIELD_META[key].label, domId: FIELD_META[key].domId });
-      }
-    }
-    if (isCreate && assignRoom) {
-      for (const key of ROOM_FIELD_ORDER) {
-        if (roomForm.formState.errors[key]) {
-          items.push({ key, label: FIELD_META[key].label, domId: FIELD_META[key].domId });
-        }
-      }
-    }
-    return items;
-  }, [form.formState.errors, roomForm.formState.errors, isCreate, assignRoom]);
-
-  // Validates both forms up front and blocks the save entirely if either is
-  // invalid — no partial guest/reservation/charge/check-in is ever attempted
-  // (that atomic write only happens once both sets of required fields pass).
-  async function handleFormSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (submittingRef.current) return;
-    setHasSubmitted(true);
-
-    const [guestOk, roomOk] = await Promise.all([
-      form.trigger(),
-      isCreate && assignRoom ? roomForm.trigger() : Promise.resolve(true),
-    ]);
-
-    if (!guestOk || !roomOk) {
-      const firstInvalidKey =
-        GUEST_FIELD_ORDER.find((key) => form.formState.errors[key]) ??
-        (isCreate && assignRoom ? ROOM_FIELD_ORDER.find((key) => roomForm.formState.errors[key]) : undefined);
-      if (firstInvalidKey) scrollToField(FIELD_META[firstInvalidKey].domId);
-      return;
-    }
-
-    submittingRef.current = true;
-    setIsSubmitting(true);
-    try {
-      await onSubmit(form.getValues());
-    } finally {
-      submittingRef.current = false;
-      setIsSubmitting(false);
-    }
-  }
 
   async function onSubmit(values: GuestInput) {
     // Editing an existing Guest Folio never touches reservations/cashiering —
@@ -324,7 +223,6 @@ export function GuestFormDialog({
               discountType: room.discountType,
             }
           : undefined,
-        checkInNow: walkIn,
       }),
     });
 
@@ -333,19 +231,13 @@ export function GuestFormDialog({
       // must never be reported as saved here.
       toast.error(
         assignRoom
-          ? `Unable to ${walkIn ? "register the walk-in guest" : "save the guest folio"}: ${result.message} No guest record was saved. Please try again.`
+          ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
           : result.message
       );
       return;
     }
 
-    toast.success(
-      walkIn
-        ? "Walk-in guest registered and checked in."
-        : assignRoom
-          ? "Guest folio saved, room assigned, and charge sent to Cashiering."
-          : "Guest folio saved successfully."
-    );
+    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
     onOpenChange(false);
     onSaved();
   }
@@ -357,57 +249,27 @@ export function GuestFormDialog({
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 pt-5 pb-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#0b1c3f] uppercase">
-              {walkIn ? "Walk-In Guest" : guestId ? "Edit Guest Folio" : "Guest Folio"}
+              {guestId ? "Edit Guest Folio" : "Guest Folio"}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              {walkIn
-                ? "Register a walk-in guest folio and check them in immediately."
-                : guestId
-                  ? "Update folio details and preferences for this guest."
-                  : "Create and register a guest folio record for Front Desk operations."}
+              {guestId
+                ? "Update folio details and preferences for this guest."
+                : "Create and register a guest folio record for Front Desk operations."}
             </DialogDescription>
           </DialogHeader>
         </div>
 
         {/* Scrollable Form Body */}
         <Form {...form}>
-          <form onSubmit={handleFormSubmit} className="flex flex-col" noValidate>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
             <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
-              {/* Top-level error summary — the modal is scrollable, so a field
-                  error further down can be off-screen; this keeps every
-                  missing/invalid required field visible from the top and lets
-                  staff jump straight to it. */}
-              {hasSubmitted && errorItems.length > 0 ? (
-                <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
-                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                  <div>
-                    <p className="font-semibold">
-                      Please complete all required fields before {walkIn ? "registering the guest" : "saving the guest folio"}.
-                    </p>
-                    <ul className="mt-1.5 space-y-0.5">
-                      {errorItems.map((item) => (
-                        <li key={item.key}>
-                          <button
-                            type="button"
-                            onClick={() => scrollToField(item.domId)}
-                            className="underline decoration-red-300 underline-offset-2 hover:text-red-900"
-                          >
-                            • {item.label}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              ) : null}
-
               {/* Name Details */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
                   name="firstName"
                   render={({ field }) => (
-                    <FormItem id={FIELD_META.firstName.domId}>
+                    <FormItem>
                       <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                         First Name <span className="text-red-500">*</span>
                       </FormLabel>
@@ -445,7 +307,7 @@ export function GuestFormDialog({
                   control={form.control}
                   name="lastName"
                   render={({ field }) => (
-                    <FormItem id={FIELD_META.lastName.domId}>
+                    <FormItem>
                       <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                         Last Name <span className="text-red-500">*</span>
                       </FormLabel>
@@ -468,7 +330,7 @@ export function GuestFormDialog({
                 control={form.control}
                 name="processedBy"
                 render={({ field }) => (
-                  <FormItem id={FIELD_META.processedBy.domId}>
+                  <FormItem>
                     <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Processed By <span className="text-red-500">*</span>
                     </FormLabel>
@@ -528,27 +390,17 @@ export function GuestFormDialog({
                 )}
               />
 
-              {/* Room Assignment — optional on a regular Guest Folio (toggled
-                  by the checkbox below); always on for Walk-In, since there's
-                  nowhere to check the guest into without a room. Either way,
-                  saving creates a Reservation and sends the computed charge
-                  straight to Cashiering. */}
+              {/* Room Assignment (create only) — optional; when filled in, saving
+                  this folio also creates a Reservation and sends the computed
+                  charge straight to Cashiering. */}
               {isCreate ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50/50">
-                  {walkIn ? (
-                    <div className="flex items-center gap-2.5 px-4 py-3">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                        <BedDouble className="h-3.5 w-3.5" /> Room Assignment <span className="text-red-500">*</span>
-                      </span>
-                    </div>
-                  ) : (
-                    <label className="flex cursor-pointer items-center gap-2.5 px-4 py-3">
-                      <Checkbox checked={assignRoom} onCheckedChange={(v) => setAssignRoom(v === true)} />
-                      <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                        <BedDouble className="h-3.5 w-3.5" /> Assign a Room Now
-                      </span>
-                    </label>
-                  )}
+                  <label className="flex cursor-pointer items-center gap-2.5 px-4 py-3">
+                    <Checkbox checked={assignRoom} onCheckedChange={(v) => setAssignRoom(v === true)} />
+                    <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                      <BedDouble className="h-3.5 w-3.5" /> Assign a Room Now
+                    </span>
+                  </label>
 
                   {assignRoom ? (
                     <div className="space-y-4 border-t border-slate-200 px-4 py-4">
@@ -557,7 +409,7 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="roomTypeId"
                           render={({ field }) => (
-                            <FormItem id={FIELD_META.roomTypeId.domId}>
+                            <FormItem>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                                 Room Type <span className="text-red-500">*</span>
                               </FormLabel>
@@ -615,7 +467,7 @@ export function GuestFormDialog({
                         control={roomForm.control}
                         name="roomId"
                         render={({ field }) => (
-                          <FormItem id={FIELD_META.roomId.domId}>
+                          <FormItem>
                             <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                               Room <span className="text-red-500">*</span>
                             </FormLabel>
@@ -641,9 +493,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="arrivalDate"
                           render={({ field }) => (
-                            <FormItem id={FIELD_META.arrivalDate.domId}>
+                            <FormItem>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Arrival Date <span className="text-red-500">*</span>
+                                Arrival Date
                               </FormLabel>
                               <FormControl>
                                 <Input type="date" {...field} />
@@ -656,9 +508,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="departureDate"
                           render={({ field }) => (
-                            <FormItem id={FIELD_META.departureDate.domId}>
+                            <FormItem>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Departure Date <span className="text-red-500">*</span>
+                                Departure Date
                               </FormLabel>
                               <FormControl>
                                 <Input type="date" {...field} />
@@ -722,9 +574,9 @@ export function GuestFormDialog({
                           control={roomForm.control}
                           name="paymentMethod"
                           render={({ field }) => (
-                            <FormItem id={FIELD_META.paymentMethod.domId}>
+                            <FormItem>
                               <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Mode of Payment <span className="text-red-500">*</span>
+                                Mode of Payment
                               </FormLabel>
                               <Select value={field.value} onValueChange={field.onChange}>
                                 <FormControl>
@@ -798,23 +650,18 @@ export function GuestFormDialog({
               </Button>
               <Button
                 type="submit"
-                // Only block on the price quote once a room type has actually
-                // been picked — with nothing picked yet there's no quote to
-                // wait for, and the button must stay clickable so an empty
-                // form still gets a real validation pass instead of just
-                // sitting disabled with no feedback.
-                disabled={isSubmitting || (isCreate && assignRoom && !!roomTypeId && (quoting || !charge))}
+                disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
                 className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
               >
-                {isSubmitting ? (
+                {form.formState.isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {walkIn ? "REGISTERING & CHECKING IN…" : "SAVING GUEST FOLIO…"}
+                    SAVING GUEST FOLIO…
                   </>
                 ) : (
                   <>
                     <UserCheck className="mr-2 h-4 w-4" />
-                    {walkIn ? "REGISTER & CHECK IN" : "SAVE GUEST FOLIO"}
+                    SAVE GUEST FOLIO
                   </>
                 )}
               </Button>

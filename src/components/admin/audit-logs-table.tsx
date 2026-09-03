@@ -45,6 +45,7 @@ const ACTIONS = [
   "NIGHT_AUDIT_FINALIZED",
   "ROLE_CHANGED",
   "PERMISSION_CHANGED",
+  "LABORATORY_DATA_RESET",
 ];
 
 export function AuditLogsTable() {

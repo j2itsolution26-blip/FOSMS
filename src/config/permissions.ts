@@ -56,6 +56,7 @@ export const PERMISSIONS = {
   ROLES_MANAGE: "roles:manage",
   AUDIT_VIEW: "audit:view",
   SETTINGS_MANAGE: "settings:manage",
+  LAB_DATA_RESET: "lab-data:reset",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -116,6 +117,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { key: PERMISSIONS.ROLES_MANAGE, module: "administration", description: "Manage roles and permissions" },
   { key: PERMISSIONS.AUDIT_VIEW, module: "administration", description: "View audit logs" },
   { key: PERMISSIONS.SETTINGS_MANAGE, module: "administration", description: "Manage system settings" },
+  { key: PERMISSIONS.LAB_DATA_RESET, module: "administration", description: "Reset laboratory/test operational data (guests, reservations, cashiering) between class sections" },
 ];
 
 /** Default role -> permission grants, applied by prisma/seed.ts. Admins can change this later via Roles & Permissions. */
@@ -161,6 +163,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.REPORTS_EXPORT,
     PERMISSIONS.USERS_MANAGE,
     PERMISSIONS.AUDIT_VIEW,
+    PERMISSIONS.LAB_DATA_RESET,
   ],
   FRONT_OFFICE_STAFF: [
     PERMISSIONS.DASHBOARD_VIEW,
@@ -227,6 +230,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.REPORTS_EXPORT,
     PERMISSIONS.USERS_MANAGE,
     PERMISSIONS.AUDIT_VIEW,
+    PERMISSIONS.LAB_DATA_RESET,
   ],
   INSTRUCTOR: [
     PERMISSIONS.DASHBOARD_VIEW,

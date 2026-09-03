@@ -241,6 +241,7 @@ enum AuditAction {
   NIGHT_AUDIT_OPENED
   SETTINGS_UPDATED
   DISCOUNT_APPLIED
+  LABORATORY_DATA_RESET
 }
 
 enum TrainingActivityStatus {

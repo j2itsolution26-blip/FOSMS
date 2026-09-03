@@ -33,19 +33,15 @@ export async function POST(req: NextRequest) {
     if (!hasPermission(auth.user, PERMISSIONS.RESERVATIONS_CREATE)) return apiForbidden();
     if (!hasPermission(auth.user, PERMISSIONS.CASHIERING_MANAGE)) return apiForbidden();
   }
-  // checkInNow (Walk-In) also performs the Front Office check-in step, so it
-  // needs the same permission the old standalone Walk-In flow required.
-  if (parsed.data.checkInNow && !hasPermission(auth.user, PERMISSIONS.FRONT_OFFICE_MANAGE)) return apiForbidden();
 
   const meta = getRequestMeta(req);
 
   try {
-    const result = await createGuestFolioWithReservationAndCharge(
-      parsed.data.guest,
-      parsed.data.room ?? null,
-      { userId: auth.user.id, role: auth.user.roles[0] ?? null, ...meta },
-      { checkInNow: parsed.data.checkInNow }
-    );
+    const result = await createGuestFolioWithReservationAndCharge(parsed.data.guest, parsed.data.room ?? null, {
+      userId: auth.user.id,
+      role: auth.user.roles[0] ?? null,
+      ...meta,
+    });
     return apiSuccess(result, undefined, 201);
   } catch (err) {
     return handleServiceError(err, "guests/folio/create");

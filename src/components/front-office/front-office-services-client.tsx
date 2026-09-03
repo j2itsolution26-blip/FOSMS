@@ -29,7 +29,7 @@ import { CheckInDialog } from "@/components/front-office/check-in-dialog";
 import { CheckOutDialog } from "@/components/front-office/check-out-dialog";
 import { RoomTransferDialog } from "@/components/front-office/room-transfer-dialog";
 import { GuestVerificationDialog } from "@/components/front-office/guest-verification-dialog";
-import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
+import { WalkInDialog } from "@/components/front-office/walk-in-dialog";
 import { FrontOfficeActivityActionsMenu } from "@/components/front-office/front-office-activity-actions-menu";
 import { TransactionDetailsDialog } from "@/components/cashiering/transaction-details-dialog";
 import type { FrontOfficeActivityRow, FrontOfficeActivityType } from "@/services/front-office.service";
@@ -322,12 +322,7 @@ export function FrontOfficeServicesClient({
       />
       <RoomTransferDialog open={dialog === "transfer"} onOpenChange={(o) => setDialog(o ? "transfer" : null)} onDone={() => load()} />
       <GuestVerificationDialog open={dialog === "verify"} onOpenChange={(o) => setDialog(o ? "verify" : null)} onDone={() => load()} />
-      <GuestFormDialog
-        open={dialog === "walk-in"}
-        onOpenChange={(o) => setDialog(o ? "walk-in" : null)}
-        onSaved={() => load()}
-        walkIn
-      />
+      <WalkInDialog open={dialog === "walk-in"} onOpenChange={(o) => setDialog(o ? "walk-in" : null)} onDone={() => load()} />
       <TransactionDetailsDialog
         transaction={viewingTransaction}
         open={!!viewingTransaction}
