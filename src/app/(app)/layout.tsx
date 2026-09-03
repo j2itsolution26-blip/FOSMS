@@ -13,6 +13,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const { items, unreadCount } = await getUnreadNotifications(user.id);
 
+  const role =
+    user.roles.includes("TRAINEE") || user.permissions.has("trainee-portal:access" as PermissionKey)
+      ? "TRAINEE"
+      : user.roles.includes("SUPERVISOR")
+      ? "SUPERVISOR"
+      : user.roles[0] ?? "USER";
+
   return (
     <AppShell
       permissions={Array.from(user.permissions) as PermissionKey[]}
@@ -20,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       user={{
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.roles[0] ?? "USER",
+        role,
       }}
       initialNotifications={items.map((n) => ({
         id: n.id,

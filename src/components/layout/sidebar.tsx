@@ -28,8 +28,16 @@ export function Sidebar({
   // Supervisor gets a real-hotel-operations nav — SUPERVISOR still holds the
   // training permissions at the data layer, but that section has no place in
   // a Front Office Supervisor's navigation.
+  const isTrainee =
+    user.role === "TRAINEE" ||
+    user.role?.toUpperCase().includes("TRAINEE") ||
+    allowed.has("trainee-portal:access");
+  const isSupervisor =
+    user.role === "SUPERVISOR" ||
+    user.role?.toUpperCase().includes("SUPERVISOR");
+
   const navSource =
-    user.role === "TRAINEE" ? TRAINEE_NAV_SECTIONS : user.role === "SUPERVISOR" ? SUPERVISOR_NAV_SECTIONS : NAV_SECTIONS;
+    isTrainee ? TRAINEE_NAV_SECTIONS : isSupervisor ? SUPERVISOR_NAV_SECTIONS : NAV_SECTIONS;
   const sections = navSource.map((section) => ({
     ...section,
     items: section.items.filter((item) => allowed.has(item.permission)),
@@ -94,7 +102,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <SidebarUser role={user.role} />
+      <SidebarUser role={isTrainee ? "TRAINEE" : isSupervisor ? "SUPERVISOR" : user.role} />
     </aside>
   );
 }

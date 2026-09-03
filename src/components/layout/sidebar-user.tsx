@@ -26,7 +26,7 @@ function roleLabel(role: string) {
 const ROLE_DISPLAY: Record<string, { avatar: string; name: string; subtitle: string }> = {
   TRAINEE: { avatar: "TR", name: "Trainee", subtitle: "Front Office Trainee" },
   SUPERVISOR: { avatar: "TRR", name: "Trainer", subtitle: "Supervisor" },
-  FRONT_OFFICE_STAFF: { avatar: "FO", name: "Front Office", subtitle: "Front Desk" },
+  FRONT_OFFICE_STAFF: { avatar: "TR", name: "Trainee", subtitle: "Front Office Trainee" },
   INSTRUCTOR: { avatar: "IN", name: "Instructor", subtitle: "Training Staff" },
   ASSESSOR: { avatar: "AS", name: "Assessor", subtitle: "Training Staff" },
   ADMINISTRATOR: { avatar: "AD", name: "Administrator", subtitle: "System Admin" },
@@ -52,7 +52,15 @@ export function SidebarUser({
     }
   }
 
-  const display = ROLE_DISPLAY[role?.toUpperCase()] ?? {
+  const normalized = role?.trim().toUpperCase() || "";
+  const roleKey =
+    normalized === "TRAINEE" || normalized.includes("TRAINEE")
+      ? "TRAINEE"
+      : normalized === "SUPERVISOR" || normalized.includes("SUPERVISOR")
+      ? "SUPERVISOR"
+      : normalized;
+
+  const display = ROLE_DISPLAY[roleKey] ?? {
     avatar: (role?.[0] ?? "?").toUpperCase(),
     name: roleLabel(role || "Unknown"),
     subtitle: "Front Office",
