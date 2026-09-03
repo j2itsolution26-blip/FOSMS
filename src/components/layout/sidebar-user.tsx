@@ -24,8 +24,8 @@ function roleLabel(role: string) {
 // Office operations, so the sidebar identifies the authenticated *role*
 // rather than a (fictional) personal name.
 const ROLE_DISPLAY: Record<string, { avatar: string; name: string; subtitle: string }> = {
-  TRAINEE: { avatar: "TR", name: "Trainee", subtitle: "Front Office Staff" },
-  SUPERVISOR: { avatar: "ST", name: "Supervisor", subtitle: "Trainer" },
+  TRAINEE: { avatar: "TR", name: "Trainee", subtitle: "Front Office Trainee" },
+  SUPERVISOR: { avatar: "TRR", name: "Trainer", subtitle: "Supervisor" },
   FRONT_OFFICE_STAFF: { avatar: "FO", name: "Front Office", subtitle: "Front Desk" },
   INSTRUCTOR: { avatar: "IN", name: "Instructor", subtitle: "Training Staff" },
   ASSESSOR: { avatar: "AS", name: "Assessor", subtitle: "Training Staff" },
