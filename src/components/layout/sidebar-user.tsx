@@ -12,10 +12,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-function initials(firstName: string, lastName: string) {
-  return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase();
-}
-
 function roleLabel(role: string) {
   return role
     .toLowerCase()
@@ -24,13 +20,22 @@ function roleLabel(role: string) {
     .join(" ");
 }
 
+// Role-based identity: the workstation is shared by students practicing Front
+// Office operations, so the sidebar identifies the authenticated *role*
+// rather than a (fictional) personal name.
+const ROLE_DISPLAY: Record<string, { avatar: string; name: string; subtitle: string }> = {
+  TRAINEE: { avatar: "TR", name: "Trainee", subtitle: "Front Office Staff" },
+  SUPERVISOR: { avatar: "ST", name: "Supervisor", subtitle: "Trainer" },
+  FRONT_OFFICE_STAFF: { avatar: "FO", name: "Front Office", subtitle: "Front Desk" },
+  INSTRUCTOR: { avatar: "IN", name: "Instructor", subtitle: "Training Staff" },
+  ASSESSOR: { avatar: "AS", name: "Assessor", subtitle: "Training Staff" },
+  ADMINISTRATOR: { avatar: "AD", name: "Administrator", subtitle: "System Admin" },
+  SUPER_ADMIN: { avatar: "SA", name: "Super Admin", subtitle: "System Admin" },
+};
+
 export function SidebarUser({
-  firstName,
-  lastName,
   role,
 }: {
-  firstName: string;
-  lastName: string;
   role: string;
 }) {
   const router = useRouter();
@@ -47,21 +52,12 @@ export function SidebarUser({
     }
   }
 
-  // Fictional employee identities (e.g. "Angela Santos") are removed completely.
-  // In this student training system, the Front Office workstation is dedicated to students
-  // studying and practicing front desk operations, so visible branding is role/department based.
-  const isFictionalStaff =
-    (firstName?.trim().toLowerCase() === "angela" && lastName?.trim().toLowerCase() === "santos") ||
-    `${firstName} ${lastName}`.toLowerCase().includes("angela");
-
-  const isFrontOffice =
-    role === "FRONT_OFFICE_STAFF" ||
-    role?.toUpperCase().startsWith("FRONT_OFFICE") ||
-    isFictionalStaff;
-
-  const avatar = isFrontOffice ? "FO" : initials(firstName, lastName);
-  const displayName = isFrontOffice ? "Front Office" : `${firstName} ${lastName}`.trim() || "Front Office";
-  const subtitle = isFrontOffice ? "Front Desk" : roleLabel(role);
+  const display = ROLE_DISPLAY[role?.toUpperCase()] ?? {
+    avatar: (role?.[0] ?? "?").toUpperCase(),
+    name: roleLabel(role || "Unknown"),
+    subtitle: "Front Office",
+  };
+  const { avatar, name: displayName, subtitle } = display;
 
   return (
     <div className="border-t border-white/10 px-3 py-3">

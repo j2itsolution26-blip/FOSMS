@@ -94,7 +94,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <SidebarUser firstName={user.firstName} lastName={user.lastName} role={user.role} />
+      <SidebarUser role={user.role} />
     </aside>
   );
 }
