@@ -47,6 +47,22 @@ export function SidebarUser({
     }
   }
 
+  // Fictional employee identities (e.g. "Angela Santos") are removed completely.
+  // In this student training system, the Front Office workstation is dedicated to students
+  // studying and practicing front desk operations, so visible branding is role/department based.
+  const isFictionalStaff =
+    (firstName?.trim().toLowerCase() === "angela" && lastName?.trim().toLowerCase() === "santos") ||
+    `${firstName} ${lastName}`.toLowerCase().includes("angela");
+
+  const isFrontOffice =
+    role === "FRONT_OFFICE_STAFF" ||
+    role?.toUpperCase().startsWith("FRONT_OFFICE") ||
+    isFictionalStaff;
+
+  const avatar = isFrontOffice ? "FO" : initials(firstName, lastName);
+  const displayName = isFrontOffice ? "Front Office" : `${firstName} ${lastName}`.trim() || "Front Office";
+  const subtitle = isFrontOffice ? "Front Desk" : roleLabel(role);
+
   return (
     <div className="border-t border-white/10 px-3 py-3">
       <DropdownMenu>
@@ -57,16 +73,16 @@ export function SidebarUser({
           >
             <Avatar className="h-9 w-9">
               <AvatarFallback className="bg-blue-600 text-xs font-semibold text-white">
-                {initials(firstName, lastName)}
+                {avatar}
               </AvatarFallback>
             </Avatar>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-medium text-white">
-                {firstName} {lastName}
+                {displayName}
               </span>
               <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
-                {roleLabel(role)}
+                {subtitle}
               </span>
             </span>
           </button>

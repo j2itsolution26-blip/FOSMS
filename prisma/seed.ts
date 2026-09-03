@@ -77,7 +77,7 @@ async function main() {
   async function upsertUser(email: string, firstName: string, lastName: string, roleName: string, isActive = true) {
     const user = await prisma.user.upsert({
       where: { email },
-      update: { isActive },
+      update: { firstName, lastName, isActive },
       create: { email, firstName, lastName, passwordHash, isActive },
     });
     await prisma.userRole.upsert({
@@ -93,7 +93,7 @@ async function main() {
   // data below are real demo data Supervisor/Front Office need to see and manage.
   const superAdmin = await upsertUser("superadmin@fonc2s.local", "Mary Jane", "Dela Cruz", "SUPER_ADMIN", false);
   await upsertUser("admin@fonc2s.local", "Carlos", "Reyes", "ADMINISTRATOR", false);
-  await upsertUser("frontdesk@fonc2s.local", "Angela", "Santos", "FRONT_OFFICE_STAFF");
+  await upsertUser("frontdesk@fonc2s.local", "Front", "Office", "FRONT_OFFICE_STAFF");
   await upsertUser("supervisor@fonc2s.local", "Alexandra", "Ramos", "SUPERVISOR");
   const instructorUser = await upsertUser("instructor@fonc2s.local", "Roberto", "Villanueva", "INSTRUCTOR", false);
   const assessorUser = await upsertUser("assessor@fonc2s.local", "Liza", "Fernandez", "ASSESSOR", false);

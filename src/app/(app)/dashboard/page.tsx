@@ -73,12 +73,18 @@ export default async function DashboardPage() {
 
   const [summary, activities] = await Promise.all([getDashboardSummary(), getTodaysActivities()]);
 
+  const isFrontOffice =
+    user?.roles[0] === "FRONT_OFFICE_STAFF" ||
+    user?.roles[0]?.toUpperCase().startsWith("FRONT_OFFICE") ||
+    user?.firstName?.toLowerCase() === "angela";
+  const greetingName = isFrontOffice ? "Front Office" : user?.firstName;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Welcome back, {user?.firstName}!</p>
+          <p className="text-sm text-muted-foreground">Welcome back, {greetingName}!</p>
         </div>
       </div>
 
