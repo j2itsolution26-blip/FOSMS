@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
-import { formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType, formatPaymentMethod } from "@/lib/formatters";
 import { ModuleHeader } from "@/components/modules/module-header";
 import { ModuleKpiGrid } from "@/components/modules/module-kpi-grid";
 import { ModuleDataTable } from "@/components/modules/module-data-table";
@@ -30,16 +30,12 @@ type ReceiptRow = {
   reservationNo: string | null;
   processedBy: string | null;
   roomNumber: string | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | "OTHER" | null;
+  otherDiscountType: string | null;
+  otherDiscountRate: string | null;
   discountAmount: string | null;
+  subtotal: string | null;
   vatAmount: string | null;
-};
-
-const DISCOUNT_LABELS: Record<NonNullable<ReceiptRow["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
 };
 
 type Kpis = { totalReceipts: number; totalCollected: number; totalRefunded: number; netCollected: number };
@@ -126,7 +122,12 @@ export function ReceiptsTable() {
     { key: "room", header: "Room", render: (r) => r.roomNumber ?? "—" },
     { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "—" },
-    { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    { key: "discount", header: "Discount Type", render: (r) => formatDiscountType(r.discountType, r.otherDiscountType) ?? "—" },
+    {
+      key: "discountRate",
+      header: "Discount Rate",
+      render: (r) => formatDiscountRate(r.discountAmount, r.subtotal, r.otherDiscountRate) ?? "—",
+    },
     { key: "discountAmount", header: "Discount Amount", render: (r) => (r.discountAmount ? currency(Number(r.discountAmount)) : "—") },
     { key: "vat", header: "VAT", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
     { key: "date", header: "Payment Date", render: (r) => new Date(r.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) },

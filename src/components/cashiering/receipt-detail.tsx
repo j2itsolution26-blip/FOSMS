@@ -9,7 +9,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatDiscountRate, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType, formatPaymentMethod } from "@/lib/formatters";
 
 export type ReceiptDetailData = {
   id: string;
@@ -37,7 +37,9 @@ export type ReceiptDetailData = {
   subtotal: string | null;
   bedCount: number | null;
   bedCharge: string | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | "OTHER" | null;
+  otherDiscountType: string | null;
+  otherDiscountRate: string | null;
   discountAmount: string | null;
   vatAmount: string | null;
 };
@@ -46,13 +48,6 @@ const STATUS_META: Record<ReceiptDetailData["status"], { label: string; classNam
   PAID: { label: "Paid", className: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   REFUNDED: { label: "Refunded", className: "bg-red-100 text-red-800 border-red-200" },
   REFUND_ISSUED: { label: "Refund Issued", className: "bg-blue-100 text-blue-800 border-blue-200" },
-};
-
-const DISCOUNT_LABELS: Record<NonNullable<ReceiptDetailData["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
 };
 
 function currency(n: number) {
@@ -176,8 +171,12 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               <LineItem label="SUBTOTAL" value={currency(Number(receipt.subtotal))} />
               {receipt.discountType && discountAmount > 0 ? (
                 <>
-                  <LineItem label="DISCOUNT TYPE" value={DISCOUNT_LABELS[receipt.discountType]} muted />
-                  <LineItem label="DISCOUNT RATE" value={formatDiscountRate(receipt.discountAmount, receipt.subtotal) ?? "—"} muted />
+                  <LineItem label="DISCOUNT TYPE" value={formatDiscountType(receipt.discountType, receipt.otherDiscountType) ?? "—"} muted />
+                  <LineItem
+                    label="DISCOUNT RATE"
+                    value={formatDiscountRate(receipt.discountAmount, receipt.subtotal, receipt.otherDiscountRate) ?? "—"}
+                    muted
+                  />
                   <LineItem label="DISCOUNT" value={`-${currency(discountAmount)}`} muted />
                 </>
               ) : (

@@ -16,8 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
-import { formatDiscountRate, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
-import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.schema";
+import { formatDiscountRate, formatDiscountType, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 
 type GuestTransaction = {
   transactionNo: string;
@@ -26,6 +25,8 @@ type GuestTransaction = {
   paymentMethod: string | null;
   otherPaymentMethod: string | null;
   discountType: string | null;
+  otherDiscountType: string | null;
+  otherDiscountRate: string | null;
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
@@ -226,15 +227,11 @@ export function GuestDetailsDialog({
                         <Field label="Arrival Date" value={fmtDate(r.arrivalDate)} />
                         <Field label="Departure Date" value={fmtDate(r.departureDate)} />
                         <Field label="Additional Beds" value={tx?.bedCount != null ? String(tx.bedCount) : null} />
+                        <Field label="Discount Type" value={formatDiscountType(tx?.discountType, tx?.otherDiscountType)} />
                         <Field
-                          label="Discount Type"
-                          value={
-                            tx?.discountType
-                              ? FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === tx.discountType)?.label ?? tx.discountType
-                              : null
-                          }
+                          label="Discount Rate"
+                          value={formatDiscountRate(tx?.discountAmount, tx?.subtotal, tx?.otherDiscountRate)}
                         />
-                        <Field label="Discount Rate" value={formatDiscountRate(tx?.discountAmount, tx?.subtotal)} />
                         <Field label="Mode of Payment" value={formatPaymentMethod(tx?.paymentMethod, tx?.otherPaymentMethod)} />
                       </div>
                     );
@@ -316,15 +313,11 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
               <PrintRow label="Arrival Date" value={fmtDate(r.arrivalDate)} />
               <PrintRow label="Departure Date" value={fmtDate(r.departureDate)} />
               <PrintRow label="Additional Beds" value={tx?.bedCount != null ? String(tx.bedCount) : null} />
+              <PrintRow label="Discount Type" value={formatDiscountType(tx?.discountType, tx?.otherDiscountType)} />
               <PrintRow
-                label="Discount Type"
-                value={
-                  tx?.discountType
-                    ? FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === tx.discountType)?.label ?? tx.discountType
-                    : null
-                }
+                label="Discount Rate"
+                value={formatDiscountRate(tx?.discountAmount, tx?.subtotal, tx?.otherDiscountRate)}
               />
-              <PrintRow label="Discount Rate" value={formatDiscountRate(tx?.discountAmount, tx?.subtotal)} />
               <PrintRow label="Mode of Payment" value={formatPaymentMethod(tx?.paymentMethod, tx?.otherPaymentMethod)} />
             </PrintSection>
 

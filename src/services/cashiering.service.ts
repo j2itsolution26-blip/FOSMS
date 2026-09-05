@@ -136,16 +136,19 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
         .map((t) => t.reservationId as string)
     ),
   ];
-  const discountByReservation = new Map<string, (typeof transactions)[number]["discountType"]>();
+  const discountByReservation = new Map<
+    string,
+    Pick<(typeof transactions)[number], "discountType" | "otherDiscountType" | "otherDiscountRate">
+  >();
   if (reservationIdsNeedingDiscount.length) {
     const chargesWithDiscount = await prisma.cashierTransaction.findMany({
       where: { reservationId: { in: reservationIdsNeedingDiscount }, type: "CHARGE", discountType: { not: null } },
       orderBy: { createdAt: "desc" },
-      select: { reservationId: true, discountType: true },
+      select: { reservationId: true, discountType: true, otherDiscountType: true, otherDiscountRate: true },
     });
     for (const c of chargesWithDiscount) {
       if (c.reservationId && !discountByReservation.has(c.reservationId)) {
-        discountByReservation.set(c.reservationId, c.discountType);
+        discountByReservation.set(c.reservationId, c);
       }
     }
   }
@@ -153,7 +156,7 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
   return transactions.map((t) => {
     const backfill = t.reservationId && discountByReservation.get(t.reservationId);
     const paidAmount = t.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
-    return { ...(backfill && !t.discountType ? { ...t, discountType: backfill } : t), paidAmount };
+    return { ...(backfill && !t.discountType ? { ...t, ...backfill } : t), paidAmount };
   });
 }
 
@@ -228,6 +231,8 @@ export async function getGuestsAwaitingPayment() {
           reversedById: true,
           createdAt: true,
           discountType: true,
+          otherDiscountType: true,
+          otherDiscountRate: true,
           vatAmount: true,
           processedBy: true,
           roomType: { select: { name: true } },
@@ -272,6 +277,8 @@ export async function getGuestsAwaitingPayment() {
         paid,
         balance,
         discountType: latestCharge?.discountType ?? null,
+        otherDiscountType: latestCharge?.otherDiscountType ?? null,
+        otherDiscountRate: latestCharge?.otherDiscountRate ?? null,
         charge: targetCharge
           ? {
               id: targetCharge.id,
@@ -360,6 +367,8 @@ export async function createInitialReservationCharge(
       bedCount: params.charge.bedCount,
       bedCharge: params.charge.bedCharge,
       discountType: params.charge.discountType,
+      otherDiscountType: params.charge.otherDiscountType,
+      otherDiscountRate: params.charge.otherDiscountRate,
       discountAmount: params.charge.discountAmount,
       subtotal: params.charge.subtotal,
       vatAmount: params.charge.vatAmount,
@@ -498,6 +507,8 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
       roomTypeId: input.roomTypeId,
       bedCount: input.bedCount,
       discountType: input.discountType,
+      otherDiscountType: input.otherDiscountType,
+      otherDiscountRate: input.otherDiscountRate ? Number(input.otherDiscountRate) : null,
     });
   }
 
@@ -533,6 +544,8 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
               bedCount: charge.bedCount,
               bedCharge: charge.bedCharge,
               discountType: charge.discountType,
+              otherDiscountType: charge.otherDiscountType,
+              otherDiscountRate: charge.otherDiscountRate,
               discountAmount: charge.discountAmount,
               subtotal: charge.subtotal,
               vatAmount: charge.vatAmount,
@@ -804,6 +817,8 @@ function toReceiptRow(t: ReceiptTransaction) {
     bedCount: t.bedCount,
     bedCharge: t.bedCharge,
     discountType: t.discountType,
+    otherDiscountType: t.otherDiscountType,
+    otherDiscountRate: t.otherDiscountRate,
     discountAmount: t.discountAmount,
     vatAmount: t.vatAmount,
   };
@@ -947,6 +962,8 @@ export async function getReceiptById(id: string) {
         bedCount: chargeRow.bedCount,
         bedCharge: chargeRow.bedCharge,
         discountType: chargeRow.discountType,
+        otherDiscountType: chargeRow.otherDiscountType,
+        otherDiscountRate: chargeRow.otherDiscountRate,
         discountAmount: chargeRow.discountAmount,
         vatAmount: chargeRow.vatAmount,
       });

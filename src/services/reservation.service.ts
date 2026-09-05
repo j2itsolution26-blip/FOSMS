@@ -169,7 +169,12 @@ type ActorContext = {
  */
 export async function resolveInitialReservationCharge(
   roomId: string,
-  pricing: { bedCount?: number; discountType?: DiscountType | null }
+  pricing: {
+    bedCount?: number;
+    discountType?: DiscountType | null;
+    otherDiscountType?: string | null;
+    otherDiscountRate?: number | null;
+  }
 ) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room) throw new NotFoundError("Room not found.");
@@ -181,6 +186,8 @@ export async function resolveInitialReservationCharge(
     roomTypeId: room.roomTypeId,
     bedCount: pricing.bedCount,
     discountType: pricing.discountType ?? null,
+    otherDiscountType: pricing.otherDiscountType,
+    otherDiscountRate: pricing.otherDiscountRate,
   });
 
   return { room, charge };
@@ -202,7 +209,13 @@ export async function createReservationAndChargeInTx(
   actor: ActorContext,
   // Guest Folio's Mode of Payment, recorded upfront on the initial CHARGE —
   // the standalone Reservations module has no such field and never passes this.
-  billing?: { paymentMethod?: PaymentMethod | null; otherPaymentMethod?: string | null }
+  billing?: { paymentMethod?: PaymentMethod | null; otherPaymentMethod?: string | null },
+  // Distinguishes the Walk-In Guest form (checked in immediately, no prior
+  // reservation) from the standalone Reservations module and the Guest
+  // Folio's room-assignment section (both "normal reservation" — PENDING,
+  // guestType RESERVATION). Independent of `source` above, which is just the
+  // booking channel a staff member can pick.
+  overrides?: { guestType?: "RESERVATION" | "WALK_IN"; status?: ReservationStatus }
 ) {
   const arrivalDate = new Date(input.arrivalDate);
   const departureDate = new Date(input.departureDate);
@@ -219,12 +232,8 @@ export async function createReservationAndChargeInTx(
       departureDate,
       numGuests: input.numGuests,
       source: input.source,
-      // Both callers of this shared function (the standalone Reservations
-      // module and the Guest Folio's room-assignment section) are the
-      // "normal reservation" process — only the separate walkIn() flow in
-      // front-office.service.ts marks WALK_IN. Independent of `source`
-      // above, which is just the booking channel a staff member can pick.
-      guestType: "RESERVATION",
+      guestType: overrides?.guestType ?? "RESERVATION",
+      ...(overrides?.status ? { status: overrides.status } : {}),
       specialRequests: input.specialRequests || null,
       notes: input.notes || null,
       createdById: actor.userId,
@@ -245,7 +254,12 @@ export async function createReservationAndChargeInTx(
 }
 
 export async function createReservation(input: CreateReservationInput, actor: ActorContext) {
-  const { room, charge } = await resolveInitialReservationCharge(input.roomId, input);
+  const { room, charge } = await resolveInitialReservationCharge(input.roomId, {
+    bedCount: input.bedCount,
+    discountType: input.discountType,
+    otherDiscountType: input.otherDiscountType,
+    otherDiscountRate: input.otherDiscountRate ? Number(input.otherDiscountRate) : null,
+  });
 
   const { reservation, transaction } = await prisma.$transaction(async (tx) => {
     const guest = await tx.guest.findUnique({ where: { id: input.guestId, deletedAt: null } });

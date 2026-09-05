@@ -16,15 +16,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
-import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountType, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
-
-const DISCOUNT_LABELS: Record<NonNullable<TransactionDetailsRow["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
-};
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -134,7 +127,7 @@ export function TransactionSettleDialog({
             <div>
               <p className="text-xs text-muted-foreground">Discount Type</p>
               <p className="font-medium text-slate-900">
-                {transaction.discountType ? DISCOUNT_LABELS[transaction.discountType] : "—"}
+                {formatDiscountType(transaction.discountType, transaction.otherDiscountType) ?? "—"}
               </p>
             </div>
             <div>

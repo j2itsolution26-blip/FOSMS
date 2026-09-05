@@ -12,6 +12,10 @@ const folioQuoteSchema = z.object({
   roomTypeId: z.string().min(1),
   bedCount: z.coerce.number().int().min(0).max(10).optional(),
   discountType: discountTypeEnum.optional(),
+  // Only meaningful when discountType is OTHER — the live preview shows
+  // ₱0 discount until a rate is typed rather than rejecting the request.
+  otherDiscountType: z.string().trim().max(150).optional().or(z.literal("")),
+  otherDiscountRate: z.coerce.number().min(0).max(100).optional(),
 });
 
 /** Live price preview for the Guest Folio's Room Assignment section — read-only,

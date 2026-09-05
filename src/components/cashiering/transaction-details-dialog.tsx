@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDiscountRate, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 
 export type TransactionDetailsRow = {
   id: string;
@@ -40,7 +40,10 @@ export type TransactionDetailsRow = {
   } | null;
   user: { firstName: string; lastName: string };
   roomType: { name: string } | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | "OTHER" | null;
+  /** Free-text label/rate the Front Desk Officer typed — only meaningful when discountType is OTHER. */
+  otherDiscountType: string | null;
+  otherDiscountRate: string | null;
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
@@ -71,13 +74,6 @@ export function transactionCategoryLabel(t: Pick<TransactionDetailsRow, "clubMem
   if (t.reservation) return "Guest / Room";
   return "—";
 }
-
-const DISCOUNT_LABELS: Record<NonNullable<TransactionDetailsRow["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
-};
 
 const ADDITIONAL_CHARGE_TYPE_LABELS: Record<NonNullable<TransactionDetailsRow["additionalChargeType"]>, string> = {
   DAMAGE: "Damage",
@@ -312,8 +308,11 @@ export function TransactionDetailsDialog({
           <div className="space-y-3 border-t pt-4">
             <SectionHeading>Discount &amp; Tax</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Discount Type" value={transaction.discountType ? DISCOUNT_LABELS[transaction.discountType] : "—"} />
-              <Field label="Discount Rate" value={formatDiscountRate(transaction.discountAmount, transaction.subtotal) ?? "—"} />
+              <Field label="Discount Type" value={formatDiscountType(transaction.discountType, transaction.otherDiscountType) ?? "—"} />
+              <Field
+                label="Discount Rate"
+                value={formatDiscountRate(transaction.discountAmount, transaction.subtotal, transaction.otherDiscountRate) ?? "—"}
+              />
               <Field
                 label="Discount Amount"
                 value={transaction.discountAmount ? currency(Number(transaction.discountAmount)) : "—"}

@@ -195,6 +195,7 @@ enum DiscountType {
   PWD
   STAKEHOLDER
   CLUB_MEMBER
+  OTHER
 }
 
 // Classifies a manually-posted CHARGE created during checkout for damage,
@@ -913,9 +914,14 @@ model CashierTransaction {
   bedCount       Int?
   bedCharge      Decimal?      @db.Decimal(10, 2)
   discountType   DiscountType?
-  discountAmount Decimal?      @db.Decimal(10, 2)
-  subtotal       Decimal?      @db.Decimal(10, 2)
-  vatAmount      Decimal?      @db.Decimal(10, 2)
+  // User-entered label/rate when discountType is OTHER — e.g. "Employee
+  // Discount" at 5.00 (percent). Null for every other discount type, whose
+  // rate/exemption instead come from the configured discount_rates setting.
+  otherDiscountType String?
+  otherDiscountRate Decimal?      @db.Decimal(5, 2)
+  discountAmount    Decimal?      @db.Decimal(10, 2)
+  subtotal          Decimal?      @db.Decimal(10, 2)
+  vatAmount         Decimal?      @db.Decimal(10, 2)
 
   // Set only on a CHARGE posted from Check-Out's "Add Additional Charge" for
   // guest damage/loss/extra services — null for the auto room CHARGE and for

@@ -41,10 +41,42 @@ export const createReservationSchema = z
     // type's base rate, no beds, no discount.
     bedCount: z.coerce.number().int().min(0).max(10).optional(),
     discountType: discountTypeEnum.optional(),
+    // Only meaningful (and required) when discountType is OTHER — see
+    // superRefine below.
+    otherDiscountType: z.string().trim().max(150).optional().or(z.literal("")),
+    otherDiscountRate: z.string().trim().max(10).optional().or(z.literal("")),
   })
-  .refine((data) => new Date(data.departureDate) > new Date(data.arrivalDate), {
-    message: "Departure date must be after the arrival date.",
-    path: ["departureDate"],
+  .superRefine((data, ctx) => {
+    if (new Date(data.departureDate) <= new Date(data.arrivalDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Departure date must be after the arrival date.",
+        path: ["departureDate"],
+      });
+    }
+    if (data.discountType === "OTHER") {
+      if (!data.otherDiscountType?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the type of discount.",
+          path: ["otherDiscountType"],
+        });
+      }
+      const rate = data.otherDiscountRate?.trim();
+      if (!rate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the discount rate.",
+          path: ["otherDiscountRate"],
+        });
+      } else if (Number.isNaN(Number(rate)) || Number(rate) < 0 || Number(rate) > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Enter a valid discount rate between 0 and 100.",
+          path: ["otherDiscountRate"],
+        });
+      }
+    }
   });
 
 export type CreateReservationInput = z.infer<typeof createReservationSchema>;

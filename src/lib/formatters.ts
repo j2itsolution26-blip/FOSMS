@@ -24,14 +24,51 @@ export function formatPaymentMethod(
   return label;
 }
 
+const DISCOUNT_TYPE_LABELS: Record<string, string> = {
+  SENIOR_CITIZEN: "Senior Citizen",
+  PWD: "PWD",
+  STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
+  OTHER: "Other",
+};
+
+/**
+ * Formats a transaction's Discount Type for display. OTHER shows the
+ * user-entered label appended ("Other — Employee Discount") instead of the
+ * bare enum value, everywhere the app shows a discount type (Guest Folio,
+ * Cashiering, receipts, transaction details, printed folio).
+ */
+export function formatDiscountType(type?: string | null, otherDiscountType?: string | null): string | null {
+  if (!type) return null;
+  const label = DISCOUNT_TYPE_LABELS[type] ?? type;
+  if (type === "OTHER" && otherDiscountType?.trim()) {
+    return `${label} — ${otherDiscountType.trim()}`;
+  }
+  return label;
+}
+
 /**
  * Formats a discount's rate for display (e.g. "2%") by deriving it from the
  * transaction's own persisted discountAmount/subtotal — never from a
  * hardcoded per-type percentage — so it always matches what was actually
  * charged, for every discount type (including future ones), without drifting
  * from src/lib/pricing-config.ts if a rate is ever changed there.
+ *
+ * The OTHER discount type is the one exception: its rate is whatever the
+ * Front Desk Officer typed (not a configured percentage), and deriving it
+ * back from discountAmount/subtotal can lose precision for a non-round rate
+ * (e.g. 5.5%) once both are independently rounded to 2 decimals — so pass
+ * the transaction's own otherDiscountRate through as the 3rd argument to
+ * display it exactly as entered.
  */
-export function formatDiscountRate(discountAmount?: string | number | null, subtotal?: string | number | null): string | null {
+export function formatDiscountRate(
+  discountAmount?: string | number | null,
+  subtotal?: string | number | null,
+  otherDiscountRate?: string | number | null
+): string | null {
+  if (otherDiscountRate != null && otherDiscountRate !== "") {
+    return `${Number(otherDiscountRate)}%`;
+  }
   const amount = discountAmount != null ? Number(discountAmount) : 0;
   const base = subtotal != null ? Number(subtotal) : 0;
   if (!amount || !base) return null;

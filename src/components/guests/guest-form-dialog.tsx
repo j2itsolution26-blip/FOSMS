@@ -28,7 +28,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
-import { formatDiscountRate } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
@@ -98,6 +98,8 @@ export function GuestFormDialog({
       arrivalDate: todayIso(),
       departureDate: tomorrowIso(),
       bedCount: 0,
+      otherDiscountType: "",
+      otherDiscountRate: "",
       paymentMethod: "CASH",
       otherPaymentMethod: "",
     },
@@ -105,6 +107,7 @@ export function GuestFormDialog({
   const roomTypeId = roomForm.watch("roomTypeId");
   const bedCount = roomForm.watch("bedCount");
   const discountType = roomForm.watch("discountType");
+  const otherDiscountRate = roomForm.watch("otherDiscountRate");
   const roomArrivalDate = roomForm.watch("arrivalDate");
   const roomDepartureDate = roomForm.watch("departureDate");
   const roomPaymentMethod = roomForm.watch("paymentMethod");
@@ -117,6 +120,15 @@ export function GuestFormDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomPaymentMethod]);
+
+  // Same for Discount Type's "Other" — the custom label/rate only apply then.
+  useEffect(() => {
+    if (discountType !== "OTHER") {
+      roomForm.setValue("otherDiscountType", "");
+      roomForm.setValue("otherDiscountRate", "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discountType]);
 
   const { rows: roomRows, loading: roomsLoading } = useRoomOptions(
     ASSIGNABLE_ROOM_STATUS_QUERY,
@@ -156,6 +168,8 @@ export function GuestFormDialog({
         arrivalDate: todayIso(),
         departureDate: tomorrowIso(),
         bedCount: 0,
+        otherDiscountType: "",
+        otherDiscountRate: "",
         paymentMethod: "CASH",
         otherPaymentMethod: "",
       });
@@ -174,13 +188,18 @@ export function GuestFormDialog({
     setQuoting(true);
     apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
       method: "POST",
-      body: JSON.stringify({ roomTypeId, bedCount, discountType }),
+      body: JSON.stringify({
+        roomTypeId,
+        bedCount,
+        discountType,
+        otherDiscountRate: discountType === "OTHER" && otherDiscountRate ? Number(otherDiscountRate) : undefined,
+      }),
     })
       .then((res) => {
         if (res.success) setCharge(res.data);
       })
       .finally(() => setQuoting(false));
-  }, [assignRoom, roomTypeId, bedCount, discountType]);
+  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate]);
 
   useEffect(() => {
     if (!open || !isCreate) return;
@@ -234,6 +253,8 @@ export function GuestFormDialog({
               departureDate: room.departureDate,
               bedCount: room.bedCount,
               discountType: room.discountType,
+              otherDiscountType: room.discountType === "OTHER" ? room.otherDiscountType : undefined,
+              otherDiscountRate: room.discountType === "OTHER" ? room.otherDiscountRate : undefined,
               paymentMethod: room.paymentMethod,
               otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
             }
@@ -613,6 +634,56 @@ export function GuestFormDialog({
                         />
                       </div>
 
+                      {discountType === "OTHER" ? (
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <FormField
+                            control={roomForm.control}
+                            name="otherDiscountType"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                  Other Discount Type <span className="text-red-500">*</span>
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="Enter discount type"
+                                    className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs text-red-600" />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={roomForm.control}
+                            name="otherDiscountRate"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                  Discount Rate <span className="text-red-500">*</span>
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      step="0.01"
+                                      placeholder="Enter %"
+                                      className="h-10 rounded-md border-slate-200 bg-slate-50/50 pr-7 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                                      {...field}
+                                    />
+                                    <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-500">%</span>
+                                  </div>
+                                </FormControl>
+                                <FormMessage className="text-xs text-red-600" />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      ) : null}
+
                       {roomPaymentMethod === "OTHER" ? (
                         <FormField
                           control={roomForm.control}
@@ -654,8 +725,11 @@ export function GuestFormDialog({
                           {charge.discountAmount > 0 ? (
                             <div className="flex justify-between text-emerald-700">
                               <span>
-                                Discount ({FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === charge.discountType)?.label}
-                                {formatDiscountRate(charge.discountAmount, charge.subtotal) ? ` — ${formatDiscountRate(charge.discountAmount, charge.subtotal)}` : ""})
+                                Discount ({formatDiscountType(charge.discountType, charge.otherDiscountType)}
+                                {formatDiscountRate(charge.discountAmount, charge.subtotal, charge.otherDiscountRate)
+                                  ? ` — ${formatDiscountRate(charge.discountAmount, charge.subtotal, charge.otherDiscountRate)}`
+                                  : ""}
+                                )
                               </span>
                               <span>-{currency(charge.discountAmount)}</span>
                             </div>

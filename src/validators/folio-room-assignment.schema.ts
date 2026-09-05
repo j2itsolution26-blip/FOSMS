@@ -20,18 +20,55 @@ export const folioRoomAssignmentSchema = z
     departureDate: dateOnly,
     bedCount: z.coerce.number().int().min(0).max(10),
     discountType: discountTypeEnum.optional(),
+    // Only meaningful (and required) when discountType is OTHER — see
+    // superRefine below. Kept as a string (not z.coerce.number, which turns
+    // an empty field into 0 — indistinguishable from "entered 0%") so
+    // "left blank" can be validated as its own error.
+    otherDiscountType: z.string().trim().max(150).optional().or(z.literal("")),
+    otherDiscountRate: z.string().trim().max(10).optional().or(z.literal("")),
     paymentMethod: paymentMethodEnum,
     // Only meaningful (and required) when paymentMethod is OTHER — see
     // superRefine below.
     otherPaymentMethod: z.string().trim().max(150).optional().or(z.literal("")),
   })
-  .refine((data) => new Date(data.departureDate) > new Date(data.arrivalDate), {
-    message: "Departure date must be after the arrival date.",
-    path: ["departureDate"],
-  })
-  .refine((data) => data.paymentMethod !== "OTHER" || !!data.otherPaymentMethod?.trim(), {
-    message: "Please specify the payment method.",
-    path: ["otherPaymentMethod"],
+  .superRefine((data, ctx) => {
+    if (new Date(data.departureDate) <= new Date(data.arrivalDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Departure date must be after the arrival date.",
+        path: ["departureDate"],
+      });
+    }
+    if (data.paymentMethod === "OTHER" && !data.otherPaymentMethod?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please specify the payment method.",
+        path: ["otherPaymentMethod"],
+      });
+    }
+    if (data.discountType === "OTHER") {
+      if (!data.otherDiscountType?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the type of discount.",
+          path: ["otherDiscountType"],
+        });
+      }
+      const rate = data.otherDiscountRate?.trim();
+      if (!rate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the discount rate.",
+          path: ["otherDiscountRate"],
+        });
+      } else if (Number.isNaN(Number(rate)) || Number(rate) < 0 || Number(rate) > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Enter a valid discount rate between 0 and 100.",
+          path: ["otherDiscountRate"],
+        });
+      }
+    }
   });
 
 export type FolioRoomAssignmentInput = z.infer<typeof folioRoomAssignmentSchema>;
@@ -50,4 +87,5 @@ export const FOLIO_DISCOUNT_TYPE_OPTIONS = [
   { value: "PWD", label: "PWD" },
   { value: "STAKEHOLDER", label: "Stakeholder" },
   { value: "CLUB_MEMBER", label: "Club Member" },
+  { value: "OTHER", label: "Other" },
 ] as const;

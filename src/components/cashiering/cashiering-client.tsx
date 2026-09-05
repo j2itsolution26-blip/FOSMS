@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Receipt, Wallet, ReceiptText, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountType, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
@@ -25,13 +25,6 @@ import {
 } from "@/components/cashiering/transaction-details-dialog";
 
 type TransactionRow = TransactionDetailsRow;
-
-const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
-};
 
 type Summary = {
   kpis: { todaysTransactions: number; todaysRevenue: number; pendingPayments: number };
@@ -191,7 +184,7 @@ export function CashieringClient({
     },
     { key: "amount", header: "Amount", className: "text-right tabular-nums", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "Not recorded" },
-    { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    { key: "discount", header: "Discount Type", render: (r) => formatDiscountType(r.discountType, r.otherDiscountType) ?? "—" },
     {
       key: "discountAmount",
       header: "Discount Amount",

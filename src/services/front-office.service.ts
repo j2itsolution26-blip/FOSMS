@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { formatGuestFullName, guestTypeLabel } from "@/lib/formatters";
-import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
+import { assertRoomAvailable } from "@/services/reservation.service";
 import { reservationBalance, listTodayTransactions } from "@/services/cashiering.service";
 import { resolveDateRange, type DateRange } from "@/services/report.service";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -13,7 +13,6 @@ import type {
   CheckOutInput,
   GuestVerificationInput,
   RoomTransferInput,
-  WalkInInput,
 } from "@/validators/front-office.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
@@ -92,7 +91,9 @@ export type FrontOfficeActivityTransaction = {
   } | null;
   user: { firstName: string; lastName: string };
   roomType: { name: string } | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | "OTHER" | null;
+  otherDiscountType: string | null;
+  otherDiscountRate: string | null;
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
@@ -175,6 +176,8 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     user: t.user,
     roomType: t.roomType,
     discountType: t.discountType,
+    otherDiscountType: t.otherDiscountType,
+    otherDiscountRate: t.otherDiscountRate?.toString() ?? null,
     discountAmount: t.discountAmount?.toString() ?? null,
     subtotal: t.subtotal?.toString() ?? null,
     vatAmount: t.vatAmount?.toString() ?? null,
@@ -741,75 +744,3 @@ export async function verifyGuest(input: GuestVerificationInput, actor: ActorCon
   return reservation;
 }
 
-// A Walk-In here never posts a room charge (see the Guest Folio's own
-// createGuestFolioWithReservationAndCharge() for the flow that does) — the
-// reservation is created with zero cashier transactions, so its balance is
-// always ₱0 at the instant it's checked in below. The same payment gate
-// checkIn() enforces would already block this if a charge were ever added
-// to this flow; nothing here is exempt from that rule, there's simply
-// nothing yet to owe.
-export async function walkIn(input: WalkInInput, actor: ActorContext) {
-  const arrivalDate = new Date();
-  const departureDate = new Date();
-  departureDate.setDate(departureDate.getDate() + input.nights);
-
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM rooms WHERE id = ${input.roomId} FOR UPDATE`;
-    const room = await tx.room.findUnique({ where: { id: input.roomId } });
-    if (!room) throw new NotFoundError("Room not found.");
-    if (!ASSIGNABLE_ROOM_STATUSES.includes(room.status)) {
-      throw new AppError("This room is not available for a walk-in.", "ROOM_UNAVAILABLE", 409);
-    }
-
-    const guest = await tx.guest.create({
-      data: {
-        firstName: input.firstName,
-        middleName: input.middleName || null,
-        lastName: input.lastName,
-        phone: input.phone || null,
-        email: input.email || null,
-      },
-    });
-
-    const reservationNo = await nextReservationNumber(tx);
-    const reservation = await tx.reservation.create({
-      data: {
-        reservationNo,
-        guestId: guest.id,
-        roomId: input.roomId,
-        status: "CHECKED_IN",
-        source: "WALK_IN",
-        guestType: "WALK_IN",
-        arrivalDate,
-        departureDate,
-        numGuests: input.numGuests,
-        createdById: actor.userId,
-      },
-    });
-
-    await tx.checkIn.create({ data: { reservationId: reservation.id } });
-    await tx.room.update({ where: { id: input.roomId }, data: { status: "OC" } });
-    await tx.roomStatusHistory.create({
-      data: { roomId: input.roomId, status: "OC", note: "Walk-in guest checked in", changedById: actor.userId },
-    });
-
-    return { guest, reservation, room };
-  });
-
-  await recordAudit({
-    userId: actor.userId,
-    role: actor.role,
-    action: "WALK_IN",
-    module: "front-office",
-    recordId: result.reservation.id,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
-    newValue: {
-      reservationNo: result.reservation.reservationNo,
-      guestName: formatGuestFullName(result.guest),
-      roomNumber: result.room.number,
-    },
-  });
-
-  return result;
-}

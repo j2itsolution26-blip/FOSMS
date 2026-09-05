@@ -10,6 +10,8 @@ export type FolioCharge = {
   bedCharge: number;
   subtotal: number;
   discountType: DiscountType | null;
+  otherDiscountType: string | null;
+  otherDiscountRate: number | null;
   discountAmount: number;
   vatRate: number;
   vatAmount: number;
@@ -35,6 +37,11 @@ export async function computeFolioCharge(input: {
   roomTypeId: string;
   bedCount?: number;
   discountType?: DiscountType | null;
+  // Only meaningful (and required by the validators) when discountType is
+  // OTHER — there's no configured rate for a custom, per-transaction discount,
+  // so the cashier/front desk types the percentage directly.
+  otherDiscountType?: string | null;
+  otherDiscountRate?: number | null;
 }): Promise<FolioCharge> {
   const roomType = await prisma.roomType.findUnique({ where: { id: input.roomTypeId } });
   if (!roomType) throw new NotFoundError("Room type not found.");
@@ -47,7 +54,13 @@ export async function computeFolioCharge(input: {
 
   let discountAmount = 0;
   let vatExempt = false;
-  if (input.discountType) {
+  if (input.discountType === "OTHER") {
+    const rate = (input.otherDiscountRate ?? 0) / 100;
+    discountAmount = round2(subtotal * rate);
+    // No legal basis to assume VAT exemption for an arbitrary custom
+    // discount — same treatment as Stakeholder.
+    vatExempt = false;
+  } else if (input.discountType) {
     const config = await getDiscountConfig(input.discountType);
     discountAmount = round2(subtotal * config.rate);
     vatExempt = config.vatExempt;
@@ -65,6 +78,8 @@ export async function computeFolioCharge(input: {
     bedCharge,
     subtotal,
     discountType: input.discountType ?? null,
+    otherDiscountType: input.discountType === "OTHER" ? input.otherDiscountType?.trim() || null : null,
+    otherDiscountRate: input.discountType === "OTHER" ? input.otherDiscountRate ?? null : null,
     discountAmount,
     vatRate,
     vatAmount,

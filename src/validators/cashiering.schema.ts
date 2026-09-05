@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const transactionTypeEnum = z.enum(["CHARGE", "PAYMENT", "DISCOUNT"]);
 export const paymentMethodEnum = z.enum(["CASH", "CARD", "BANK_TRANSFER", "ONLINE", "OTHER"]);
-export const discountTypeEnum = z.enum(["SENIOR_CITIZEN", "PWD", "STAKEHOLDER", "CLUB_MEMBER"]);
+export const discountTypeEnum = z.enum(["SENIOR_CITIZEN", "PWD", "STAKEHOLDER", "CLUB_MEMBER", "OTHER"]);
 export const additionalChargeTypeEnum = z.enum(["DAMAGE", "LOST_ITEM", "ADDITIONAL_SERVICE", "OTHER"]);
 
 // The Cashiering transaction's own "Front Desk Officer" (stored as `processedBy`
@@ -45,6 +45,12 @@ export const createTransactionSchema = z
     roomTypeId: z.string().min(1).optional(),
     bedCount: z.coerce.number().int().min(0).max(10).optional(),
     discountType: discountTypeEnum.optional(),
+    // Only meaningful (and required) when discountType is OTHER — see
+    // superRefine below. Kept as a string (not z.coerce.number, which turns
+    // an empty field into 0 — indistinguishable from "entered 0%") so
+    // "left blank" can be validated as its own error.
+    otherDiscountType: z.string().trim().max(150).optional().or(z.literal("")),
+    otherDiscountRate: z.string().trim().max(10).optional().or(z.literal("")),
     // Only set by Check-Out's "Add Additional Charge" (damage, lost item,
     // additional service, or a free-text "other") — absent on the
     // auto-created room charge and on an ordinary manual Cashiering charge.
@@ -81,6 +87,29 @@ export const createTransactionSchema = z
         message: "Please specify the payment method.",
         path: ["otherPaymentMethod"],
       });
+    }
+    if (data.discountType === "OTHER") {
+      if (!data.otherDiscountType?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the type of discount.",
+          path: ["otherDiscountType"],
+        });
+      }
+      const rate = data.otherDiscountRate?.trim();
+      if (!rate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please enter the discount rate.",
+          path: ["otherDiscountRate"],
+        });
+      } else if (Number.isNaN(Number(rate)) || Number(rate) < 0 || Number(rate) > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Enter a valid discount rate between 0 and 100.",
+          path: ["otherDiscountRate"],
+        });
+      }
     }
     if (data.type === "PAYMENT" && !data.processedBy?.trim()) {
       ctx.addIssue({

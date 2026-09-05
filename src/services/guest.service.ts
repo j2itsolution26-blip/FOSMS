@@ -59,7 +59,14 @@ export async function listGuests(pagination: PaginationInput) {
             transactions: {
               orderBy: { createdAt: "desc" },
               take: 1,
-              select: { bedCount: true, discountType: true, paymentMethod: true, otherPaymentMethod: true },
+              select: {
+                bedCount: true,
+                discountType: true,
+                otherDiscountType: true,
+                otherDiscountRate: true,
+                paymentMethod: true,
+                otherPaymentMethod: true,
+              },
             },
           },
         },
@@ -92,6 +99,8 @@ export async function getGuestById(id: string) {
               paymentMethod: true,
               otherPaymentMethod: true,
               discountType: true,
+              otherDiscountType: true,
+              otherDiscountRate: true,
               discountAmount: true,
               subtotal: true,
               vatAmount: true,
@@ -169,7 +178,14 @@ export async function createGuestFolioWithReservationAndCharge(
   room: GuestFolioRoomInput | null,
   actor: ActorContext
 ) {
-  const resolved = room ? await resolveInitialReservationCharge(room.roomId, room) : null;
+  const resolved = room
+    ? await resolveInitialReservationCharge(room.roomId, {
+        bedCount: room.bedCount,
+        discountType: room.discountType,
+        otherDiscountType: room.otherDiscountType,
+        otherDiscountRate: room.otherDiscountRate ? Number(room.otherDiscountRate) : null,
+      })
+    : null;
 
   const result = await prisma.$transaction(async (tx) => {
     const guest = await tx.guest.create({ data: toGuestData(guestInput) });
@@ -245,6 +261,106 @@ export async function createGuestFolioWithReservationAndCharge(
       },
     });
   }
+
+  return result;
+}
+
+/**
+ * Walk-In Guest: the exact same guest+room+charge creation as the Guest
+ * Folio above (same fields, discount/VAT/payment logic — see
+ * createWalkInGuestSchema in guest-folio.schema.ts), plus an immediate
+ * check-in inside the SAME transaction, so a walk-in can never end up
+ * guest-created-but-not-checked-in. Room assignment is mandatory here (a
+ * walk-in has nowhere else to go), unlike the Guest Folio's optional toggle.
+ *
+ * Deliberately does not call front-office.service.ts's checkIn() — that
+ * function gates on the reservation having no outstanding balance, which
+ * would block every walk-in (the initial charge is always unpaid at
+ * creation; see createInitialReservationCharge). A walk-in is checked in
+ * immediately and settled through Cashiering afterward, exactly like the
+ * previous walk-in flow that created no charge at all.
+ */
+export async function createWalkInGuestFolio(guestInput: GuestInput, room: GuestFolioRoomInput, actor: ActorContext) {
+  const resolved = await resolveInitialReservationCharge(room.roomId, {
+    bedCount: room.bedCount,
+    discountType: room.discountType,
+    otherDiscountType: room.otherDiscountType,
+    otherDiscountRate: room.otherDiscountRate ? Number(room.otherDiscountRate) : null,
+  });
+
+  const result = await prisma.$transaction(async (tx) => {
+    const guest = await tx.guest.create({ data: toGuestData(guestInput) });
+
+    const { reservation, transaction } = await createReservationAndChargeInTx(
+      tx,
+      {
+        guestId: guest.id,
+        roomId: room.roomId,
+        arrivalDate: room.arrivalDate,
+        departureDate: room.departureDate,
+        numGuests: 1,
+        source: "WALK_IN",
+        specialRequests: "",
+        notes: "",
+        bedCount: room.bedCount,
+        discountType: room.discountType,
+      },
+      resolved.room,
+      resolved.charge,
+      actor,
+      { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod },
+      { guestType: "WALK_IN", status: "CHECKED_IN" }
+    );
+
+    await tx.checkIn.create({ data: { reservationId: reservation.id } });
+    await tx.room.update({ where: { id: room.roomId }, data: { status: "OC" } });
+    await tx.roomStatusHistory.create({
+      data: { roomId: room.roomId, status: "OC", note: "Walk-in guest checked in", changedById: actor.userId },
+    });
+
+    return { guest, reservation, transaction };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "CREATE",
+    module: "guests",
+    recordId: result.guest.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "WALK_IN",
+    module: "front-office",
+    recordId: result.reservation.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      reservationNo: result.reservation.reservationNo,
+      roomId: result.reservation.roomId,
+      guestName: `${result.guest.firstName} ${result.guest.lastName}`,
+    },
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "PAYMENT_RECEIVED",
+    module: "cashiering",
+    recordId: result.transaction.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      transactionNo: result.transaction.transactionNo,
+      type: result.transaction.type,
+      amount: result.transaction.amount,
+    },
+  });
 
   return result;
 }

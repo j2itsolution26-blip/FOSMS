@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatDiscountType, formatGuestFullName } from "@/lib/formatters";
 import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 const RESERVATION_STATUS_LABELS: Record<string, string> = {
@@ -26,17 +26,11 @@ export type GuestAwaitingPaymentRow = {
   total: number;
   paid: number;
   balance: number;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | "OTHER" | null;
+  otherDiscountType: string | null;
   /** The specific unpaid CHARGE this balance traces to, if any — lets
    * Transact settle it in place instead of posting a new standalone payment. */
   charge: TransactionDetailsRow | null;
-};
-
-const DISCOUNT_LABELS: Record<NonNullable<GuestAwaitingPaymentRow["discountType"]>, string> = {
-  SENIOR_CITIZEN: "Senior Citizen",
-  PWD: "PWD",
-  STAKEHOLDER: "Stakeholder",
-  CLUB_MEMBER: "Club Member",
 };
 
 function currency(n: number) {
@@ -127,7 +121,7 @@ export function GuestsAwaitingPayment({
                 <TableCell className="text-right tabular-nums">{currency(r.total)}</TableCell>
                 <TableCell className="text-right tabular-nums">{currency(r.paid)}</TableCell>
                 <TableCell className="text-right font-semibold tabular-nums">{currency(r.balance)}</TableCell>
-                <TableCell>{r.discountType ? DISCOUNT_LABELS[r.discountType] : "—"}</TableCell>
+                <TableCell>{formatDiscountType(r.discountType, r.otherDiscountType) ?? "—"}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
                     Pending

@@ -19,10 +19,9 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
 import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
-import { formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
+import { formatDiscountType, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
-import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.schema";
 
 type FolioReservation = {
   arrivalDate: string;
@@ -32,6 +31,7 @@ type FolioReservation = {
   transactions: Array<{
     bedCount: number | null;
     discountType: string | null;
+    otherDiscountType: string | null;
     paymentMethod: string | null;
     otherPaymentMethod: string | null;
   }>;
@@ -63,9 +63,8 @@ function formatFolioDate(iso: string) {
   return `${mm}/${dd}/${d.getUTCFullYear()}`;
 }
 
-function discountLabel(value: string | null) {
-  if (!value) return "None";
-  return FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+function discountLabel(value: string | null, otherValue: string | null) {
+  return formatDiscountType(value, otherValue) ?? "None";
 }
 
 function paymentLabel(value: string | null, otherValue: string | null) {
@@ -231,7 +230,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                     <TableCell>{folio ? formatFolioDate(folio.arrivalDate) : "—"}</TableCell>
                     <TableCell>{folio ? formatFolioDate(folio.departureDate) : "—"}</TableCell>
                     <TableCell>{folio ? (tx?.bedCount ?? 0) : "—"}</TableCell>
-                    <TableCell>{folio ? discountLabel(tx?.discountType ?? null) : "—"}</TableCell>
+                    <TableCell>{folio ? discountLabel(tx?.discountType ?? null, tx?.otherDiscountType ?? null) : "—"}</TableCell>
                     <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null, tx?.otherPaymentMethod ?? null) : "—"}</TableCell>
                     <TableCell className="flex items-center gap-1">
                       <Button
