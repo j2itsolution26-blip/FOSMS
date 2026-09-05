@@ -131,3 +131,28 @@
     @apply font-sans;
   }
 }
+
+/* Guest Folio print isolation — toggled on <body> only for the duration of
+   "Print Guest Folio" (see guest-details-dialog.tsx). Scoped to this class
+   (rather than a blanket "hide everything" print rule) so it never affects
+   any other page's own print flow (receipts, analytics, night audit, etc). */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  body.printing-guest-folio * {
+    visibility: hidden;
+  }
+  body.printing-guest-folio .guest-folio-print,
+  body.printing-guest-folio .guest-folio-print * {
+    visibility: visible;
+  }
+  body.printing-guest-folio .guest-folio-print {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+}

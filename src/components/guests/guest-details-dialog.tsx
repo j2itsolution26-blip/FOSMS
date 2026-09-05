@@ -61,14 +61,20 @@ type GuestDetails = {
   }>;
 };
 
-// Read-only display label — mirrors the paid-amount-vs-total pattern already
-// used by listTodayTransactions/getReceiptById for receipts; never used to
-// change ledger state, only to describe it on the printed folio.
+// Mirrors the paid-amount-vs-total pattern already used by
+// listTodayTransactions/getReceiptById for receipts — read-only, never used
+// to change ledger state.
+function paidAmountFor(t: GuestTransaction): number {
+  return t.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
+}
+
+// Read-only display label — never used to change ledger state, only to
+// describe it on the printed folio.
 function transactionStatusLabel(t: GuestTransaction) {
   if (t.type === "REFUND") return "Refund Issued";
   if (t.reversedById) return "Refunded";
   if (t.type === "PAYMENT") return "Paid";
-  const paid = t.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
+  const paid = paidAmountFor(t);
   if (paid <= 0) return "Unpaid";
   if (paid >= Number(t.amount)) return "Paid";
   return "Partially Paid";
@@ -146,6 +152,21 @@ export function GuestDetailsDialog({
     });
   }, [open, guestId]);
 
+  // Scopes the print-only .guest-folio-print CSS (globals.css) to this one
+  // print, instead of a blanket print stylesheet — otherwise printing while
+  // this modal is open would print the whole Guests page behind it (table,
+  // sidebar, search, pagination) since a Dialog portals into <body>
+  // alongside that page rather than replacing it.
+  function handlePrintGuestFolio() {
+    document.body.classList.add("printing-guest-folio");
+    const cleanup = () => {
+      document.body.classList.remove("printing-guest-folio");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-xl sm:max-w-2xl print:overflow-visible print:max-w-none print:border-none print:bg-white print:shadow-none">
@@ -219,7 +240,7 @@ export function GuestDetailsDialog({
         </div>
 
         {guest ? (
-          <div className="hidden print:block print:px-8 print:py-6 print:text-black">
+          <div className="guest-folio-print hidden print:block print:px-8 print:py-6 print:text-black">
             <div className="mb-4 flex items-start justify-between border-b-2 border-black pb-3">
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-black">Front Office Servicing NC II</p>
@@ -272,24 +293,23 @@ export function GuestDetailsDialog({
                   </PrintSection>
 
                   {tx ? (
-                    <PrintSection title="Transaction / Billing">
-                      <PrintRow label="Transaction #" value={tx.transactionNo} />
-                      <PrintRow label="Amount" value={currency(tx.amount)} />
-                      <PrintRow label="Payment Method" value={formatPaymentMethod(tx.paymentMethod, tx.otherPaymentMethod)} />
-                      <PrintRow
-                        label="Discount Type"
-                        value={
-                          tx.discountType
-                            ? FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === tx.discountType)?.label ?? tx.discountType
-                            : null
-                        }
-                      />
-                      <PrintRow label="Discount Rate" value={formatDiscountRate(tx.discountAmount, tx.subtotal)} />
-                      <PrintRow label="Discount Amount" value={currency(tx.discountAmount)} />
-                      <PrintRow label="VAT" value={currency(tx.vatAmount)} />
-                      <PrintRow label="Status" value={transactionStatusLabel(tx)} />
-                      <PrintRow label="Front Desk Officer" value={tx.processedBy} />
-                    </PrintSection>
+                    <>
+                      <PrintSection title="Transaction / Billing">
+                        <PrintRow label="Transaction #" value={tx.transactionNo} />
+                        <PrintRow label="Payment Method" value={formatPaymentMethod(tx.paymentMethod, tx.otherPaymentMethod)} />
+                        <PrintRow label="Status" value={transactionStatusLabel(tx)} />
+                        <PrintRow label="Front Desk Officer" value={tx.processedBy} />
+                      </PrintSection>
+
+                      <PrintSection title="Financial Summary">
+                        <PrintRow label="Room / Service Charges" value={currency(tx.subtotal)} />
+                        <PrintRow label="Discount" value={currency(tx.discountAmount)} />
+                        <PrintRow label="VAT" value={currency(tx.vatAmount)} />
+                        <PrintRow label="Total" value={currency(tx.amount)} />
+                        <PrintRow label="Amount Paid" value={currency(paidAmountFor(tx).toFixed(2))} />
+                        <PrintRow label="Balance" value={currency(Math.max(0, Number(tx.amount) - paidAmountFor(tx)).toFixed(2))} />
+                      </PrintSection>
+                    </>
                   ) : null}
                 </div>
               );
@@ -301,7 +321,7 @@ export function GuestDetailsDialog({
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
-          <Button onClick={() => window.print()} disabled={!guest} variant="secondary">
+          <Button onClick={handlePrintGuestFolio} disabled={!guest} variant="secondary">
             <Printer className="h-4 w-4" /> Print Guest Folio
           </Button>
         </DialogFooter>
