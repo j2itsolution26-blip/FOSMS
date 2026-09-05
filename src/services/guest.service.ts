@@ -17,6 +17,14 @@ type ActorContext = {
   userAgent?: string | null;
 };
 
+export type GuestListFilters = {
+  /** Matches the Guests page's own display convention — a guest's row shows
+   * their most recent reservation, so this filters on "has a reservation of
+   * this guest type" rather than requiring every reservation to match. */
+  guestType?: "RESERVATION" | "WALK_IN";
+  roomTypeId?: string;
+};
+
 /**
  * The Guests page shows one row per Guest Folio: the guest plus their most
  * recent Reservation (-> Room -> RoomType) and that reservation's most recent
@@ -24,7 +32,7 @@ type ActorContext = {
  * the same relation chain getGuestById below already uses for the guest
  * details dialog — just narrowed to the single latest reservation per guest.
  */
-export async function listGuests(pagination: PaginationInput) {
+export async function listGuests(pagination: PaginationInput, filters: GuestListFilters = {}) {
   const { page, pageSize, search, sortBy, sortDir } = pagination;
 
   const where: Prisma.GuestWhereInput = {
@@ -35,7 +43,21 @@ export async function listGuests(pagination: PaginationInput) {
             { firstName: { contains: search, mode: "insensitive" } },
             { middleName: { contains: search, mode: "insensitive" } },
             { lastName: { contains: search, mode: "insensitive" } },
+            // Guest search also covers the room/reservation shown on their
+            // row, so a front desk officer can find a guest by either.
+            { reservations: { some: { reservationNo: { contains: search, mode: "insensitive" } } } },
+            { reservations: { some: { room: { number: { contains: search, mode: "insensitive" } } } } },
           ],
+        }
+      : {}),
+    ...(filters.guestType || filters.roomTypeId
+      ? {
+          reservations: {
+            some: {
+              ...(filters.guestType ? { guestType: filters.guestType } : {}),
+              ...(filters.roomTypeId ? { room: { roomTypeId: filters.roomTypeId } } : {}),
+            },
+          },
         }
       : {}),
   };
@@ -266,19 +288,21 @@ export async function createGuestFolioWithReservationAndCharge(
 }
 
 /**
- * Walk-In Guest: the exact same guest+room+charge creation as the Guest
- * Folio above (same fields, discount/VAT/payment logic — see
- * createWalkInGuestSchema in guest-folio.schema.ts), plus an immediate
- * check-in inside the SAME transaction, so a walk-in can never end up
- * guest-created-but-not-checked-in. Room assignment is mandatory here (a
- * walk-in has nowhere else to go), unlike the Guest Folio's optional toggle.
+ * Walk-In Guest — Step 1 of 2: the exact same guest+room+charge creation as
+ * the Guest Folio above (same fields, discount/VAT/payment logic — see
+ * createWalkInGuestSchema in guest-folio.schema.ts). Room assignment is
+ * mandatory here (a walk-in has nowhere else to go), unlike the Guest
+ * Folio's optional toggle.
  *
- * Deliberately does not call front-office.service.ts's checkIn() — that
- * function gates on the reservation having no outstanding balance, which
- * would block every walk-in (the initial charge is always unpaid at
- * creation; see createInitialReservationCharge). A walk-in is checked in
- * immediately and settled through Cashiering afterward, exactly like the
- * previous walk-in flow that created no charge at all.
+ * Deliberately does NOT check the guest in and does NOT occupy the room —
+ * the reservation is left PENDING with guestType WALK_IN, exactly like a
+ * regular reservation with a balance due. Step 2 is the front desk actually
+ * collecting payment (payTransaction() in cashiering.service.ts, the same
+ * "Transact" flow Cashiering already uses) and then calling the existing
+ * checkIn() in front-office.service.ts — which already refuses to check in
+ * a reservation with an outstanding balance. Routing the walk-in through
+ * that same gate (instead of bypassing it, as this used to) is what
+ * enforces "no payment, no check-in" without duplicating that rule anywhere.
  */
 export async function createWalkInGuestFolio(guestInput: GuestInput, room: GuestFolioRoomInput, actor: ActorContext) {
   const resolved = await resolveInitialReservationCharge(room.roomId, {
@@ -309,14 +333,8 @@ export async function createWalkInGuestFolio(guestInput: GuestInput, room: Guest
       resolved.charge,
       actor,
       { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod },
-      { guestType: "WALK_IN", status: "CHECKED_IN" }
+      { guestType: "WALK_IN" }
     );
-
-    await tx.checkIn.create({ data: { reservationId: reservation.id } });
-    await tx.room.update({ where: { id: room.roomId }, data: { status: "OC" } });
-    await tx.roomStatusHistory.create({
-      data: { roomId: room.roomId, status: "OC", note: "Walk-in guest checked in", changedById: actor.userId },
-    });
 
     return { guest, reservation, transaction };
   });

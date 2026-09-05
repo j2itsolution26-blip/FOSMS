@@ -14,7 +14,12 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const pagination = parsePagination(req.nextUrl.searchParams);
-  const { rows, meta } = await listGuests(pagination);
+  const guestTypeParam = req.nextUrl.searchParams.get("guestType");
+  const roomTypeId = req.nextUrl.searchParams.get("roomTypeId");
+  const { rows, meta } = await listGuests(pagination, {
+    guestType: guestTypeParam === "RESERVATION" || guestTypeParam === "WALK_IN" ? guestTypeParam : undefined,
+    roomTypeId: roomTypeId || undefined,
+  });
   return apiSuccess(rows, meta);
 }
 

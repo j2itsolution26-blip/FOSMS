@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, Pencil, Eye } from "lucide-react";
+import { Plus, Search, Pencil, Eye, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -22,6 +24,8 @@ import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { formatDiscountType, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
+
+type RoomTypeOption = { id: string; name: string };
 
 type FolioReservation = {
   arrivalDate: string;
@@ -79,6 +83,9 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [guestTypeFilter, setGuestTypeFilter] = useState<string>("ALL");
+  const [roomTypeFilter, setRoomTypeFilter] = useState<string>("ALL");
+  const [roomTypeOptions, setRoomTypeOptions] = useState<RoomTypeOption[]>([]);
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(searchParams.get("action") === "new");
   const [editingGuest, setEditingGuest] = useState<{ id: string; values: Partial<GuestInput> } | null>(null);
@@ -91,6 +98,8 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: "10" });
     if (debouncedSearch) params.set("search", debouncedSearch);
+    if (guestTypeFilter !== "ALL") params.set("guestType", guestTypeFilter);
+    if (roomTypeFilter !== "ALL") params.set("roomTypeId", roomTypeFilter);
 
     const result = await apiFetch<GuestRow[]>(`/api/guests?${params.toString()}`);
     if (result.success) {
@@ -98,11 +107,17 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
       setMeta(result.meta ?? null);
     }
     setLoading(false);
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, guestTypeFilter, roomTypeFilter]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    apiFetch<RoomTypeOption[]>("/api/room-types").then((res) => {
+      if (res.success) setRoomTypeOptions(res.data);
+    });
+  }, []);
 
   useEffect(() => {
     const guestId = searchParams.get("guestId");
@@ -138,39 +153,87 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Guests</h1>
-          <p className="text-sm text-muted-foreground">Guest folios, profiles, and reservation history.</p>
+    <div className="space-y-6">
+      {/* Centered page title — sits directly below the app header, above the
+          toolbar/table card, never left-aligned or nested inside the card. */}
+      <div className="flex flex-col items-center gap-2 py-4 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+          <Users className="h-6 w-6" />
         </div>
-        {canManage ? (
-          <Button
-            onClick={() => {
-              setEditingGuest(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" /> Guest Folio
-          </Button>
-        ) : null}
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Guest Information</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          View and manage guest records, reservations, and room assignments.
+        </p>
       </div>
 
-      <div className="relative w-full sm:w-72">
-        <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search full name…"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-        />
-      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search guest name, room, or reservation…"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
 
-      <div className="overflow-x-auto rounded-lg border bg-white">
-        <Table>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={guestTypeFilter}
+              onValueChange={(v) => {
+                setGuestTypeFilter(v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[150px]" aria-label="Guest Type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Guest Types</SelectItem>
+                <SelectItem value="WALK_IN">Walk-In</SelectItem>
+                <SelectItem value="RESERVATION">Reservation</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={roomTypeFilter}
+              onValueChange={(v) => {
+                setRoomTypeFilter(v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[170px]" aria-label="Room Type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Room Types</SelectItem>
+                {roomTypeOptions.map((rt) => (
+                  <SelectItem key={rt.id} value={rt.id}>
+                    {rt.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {canManage ? (
+              <Button
+                onClick={() => {
+                  setEditingGuest(null);
+                  setDialogOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Add Guest
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <Table>
           <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
               <TableHead>Full Name</TableHead>
@@ -233,21 +296,31 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                     <TableCell>{folio ? discountLabel(tx?.discountType ?? null, tx?.otherDiscountType ?? null) : "—"}</TableCell>
                     <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null, tx?.otherPaymentMethod ?? null) : "—"}</TableCell>
                     <TableCell className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="View guest"
-                        onClick={() => {
-                          setDetailsGuestId(g.id);
-                          setDetailsOpen(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="View guest"
+                            onClick={() => {
+                              setDetailsGuestId(g.id);
+                              setDetailsOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>View</TooltipContent>
+                      </Tooltip>
                       {canManage ? (
-                        <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit</TooltipContent>
+                        </Tooltip>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -255,7 +328,8 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               })
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
 
       {meta ? <PaginationBar meta={meta} onPageChange={setPage} /> : null}

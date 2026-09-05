@@ -244,7 +244,7 @@ export function FrontOfficeServicesClient({
       header: "Time",
       render: (r) =>
         rangeFilter === "today"
-          ? new Date(r.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+          ? new Date(r.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })
           : new Date(r.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
     },
     { key: "staff", header: "Staff", render: (r) => r.staff },
