@@ -26,9 +26,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Combobox } from "@/components/shared/combobox";
+import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
-import { formatDiscountRate, formatDiscountType } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType, formatGuestFullName } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
@@ -40,6 +40,8 @@ import {
 import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
+type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
+type MembershipStatus = { isActiveMember: boolean; membershipNo: string | null };
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -86,6 +88,18 @@ export function GuestFormDialog({
   const isCreate = !guestId;
   const [assignRoom, setAssignRoom] = useState(false);
   const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
+
+  // "Use an existing guest" (create mode only) — reuses a person already in
+  // the system (e.g. an already-registered Club Member) instead of always
+  // creating a brand-new Guest record for the same person. Kept as plain
+  // state rather than part of `form` (guestSchema) so switching modes can
+  // never leave stale, still-validated "new guest" field values behind —
+  // see the comment on submitFolio() below for why.
+  const [useExistingGuest, setUseExistingGuest] = useState(false);
+  const [guests, setGuests] = useState<GuestRow[]>([]);
+  const [existingGuestId, setExistingGuestId] = useState("");
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
+  const [checkingMembership, setCheckingMembership] = useState(false);
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -162,6 +176,9 @@ export function GuestFormDialog({
       setAssignRoom(false);
       setSmokingFilter("any");
       setCharge(null);
+      setUseExistingGuest(false);
+      setExistingGuestId("");
+      setMembershipStatus(null);
       roomForm.reset({
         roomTypeId: "",
         roomId: "",
@@ -206,23 +223,51 @@ export function GuestFormDialog({
     apiFetch<RoomTypeRow[]>("/api/room-types").then((res) => {
       if (res.success) setRoomTypes(res.data);
     });
+    apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+      if (res.success) setGuests(res.data);
+    });
   }, [open, isCreate]);
 
-  async function onSubmit(values: GuestInput) {
-    // Editing an existing Guest Folio never touches reservations/cashiering —
-    // unchanged single-call path.
-    if (guestId) {
-      const result = await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) });
-      if (!result.success) {
-        toast.error(result.message);
-        return;
-      }
-      toast.success("Guest folio updated successfully.");
-      onOpenChange(false);
-      onSaved();
+  // Automatic Club Member detection (section 4/5 of the brief) — as soon as
+  // an existing guest is selected, check the real membership record instead
+  // of ever asking the front desk to remember/select it manually.
+  useEffect(() => {
+    if (!useExistingGuest || !existingGuestId) {
+      setMembershipStatus(null);
       return;
     }
+    setCheckingMembership(true);
+    apiFetch<MembershipStatus>(`/api/guests/${existingGuestId}/club-membership`)
+      .then((res) => {
+        setMembershipStatus(res.success ? res.data : { isActiveMember: false, membershipNo: null });
+      })
+      .finally(() => setCheckingMembership(false));
+  }, [useExistingGuest, existingGuestId]);
 
+  // Selecting a non-eligible guest (or switching away from "existing")
+  // clears a stale Club Member selection instead of silently submitting a
+  // discount the currently-selected person no longer qualifies for.
+  useEffect(() => {
+    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.isActiveMember)) {
+      roomForm.setValue("discountType", undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useExistingGuest, existingGuestId, membershipStatus]);
+
+  const [submittingExisting, setSubmittingExisting] = useState(false);
+
+  /**
+   * Shared by both the "new person" and "use an existing guest" paths — only
+   * the `person` payload differs. Keeping guestId/guest as two entirely
+   * separate submit paths (rather than both living inside one react-hook-form
+   * `guestSchema`-validated form) avoids a real trap: an optional nested
+   * object field that's merely *present* (even filled with empty strings)
+   * still gets fully validated by zodResolver, so leaving stale "new guest"
+   * field values around while `guestId` is what's actually meant to submit
+   * could silently block submission on validation errors nothing on screen
+   * shows.
+   */
+  async function submitFolio(person: { guestId: string } | { guest: GuestInput }) {
     if (assignRoom) {
       const roomValid = await roomForm.trigger();
       if (!roomValid) return;
@@ -245,7 +290,7 @@ export function GuestFormDialog({
     const result = await apiFetch("/api/guests/folio", {
       method: "POST",
       body: JSON.stringify({
-        guest: values,
+        ...person,
         room: assignRoom
           ? {
               roomId: room.roomId,
@@ -278,6 +323,41 @@ export function GuestFormDialog({
     onSaved();
   }
 
+  async function onSubmit(values: GuestInput) {
+    // Editing an existing Guest Folio never touches reservations/cashiering —
+    // unchanged single-call path.
+    if (guestId) {
+      const result = await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) });
+      if (!result.success) {
+        toast.error(result.message);
+        return;
+      }
+      toast.success("Guest folio updated successfully.");
+      onOpenChange(false);
+      onSaved();
+      return;
+    }
+
+    await submitFolio({ guest: values });
+  }
+
+  async function handleExistingGuestSubmit() {
+    if (!existingGuestId) {
+      toast.error("Select an existing guest.");
+      return;
+    }
+    setSubmittingExisting(true);
+    await submitFolio({ guestId: existingGuestId });
+    setSubmittingExisting(false);
+  }
+
+  const selectedExistingGuest = guests.find((g) => g.id === existingGuestId);
+  const guestOptions: ComboboxOption[] = guests.map((g) => ({
+    value: g.id,
+    label: formatGuestFullName(g),
+    description: g.email ?? undefined,
+  }));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl p-0 sm:max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
@@ -299,8 +379,65 @@ export function GuestFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
             <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
-              {/* Name Details */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {/* Use an existing guest (create only) — reuses a person already in the
+                  system (e.g. an already-registered Club Member) instead of always
+                  creating a new Guest record for them. Automatically detects and
+                  surfaces that person's Club Membership below once selected. */}
+              {isCreate ? (
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3">
+                  <Checkbox
+                    checked={useExistingGuest}
+                    onCheckedChange={(v) => {
+                      setUseExistingGuest(v === true);
+                      setExistingGuestId("");
+                    }}
+                  />
+                  <span className="text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                    Use an existing guest
+                  </span>
+                </label>
+              ) : null}
+
+              {isCreate && useExistingGuest ? (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                  <div>
+                    <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                      Guest <span className="text-red-500">*</span>
+                    </p>
+                    <Combobox
+                      options={guestOptions}
+                      value={existingGuestId}
+                      onChange={setExistingGuestId}
+                      placeholder="Search existing guest…"
+                      searchPlaceholder="Search by name…"
+                      emptyText="No guests found."
+                      ariaLabel="Guest"
+                    />
+                  </div>
+
+                  {selectedExistingGuest ? (
+                    <div className="rounded-md border border-slate-200 bg-white p-3 text-sm">
+                      <p className="font-medium text-slate-900">{formatGuestFullName(selectedExistingGuest)}</p>
+                      {checkingMembership ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Checking Club Membership…</p>
+                      ) : membershipStatus?.isActiveMember ? (
+                        <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                          ✓ Active Club Member
+                          {membershipStatus.membershipNo ? ` (${membershipStatus.membershipNo})` : ""} — 2% Club Member
+                          Discount Eligible
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">Not a Club Member.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!useExistingGuest ? (
+                <>
+                  {/* Name Details */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
                   name="firstName"
@@ -425,6 +562,8 @@ export function GuestFormDialog({
                   </FormItem>
                 )}
               />
+                </>
+              ) : null}
 
               {/* Room Assignment (create only) — optional; when filled in, saving
                   this folio also creates a Reservation and sends the computed
@@ -595,11 +734,14 @@ export function GuestFormDialog({
                                 </FormControl>
                                 <SelectContent>
                                   <SelectItem value="none">None</SelectItem>
-                                  {/* Club Member is never offered here — this always creates a
-                                      brand-new Guest record, which can't already have an ACTIVE
-                                      membership (see isActiveClubMember() in cashiering.service.ts,
-                                      enforced server-side regardless of what this dropdown shows). */}
-                                  {FOLIO_DISCOUNT_TYPE_OPTIONS.filter((opt) => opt.value !== "CLUB_MEMBER").map((opt) => (
+                                  {/* Club Member only offered when the selected EXISTING guest is a
+                                      verified active member (checked automatically above) — a
+                                      brand-new person can never already have a membership, and the
+                                      server enforces this too (isActiveClubMember() in
+                                      cashiering.service.ts) regardless of what this dropdown shows. */}
+                                  {FOLIO_DISCOUNT_TYPE_OPTIONS.filter(
+                                    (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.isActiveMember)
+                                  ).map((opt) => (
                                     <SelectItem key={opt.value} value={opt.value}>
                                       {opt.label}
                                     </SelectItem>
@@ -766,23 +908,46 @@ export function GuestFormDialog({
               >
                 CANCEL
               </Button>
-              <Button
-                type="submit"
-                disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
-                className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
-              >
-                {form.formState.isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    SAVING GUEST FOLIO…
-                  </>
-                ) : (
-                  <>
-                    <UserCheck className="mr-2 h-4 w-4" />
-                    SAVE GUEST FOLIO
-                  </>
-                )}
-              </Button>
+              {useExistingGuest ? (
+                <Button
+                  type="button"
+                  onClick={handleExistingGuestSubmit}
+                  disabled={
+                    submittingExisting || !existingGuestId || (assignRoom && (quoting || !charge))
+                  }
+                  className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
+                >
+                  {submittingExisting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      SAVING GUEST FOLIO…
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className="mr-2 h-4 w-4" />
+                      SAVE GUEST FOLIO
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
+                  className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
+                >
+                  {form.formState.isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      SAVING GUEST FOLIO…
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className="mr-2 h-4 w-4" />
+                      SAVE GUEST FOLIO
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </form>
         </Form>

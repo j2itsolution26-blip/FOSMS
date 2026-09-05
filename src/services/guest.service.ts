@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { NotFoundError } from "@/lib/errors";
+import { AppError, NotFoundError } from "@/lib/errors";
 import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
@@ -159,6 +159,30 @@ function toGuestData(input: GuestInput) {
   };
 }
 
+export type PersonInput = { guestId?: string | null; guest?: GuestInput | null };
+
+/**
+ * Resolves the real person behind a Guest Folio / Walk-In submission:
+ * either an existing Guest (guestId — e.g. someone already registered as a
+ * Club Member, or a returning guest) or a brand-new one. Reusing an existing
+ * guestId here is what lets a Guest Folio automatically detect that person's
+ * Club Membership (see isActiveClubMember() in cashiering.service.ts) and
+ * never creates a second, duplicate Guest record for the same person.
+ * Mirrors the identical guestId/newGuest choice registerClubMembership()
+ * already makes.
+ */
+async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: PersonInput) {
+  if (person.guestId) {
+    const guest = await tx.guest.findUnique({ where: { id: person.guestId, deletedAt: null } });
+    if (!guest) throw new NotFoundError("Guest not found.");
+    return guest;
+  }
+  if (person.guest) {
+    return tx.guest.create({ data: toGuestData(person.guest) });
+  }
+  throw new AppError("Select an existing guest or enter a new guest's details.", "GUEST_REQUIRED", 400);
+}
+
 export async function createGuest(input: GuestInput, actor: ActorContext) {
   const guest = await prisma.guest.create({ data: toGuestData(input) });
 
@@ -196,7 +220,7 @@ type GuestFolioRoomInput = NonNullable<CreateGuestFolioInput["room"]>;
  * the Guest along with it instead of leaving a partially-saved folio.
  */
 export async function createGuestFolioWithReservationAndCharge(
-  guestInput: GuestInput,
+  person: PersonInput,
   room: GuestFolioRoomInput | null,
   actor: ActorContext
 ) {
@@ -206,14 +230,20 @@ export async function createGuestFolioWithReservationAndCharge(
         discountType: room.discountType,
         otherDiscountType: room.otherDiscountType,
         otherDiscountRate: room.otherDiscountRate ? Number(room.otherDiscountRate) : null,
+        // Only present for an existing guest (e.g. a returning guest or an
+        // already-registered Club Member) — a brand-new person can never be
+        // an active member yet, so this stays undefined for them and the
+        // Club Member discount is correctly rejected server-side.
+        guestId: person.guestId,
       })
     : null;
 
   const result = await prisma.$transaction(async (tx) => {
-    const guest = await tx.guest.create({ data: toGuestData(guestInput) });
+    const guest = await resolveOrCreateGuestInTx(tx, person);
+    const isNewGuest = !person.guestId;
 
     if (!room || !resolved) {
-      return { guest, reservation: null, transaction: null };
+      return { guest, isNewGuest, reservation: null, transaction: null };
     }
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
@@ -236,19 +266,24 @@ export async function createGuestFolioWithReservationAndCharge(
       { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod }
     );
 
-    return { guest, reservation, transaction };
+    return { guest, isNewGuest, reservation, transaction };
   });
 
-  await recordAudit({
-    userId: actor.userId,
-    role: actor.role,
-    action: "CREATE",
-    module: "guests",
-    recordId: result.guest.id,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
-    newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
-  });
+  // Only a genuinely new person gets a "guest created" audit entry — reusing
+  // an existing guest (e.g. an already-registered Club Member) isn't a
+  // guest-record creation event.
+  if (result.isNewGuest) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "CREATE",
+      module: "guests",
+      recordId: result.guest.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
+    });
+  }
 
   if (result.reservation) {
     await recordAudit({
@@ -304,16 +339,21 @@ export async function createGuestFolioWithReservationAndCharge(
  * that same gate (instead of bypassing it, as this used to) is what
  * enforces "no payment, no check-in" without duplicating that rule anywhere.
  */
-export async function createWalkInGuestFolio(guestInput: GuestInput, room: GuestFolioRoomInput, actor: ActorContext) {
+export async function createWalkInGuestFolio(person: PersonInput, room: GuestFolioRoomInput, actor: ActorContext) {
   const resolved = await resolveInitialReservationCharge(room.roomId, {
     bedCount: room.bedCount,
     discountType: room.discountType,
     otherDiscountType: room.otherDiscountType,
     otherDiscountRate: room.otherDiscountRate ? Number(room.otherDiscountRate) : null,
+    // Only present for an existing guest (e.g. an already-registered Club
+    // Member walking in) — see the identical comment in
+    // createGuestFolioWithReservationAndCharge above.
+    guestId: person.guestId,
   });
 
   const result = await prisma.$transaction(async (tx) => {
-    const guest = await tx.guest.create({ data: toGuestData(guestInput) });
+    const guest = await resolveOrCreateGuestInTx(tx, person);
+    const isNewGuest = !person.guestId;
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
       tx,
@@ -336,19 +376,23 @@ export async function createWalkInGuestFolio(guestInput: GuestInput, room: Guest
       { guestType: "WALK_IN" }
     );
 
-    return { guest, reservation, transaction };
+    return { guest, isNewGuest, reservation, transaction };
   });
 
-  await recordAudit({
-    userId: actor.userId,
-    role: actor.role,
-    action: "CREATE",
-    module: "guests",
-    recordId: result.guest.id,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
-    newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
-  });
+  // Only a genuinely new person gets a "guest created" audit entry — see the
+  // identical comment in createGuestFolioWithReservationAndCharge above.
+  if (result.isNewGuest) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "CREATE",
+      module: "guests",
+      recordId: result.guest.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
+    });
+  }
 
   await recordAudit({
     userId: actor.userId,

@@ -37,11 +37,15 @@ export async function POST(req: NextRequest) {
   const meta = getRequestMeta(req);
 
   try {
-    const result = await createGuestFolioWithReservationAndCharge(parsed.data.guest, parsed.data.room ?? null, {
-      userId: auth.user.id,
-      role: auth.user.roles[0] ?? null,
-      ...meta,
-    });
+    const result = await createGuestFolioWithReservationAndCharge(
+      { guestId: parsed.data.guestId, guest: parsed.data.guest },
+      parsed.data.room ?? null,
+      {
+        userId: auth.user.id,
+        role: auth.user.roles[0] ?? null,
+        ...meta,
+      }
+    );
     return apiSuccess(result, undefined, 201);
   } catch (err) {
     return handleServiceError(err, "guests/folio/create");

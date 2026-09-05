@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Sparkles, UserCheck, UserPlus, ClipboardList, ListChecks, BadgePlus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Sparkles, UserCheck, UserPlus, ClipboardList, ListChecks, BadgePlus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,7 @@ function CheckOutButton({ id, onChanged }: { id: string; onChanged: () => void }
 }
 
 export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
+  const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,6 +132,12 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
                 { label: "Guest Registration", icon: UserPlus, tone: "bg-violet-50 text-violet-700", onClick: () => setDialog("guest-reg") },
                 { label: "Register Club Member", icon: BadgePlus, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("membership") },
                 {
+                  label: "Club Members",
+                  icon: ShieldCheck,
+                  tone: "bg-indigo-50 text-indigo-700",
+                  onClick: () => router.push("/club-reception/members"),
+                },
+                {
                   label: "View Activities",
                   icon: ListChecks,
                   tone: "bg-amber-50 text-amber-700",
@@ -182,6 +190,7 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
         title="Member Verification"
         description="Verify and log a member's entry."
         defaultIsVisitor={false}
+        guestLookup
       />
       <ReceptionFormDialog
         open={dialog === "guest-reg"}

@@ -35,11 +35,15 @@ export async function POST(req: NextRequest) {
   const meta = getRequestMeta(req);
 
   try {
-    const result = await createWalkInGuestFolio(parsed.data.guest, parsed.data.room, {
-      userId: auth.user.id,
-      role: auth.user.roles[0] ?? null,
-      ...meta,
-    });
+    const result = await createWalkInGuestFolio(
+      { guestId: parsed.data.guestId, guest: parsed.data.guest },
+      parsed.data.room,
+      {
+        userId: auth.user.id,
+        role: auth.user.roles[0] ?? null,
+        ...meta,
+      }
+    );
     return apiSuccess(result, undefined, 201);
   } catch (err) {
     return handleServiceError(err, "front-office/walk-in");

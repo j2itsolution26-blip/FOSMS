@@ -26,9 +26,10 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Combobox } from "@/components/shared/combobox";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
-import { formatDiscountRate, formatDiscountType, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountRate, formatDiscountType, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
@@ -40,6 +41,8 @@ import {
 import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
+type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
+type MembershipStatus = { isActiveMember: boolean; membershipNo: string | null };
 
 type Registered = {
   guestName: string;
@@ -134,6 +137,16 @@ export function WalkInDialog({
   const roomDepartureDate = roomForm.watch("departureDate");
   const roomPaymentMethod = roomForm.watch("paymentMethod");
 
+  // "Use an existing guest" — reuses a person already in the system (e.g. an
+  // already-registered Club Member walking in) instead of always creating a
+  // brand-new Guest record for them. Same pattern as GuestFormDialog.
+  const [useExistingGuest, setUseExistingGuest] = useState(false);
+  const [guests, setGuests] = useState<GuestRow[]>([]);
+  const [existingGuestId, setExistingGuestId] = useState("");
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
+  const [checkingMembership, setCheckingMembership] = useState(false);
+  const [submittingExisting, setSubmittingExisting] = useState(false);
+
   // Payment step's own small form — deliberately plain state (not react-hook-form):
   // just three fields, and this step never coexists with the guest/room forms above.
   const [payAmount, setPayAmount] = useState("");
@@ -162,6 +175,32 @@ export function WalkInDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discountType]);
+
+  // Automatic Club Member detection — as soon as an existing guest is
+  // selected, check the real membership record instead of ever asking the
+  // front desk to remember/select it manually.
+  useEffect(() => {
+    if (!useExistingGuest || !existingGuestId) {
+      setMembershipStatus(null);
+      return;
+    }
+    setCheckingMembership(true);
+    apiFetch<MembershipStatus>(`/api/guests/${existingGuestId}/club-membership`)
+      .then((res) => {
+        setMembershipStatus(res.success ? res.data : { isActiveMember: false, membershipNo: null });
+      })
+      .finally(() => setCheckingMembership(false));
+  }, [useExistingGuest, existingGuestId]);
+
+  // Selecting a non-eligible guest (or switching away from "existing")
+  // clears a stale Club Member selection instead of silently submitting a
+  // discount the currently-selected person no longer qualifies for.
+  useEffect(() => {
+    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.isActiveMember)) {
+      roomForm.setValue("discountType", undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useExistingGuest, existingGuestId, membershipStatus]);
 
   const { rows: roomRows, loading: roomsLoading } = useRoomOptions(
     ASSIGNABLE_ROOM_STATUS_QUERY,
@@ -200,6 +239,9 @@ export function WalkInDialog({
     form.reset(EMPTY_GUEST);
     setSmokingFilter("any");
     setCharge(null);
+    setUseExistingGuest(false);
+    setExistingGuestId("");
+    setMembershipStatus(null);
     roomForm.reset({
       roomTypeId: "",
       roomId: "",
@@ -258,9 +300,20 @@ export function WalkInDialog({
     apiFetch<RoomTypeRow[]>("/api/room-types").then((res) => {
       if (res.success) setRoomTypes(res.data);
     });
+    apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+      if (res.success) setGuests(res.data);
+    });
   }, [open]);
 
-  async function onSubmit(values: GuestInput) {
+  /**
+   * Shared by both the "new person" and "use an existing guest" paths — only
+   * the `person` payload differs. Kept as two separate submit paths (rather
+   * than both living inside one react-hook-form `guestSchema`-validated
+   * form) so switching modes never leaves stale "new guest" field values
+   * around to trip zodResolver's validation — see the identical comment in
+   * GuestFormDialog's submitFolio().
+   */
+  async function submitRegistration(person: { guestId: string } | { guest: GuestInput }) {
     const roomValid = await roomForm.trigger();
     if (!roomValid) return;
     // The live price preview hasn't resolved yet — block the save instead of
@@ -283,7 +336,7 @@ export function WalkInDialog({
     }>("/api/front-office/walk-in", {
       method: "POST",
       body: JSON.stringify({
-        guest: values,
+        ...person,
         room: {
           roomId: room.roomId,
           arrivalDate: room.arrivalDate,
@@ -321,6 +374,27 @@ export function WalkInDialog({
     onDone();
     setStep("payment");
   }
+
+  async function onSubmit(values: GuestInput) {
+    await submitRegistration({ guest: values });
+  }
+
+  async function handleExistingGuestSubmit() {
+    if (!existingGuestId) {
+      toast.error("Select an existing guest.");
+      return;
+    }
+    setSubmittingExisting(true);
+    await submitRegistration({ guestId: existingGuestId });
+    setSubmittingExisting(false);
+  }
+
+  const selectedExistingGuest = guests.find((g) => g.id === existingGuestId);
+  const guestOptions: ComboboxOption[] = guests.map((g) => ({
+    value: g.id,
+    label: formatGuestFullName(g),
+    description: g.email ?? undefined,
+  }));
 
   async function handlePay() {
     if (!registered) return;
@@ -414,8 +488,63 @@ export function WalkInDialog({
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
               <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
-                {/* Name Details */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {/* Use an existing guest — reuses a person already in the system (e.g.
+                    an already-registered Club Member walking in) instead of always
+                    creating a new Guest record. Automatically detects and surfaces
+                    that person's Club Membership below once selected. */}
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3">
+                  <Checkbox
+                    checked={useExistingGuest}
+                    onCheckedChange={(v) => {
+                      setUseExistingGuest(v === true);
+                      setExistingGuestId("");
+                    }}
+                  />
+                  <span className="text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                    Use an existing guest
+                  </span>
+                </label>
+
+                {useExistingGuest ? (
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                    <div>
+                      <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                        Guest <span className="text-red-500">*</span>
+                      </p>
+                      <Combobox
+                        options={guestOptions}
+                        value={existingGuestId}
+                        onChange={setExistingGuestId}
+                        placeholder="Search existing guest…"
+                        searchPlaceholder="Search by name…"
+                        emptyText="No guests found."
+                        ariaLabel="Guest"
+                      />
+                    </div>
+
+                    {selectedExistingGuest ? (
+                      <div className="rounded-md border border-slate-200 bg-white p-3 text-sm">
+                        <p className="font-medium text-slate-900">{formatGuestFullName(selectedExistingGuest)}</p>
+                        {checkingMembership ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Checking Club Membership…</p>
+                        ) : membershipStatus?.isActiveMember ? (
+                          <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                            ✓ Active Club Member
+                            {membershipStatus.membershipNo ? ` (${membershipStatus.membershipNo})` : ""} — 2% Club Member
+                            Discount Eligible
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">Not a Club Member.</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {!useExistingGuest ? (
+                  <>
+                    {/* Name Details */}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <FormField
                     control={form.control}
                     name="firstName"
@@ -540,6 +669,8 @@ export function WalkInDialog({
                     </FormItem>
                   )}
                 />
+                  </>
+                ) : null}
 
                 {/* Room Assignment — always required for a Walk-In (a checked-in
                     guest always occupies a room), unlike the Guest Folio's
@@ -701,11 +832,14 @@ export function WalkInDialog({
                               </FormControl>
                               <SelectContent>
                                 <SelectItem value="none">None</SelectItem>
-                                {/* Club Member is never offered here — this always creates a
-                                    brand-new Guest record, which can't already have an ACTIVE
-                                    membership (see isActiveClubMember() in cashiering.service.ts,
-                                    enforced server-side regardless of what this dropdown shows). */}
-                                {FOLIO_DISCOUNT_TYPE_OPTIONS.filter((opt) => opt.value !== "CLUB_MEMBER").map((opt) => (
+                                {/* Club Member only offered when the selected EXISTING guest is a
+                                    verified active member (checked automatically above) — a
+                                    brand-new person can never already have a membership, and the
+                                    server enforces this too (isActiveClubMember() in
+                                    cashiering.service.ts) regardless of what this dropdown shows. */}
+                                {FOLIO_DISCOUNT_TYPE_OPTIONS.filter(
+                                  (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.isActiveMember)
+                                ).map((opt) => (
                                   <SelectItem key={opt.value} value={opt.value}>
                                     {opt.label}
                                   </SelectItem>
@@ -870,23 +1004,44 @@ export function WalkInDialog({
                 >
                   CANCEL
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={form.formState.isSubmitting || quoting || !charge}
-                  className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
-                >
-                  {form.formState.isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      REGISTERING…
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="mr-2 h-4 w-4" />
-                      REGISTER &amp; PAY
-                    </>
-                  )}
-                </Button>
+                {useExistingGuest ? (
+                  <Button
+                    type="button"
+                    onClick={handleExistingGuestSubmit}
+                    disabled={submittingExisting || !existingGuestId || quoting || !charge}
+                    className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
+                  >
+                    {submittingExisting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        REGISTERING…
+                      </>
+                    ) : (
+                      <>
+                        <UserCheck className="mr-2 h-4 w-4" />
+                        REGISTER &amp; PAY
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    disabled={form.formState.isSubmitting || quoting || !charge}
+                    className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
+                  >
+                    {form.formState.isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        REGISTERING…
+                      </>
+                    ) : (
+                      <>
+                        <UserCheck className="mr-2 h-4 w-4" />
+                        REGISTER &amp; PAY
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </form>
           </Form>

@@ -74,10 +74,22 @@ export const guestFolioRoomSchema = z
     }
   });
 
-export const createGuestFolioSchema = z.object({
-  guest: guestSchema,
-  room: guestFolioRoomSchema.optional(),
-});
+/**
+ * Either an existing Guest (guestId — the real identity link, so an already-
+ * registered person, e.g. an existing Club Member, is reused instead of
+ * being duplicated) or a brand-new person's full details. Mirrors the exact
+ * same guestId/newGuest choice registerClubMembershipSchema already uses.
+ */
+export const createGuestFolioSchema = z
+  .object({
+    guestId: z.string().min(1).optional(),
+    guest: guestSchema.optional(),
+    room: guestFolioRoomSchema.optional(),
+  })
+  .refine((data) => !!data.guestId || !!data.guest, {
+    message: "Select an existing guest or enter a new guest's details.",
+    path: ["guest"],
+  });
 
 export type CreateGuestFolioInput = z.infer<typeof createGuestFolioSchema>;
 
@@ -89,9 +101,15 @@ export type CreateGuestFolioInput = z.infer<typeof createGuestFolioSchema>;
  * guest with no room) rather than the Guest Folio's optional "assign a room"
  * toggle. See createWalkInGuestFolio() in guest.service.ts.
  */
-export const createWalkInGuestSchema = z.object({
-  guest: guestSchema,
-  room: guestFolioRoomSchema,
-});
+export const createWalkInGuestSchema = z
+  .object({
+    guestId: z.string().min(1).optional(),
+    guest: guestSchema.optional(),
+    room: guestFolioRoomSchema,
+  })
+  .refine((data) => !!data.guestId || !!data.guest, {
+    message: "Select an existing guest or enter a new guest's details.",
+    path: ["guest"],
+  });
 
 export type CreateWalkInGuestInput = z.infer<typeof createWalkInGuestSchema>;

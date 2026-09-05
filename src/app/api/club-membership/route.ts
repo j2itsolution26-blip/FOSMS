@@ -7,7 +7,26 @@ import { getRequestMeta } from "@/lib/request-meta";
 import { handleServiceError } from "@/lib/handle-service-error";
 import { PERMISSIONS } from "@/config/permissions";
 import { registerClubMembershipSchema } from "@/validators/club-membership.schema";
-import { registerClubMembership } from "@/services/club-membership.service";
+import { registerClubMembership, listClubMembers, type ClubMemberStatusFilter } from "@/services/club-membership.service";
+import { parsePagination } from "@/validators/pagination.schema";
+
+/** The dedicated Club Members list (separate from Guests / Today's Club Reception). */
+export async function GET(req: NextRequest) {
+  const auth = await authorize(PERMISSIONS.CLUB_RECEPTION_VIEW);
+  if (auth.error) return auth.error;
+
+  const pagination = parsePagination(req.nextUrl.searchParams);
+  const statusParam = req.nextUrl.searchParams.get("status");
+  const status: ClubMemberStatusFilter | undefined =
+    statusParam === "ACTIVE" || statusParam === "UNPAID" ? statusParam : undefined;
+
+  try {
+    const result = await listClubMembers(pagination, { status });
+    return apiSuccess(result.rows, result.meta);
+  } catch (err) {
+    return handleServiceError(err, "club-membership/list");
+  }
+}
 
 /**
  * Registers a Club Membership and its one-time ₱1,000 fee payment in one
