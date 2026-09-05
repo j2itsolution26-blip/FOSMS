@@ -19,16 +19,21 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
 import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
-import { FOLIO_DISCOUNT_TYPE_OPTIONS, FOLIO_PAYMENT_METHOD_OPTIONS } from "@/validators/folio-room-assignment.schema";
+import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.schema";
 
 type FolioReservation = {
   arrivalDate: string;
   departureDate: string;
   room: { number: string; isSmoking: boolean; roomType: { name: string } };
-  transactions: Array<{ bedCount: number | null; discountType: string | null; paymentMethod: string | null }>;
+  transactions: Array<{
+    bedCount: number | null;
+    discountType: string | null;
+    paymentMethod: string | null;
+    otherPaymentMethod: string | null;
+  }>;
 };
 
 type GuestRow = {
@@ -62,9 +67,8 @@ function discountLabel(value: string | null) {
   return FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
-function paymentLabel(value: string | null) {
-  if (!value) return "—";
-  return FOLIO_PAYMENT_METHOD_OPTIONS.find((o) => o.value === value)?.label ?? value;
+function paymentLabel(value: string | null, otherValue: string | null) {
+  return formatPaymentMethod(value, otherValue) ?? "—";
 }
 
 export function GuestsTable({ canManage }: { canManage: boolean }) {
@@ -170,7 +174,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
               <TableHead>Full Name</TableHead>
-              <TableHead>Processed By</TableHead>
+              <TableHead>Front Desk Officer</TableHead>
               <TableHead>Room Type</TableHead>
               <TableHead>Smoking / Non-Smoking</TableHead>
               <TableHead>Room</TableHead>
@@ -225,7 +229,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                     <TableCell>{folio ? formatFolioDate(folio.departureDate) : "—"}</TableCell>
                     <TableCell>{folio ? (tx?.bedCount ?? 0) : "—"}</TableCell>
                     <TableCell>{folio ? discountLabel(tx?.discountType ?? null) : "—"}</TableCell>
-                    <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null) : "—"}</TableCell>
+                    <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null, tx?.otherPaymentMethod ?? null) : "—"}</TableCell>
                     <TableCell className="flex items-center gap-1">
                       <Button
                         variant="ghost"

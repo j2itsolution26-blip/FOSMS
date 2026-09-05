@@ -21,24 +21,33 @@ export const folioRoomAssignmentSchema = z
     bedCount: z.coerce.number().int().min(0).max(10),
     discountType: discountTypeEnum.optional(),
     paymentMethod: paymentMethodEnum,
+    // Only meaningful (and required) when paymentMethod is OTHER — see
+    // superRefine below.
+    otherPaymentMethod: z.string().trim().max(150).optional().or(z.literal("")),
   })
   .refine((data) => new Date(data.departureDate) > new Date(data.arrivalDate), {
     message: "Departure date must be after the arrival date.",
     path: ["departureDate"],
+  })
+  .refine((data) => data.paymentMethod !== "OTHER" || !!data.otherPaymentMethod?.trim(), {
+    message: "Please specify the payment method.",
+    path: ["otherPaymentMethod"],
   });
 
 export type FolioRoomAssignmentInput = z.infer<typeof folioRoomAssignmentSchema>;
 
 // Guest Folio's Mode of Payment dropdown is deliberately a subset of the full
-// PaymentMethod enum (brief asks for exactly Cash/Online/Debit Card).
+// PaymentMethod enum (brief asks for exactly Cash/Online/Card/Others).
 export const FOLIO_PAYMENT_METHOD_OPTIONS = [
   { value: "CASH", label: "Cash" },
   { value: "ONLINE", label: "Online" },
-  { value: "CARD", label: "Debit Card" },
+  { value: "CARD", label: "Card" },
+  { value: "OTHER", label: "Others" },
 ] as const;
 
 export const FOLIO_DISCOUNT_TYPE_OPTIONS = [
   { value: "SENIOR_CITIZEN", label: "Senior Citizen" },
   { value: "PWD", label: "PWD" },
   { value: "STAKEHOLDER", label: "Stakeholder" },
+  { value: "CLUB_MEMBER", label: "Club Member" },
 ] as const;

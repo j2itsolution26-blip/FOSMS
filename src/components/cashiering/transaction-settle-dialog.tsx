@@ -16,13 +16,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import type { TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 const DISCOUNT_LABELS: Record<NonNullable<TransactionDetailsRow["discountType"]>, string> = {
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
 
 function currency(n: number) {
@@ -137,12 +138,18 @@ export function TransactionSettleDialog({
               </p>
             </div>
             <div>
+              <p className="text-xs text-muted-foreground">Discount Amount</p>
+              <p className="font-medium text-slate-900">
+                {transaction.discountAmount ? currency(Number(transaction.discountAmount)) : "—"}
+              </p>
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">VAT</p>
               <p className="font-medium text-slate-900">{transaction.vatAmount ? currency(Number(transaction.vatAmount)) : "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Payment Method</p>
-              <p className="font-medium text-slate-900">{transaction.paymentMethod?.replaceAll("_", " ") ?? "—"}</p>
+              <p className="font-medium text-slate-900">{formatPaymentMethod(transaction.paymentMethod, transaction.otherPaymentMethod) ?? "—"}</p>
             </div>
             <div className="col-span-2 border-t pt-2">
               <p className="text-xs text-muted-foreground">Amount</p>
@@ -177,10 +184,10 @@ export function TransactionSettleDialog({
               </div>
               <div className="space-y-1.5">
                 <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
-                  Transacted By <span className="text-red-500">*</span>
+                  Front Desk Officer <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  placeholder="Enter name of person who processed this payment"
+                  placeholder="Enter name of Front Desk Officer"
                   value={processedBy}
                   onChange={(e) => setProcessedBy(e.target.value)}
                 />

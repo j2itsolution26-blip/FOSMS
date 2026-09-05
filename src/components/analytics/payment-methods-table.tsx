@@ -7,7 +7,7 @@ const METHOD_LABELS: Record<string, string> = {
   CARD: "Card",
   BANK_TRANSFER: "Bank Transfer",
   ONLINE: "Online",
-  OTHER: "Other",
+  OTHER: "Others",
 };
 
 function currency(n: number) {

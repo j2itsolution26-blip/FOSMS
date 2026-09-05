@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
+import { formatPaymentMethod } from "@/lib/formatters";
 import { ModuleHeader } from "@/components/modules/module-header";
 import { ModuleKpiGrid } from "@/components/modules/module-kpi-grid";
 import { ModuleDataTable } from "@/components/modules/module-data-table";
@@ -22,13 +23,15 @@ type ReceiptRow = {
   status: "PAID" | "REFUNDED" | "REFUND_ISSUED";
   amount: string;
   paymentMethod: string | null;
+  otherPaymentMethod: string | null;
   description: string | null;
   paymentDate: string;
   guestName: string | null;
   reservationNo: string | null;
   processedBy: string | null;
   roomNumber: string | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountAmount: string | null;
   vatAmount: string | null;
 };
 
@@ -36,6 +39,7 @@ const DISCOUNT_LABELS: Record<NonNullable<ReceiptRow["discountType"]>, string> =
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
 
 type Kpis = { totalReceipts: number; totalCollected: number; totalRefunded: number; netCollected: number };
@@ -121,8 +125,9 @@ export function ReceiptsTable() {
     { key: "guest", header: "Trainee / Guest", render: (r) => r.guestName ?? "—" },
     { key: "room", header: "Room", render: (r) => r.roomNumber ?? "—" },
     { key: "amount", header: "Amount", render: (r) => currency(Number(r.amount)) },
-    { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "—") },
+    { key: "method", header: "Payment Method", render: (r) => formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "—" },
     { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    { key: "discountAmount", header: "Discount Amount", render: (r) => (r.discountAmount ? currency(Number(r.discountAmount)) : "—") },
     { key: "vat", header: "VAT", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
     { key: "date", header: "Payment Date", render: (r) => new Date(r.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) },
     { key: "description", header: "Description / Purpose", render: (r) => r.description ?? "—" },
@@ -135,7 +140,7 @@ export function ReceiptsTable() {
         </Badge>
       ),
     },
-    { key: "processedBy", header: "Transacted By", render: (r) => r.processedBy || "Not recorded" },
+    { key: "processedBy", header: "Front Desk Officer", render: (r) => r.processedBy || "Not recorded" },
     {
       key: "actions",
       header: "Actions",
@@ -219,7 +224,7 @@ export function ReceiptsTable() {
             <option value="CARD">Card</option>
             <option value="BANK_TRANSFER">Bank Transfer</option>
             <option value="ONLINE">Online</option>
-            <option value="OTHER">Other</option>
+            <option value="OTHER">Others</option>
           </select>
           <div className="flex items-center gap-2">
             <label className="text-sm text-muted-foreground" htmlFor="receipts-date-from">From</label>

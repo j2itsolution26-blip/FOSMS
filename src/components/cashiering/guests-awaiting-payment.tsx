@@ -26,7 +26,7 @@ export type GuestAwaitingPaymentRow = {
   total: number;
   paid: number;
   balance: number;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
   /** The specific unpaid CHARGE this balance traces to, if any — lets
    * Transact settle it in place instead of posting a new standalone payment. */
   charge: TransactionDetailsRow | null;
@@ -36,6 +36,7 @@ const DISCOUNT_LABELS: Record<NonNullable<GuestAwaitingPaymentRow["discountType"
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
 
 function currency(n: number) {

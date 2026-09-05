@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, Search, CalendarClock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Search, CalendarClock, AlertTriangle, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
 import { roomStatusLabel } from "@/config/room-status";
+import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import type { RoomStatus } from "@prisma/client";
 
 type Candidate = {
@@ -29,12 +30,23 @@ type Candidate = {
   arrivalDate: string;
   departureDate: string;
   status: "PENDING" | "CONFIRMED";
+  /** Same reservationBalance() math the checkIn() server gate and Cashiering
+   * use — never a separate "is this paid" flag that could drift from it. */
+  balance: number;
 };
 
-const STATUS_META: Record<Candidate["status"], { label: string; className: string; dot: string }> = {
-  CONFIRMED: { label: "Confirmed", className: "bg-blue-50 text-blue-700", dot: "bg-blue-500" },
-  PENDING: { label: "Pending", className: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
-};
+function currency(n: number) {
+  return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Payment status is what the guest actually needs to know before check-in —
+ * a meaningful financial state, not the reservation's raw Pending/Confirmed
+ * lifecycle value. */
+function paymentStatusMeta(balance: number) {
+  return balance > 0
+    ? { label: "Payment Required", className: "bg-amber-50 text-amber-700", dot: "bg-amber-500" }
+    : { label: "Ready for Check-In", className: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" };
+}
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -72,6 +84,7 @@ export function CheckInDialog({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [completedRoomStatus, setCompletedRoomStatus] = useState<RoomStatus | null>(null);
+  const [settleOpen, setSettleOpen] = useState(false);
 
   function loadCandidates() {
     setLoadingCandidates(true);
@@ -95,12 +108,26 @@ export function CheckInDialog({
       .finally(() => setLoadingCandidates(false));
   }
 
+  // After a payment is recorded from Process Payment below, re-pull the
+  // candidate's real balance from the server rather than assuming it's now
+  // ₱0 — a partial payment should still show Payment Required.
+  async function refreshSelectedBalance() {
+    if (!selected) return;
+    const res = await apiFetch<Candidate[]>("/api/front-office/check-in/candidates");
+    if (res.success) {
+      setCandidates(res.data);
+      const match = res.data.find((c) => c.id === selected.id);
+      if (match) setSelected(match);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     setSearch("");
     setKeyCardStatus("");
     setNotes("");
     setCompletedRoomStatus(null);
+    setSettleOpen(false);
     if (initialReservationId) {
       setStep("review");
     } else {
@@ -157,6 +184,7 @@ export function CheckInDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg p-0 overflow-hidden sm:max-w-xl">
         <div className="border-b px-6 pt-5 pb-4">
@@ -221,7 +249,7 @@ export function CheckInDialog({
                   </div>
                 ) : (
                   filteredCandidates.map((c) => {
-                    const meta = STATUS_META[c.status];
+                    const meta = paymentStatusMeta(c.balance);
                     return (
                       <button
                         key={c.id}
@@ -242,6 +270,9 @@ export function CheckInDialog({
                             <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
                             {meta.label}
                           </span>
+                          {c.balance > 0 ? (
+                            <span className="text-xs font-medium text-amber-700">{currency(c.balance)} outstanding</span>
+                          ) : null}
                         </div>
                       </button>
                     );
@@ -269,8 +300,8 @@ export function CheckInDialog({
                   <div>
                     <p className="text-xs text-muted-foreground">Status</p>
                     <p className="flex items-center gap-1.5 font-medium text-slate-800">
-                      <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[selected.status].dot}`} aria-hidden />
-                      {STATUS_META[selected.status].label}
+                      <span className={`h-1.5 w-1.5 rounded-full ${paymentStatusMeta(selected.balance).dot}`} aria-hidden />
+                      {paymentStatusMeta(selected.balance).label}
                     </p>
                   </div>
                   <div>
@@ -283,6 +314,27 @@ export function CheckInDialog({
                   </div>
                 </div>
               </div>
+
+              {selected.balance > 0 ? (
+                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    Guest cannot be checked in because there is an outstanding balance.
+                  </div>
+                  <p className="pl-6 text-xs text-amber-700">Outstanding Balance</p>
+                  <p className="pl-6 text-base font-bold">{currency(selected.balance)}</p>
+                  <div className="pl-6 pt-1">
+                    <Button type="button" size="sm" onClick={() => setSettleOpen(true)}>
+                      <Wallet className="h-4 w-4" /> Process Payment
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Ready for Check-In
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
@@ -372,7 +424,9 @@ export function CheckInDialog({
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button type="button" onClick={() => setStep("confirm")}>
+                {/* Disabled client-side the moment a balance is owed — checkIn() enforces
+                    the same rule server-side, so this can't be bypassed via direct API calls. */}
+                <Button type="button" onClick={() => setStep("confirm")} disabled={(selected?.balance ?? 0) > 0}>
                   Continue
                 </Button>
               </div>
@@ -394,5 +448,17 @@ export function CheckInDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <TransactionDialog
+      open={settleOpen}
+      onOpenChange={setSettleOpen}
+      defaultType="PAYMENT"
+      initialReservationId={selected?.id}
+      onDone={() => {
+        setSettleOpen(false);
+        refreshSelectedBalance();
+      }}
+    />
+    </>
   );
 }

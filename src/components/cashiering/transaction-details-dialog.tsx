@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatDiscountRate, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 
 export type TransactionDetailsRow = {
   id: string;
@@ -20,6 +20,7 @@ export type TransactionDetailsRow = {
   type: "CHARGE" | "PAYMENT" | "REFUND" | "DISCOUNT";
   amount: string;
   paymentMethod: string | null;
+  otherPaymentMethod: string | null;
   reversedById: string | null;
   createdAt: string;
   /** Sum of non-reversed payments that settle this row via "Transact" (0 for
@@ -38,18 +39,57 @@ export type TransactionDetailsRow = {
   } | null;
   user: { firstName: string; lastName: string };
   roomType: { name: string } | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountAmount: string | null;
+  subtotal: string | null;
   vatAmount: string | null;
   /** The Cashiering transaction's own manually-typed processor — independent
    * of `user` (the logged-in account) and of the Guest Folio's processedBy. */
   processedBy: string | null;
+  /** Free-text description — the "What is this charge for?" / "Reference or Notes" a
+   * cashier types on the New Transaction / Add Additional Charge forms. */
+  reference: string | null;
+  /** Set only on a CHARGE posted from Check-Out's Add Additional Charge (damage,
+   * lost item, additional service, other) — null for every other transaction. */
+  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | null;
+  otherChargeType: string | null;
+  /** Set only on the one-time Club Membership fee — lets Cashiering tell a
+   * Membership payment apart from a Guest/Room/Walk-In one instead of just
+   * showing a blank Guest/Reservation for it. */
+  clubMembership: {
+    membershipNo: string;
+    guest: { firstName: string; middleName?: string | null; lastName: string };
+  } | null;
 };
+
+/** "Membership" vs "Guest / Room" — the Transaction Type Cashiering/reports
+ * need to tell these apart, independent of the accounting TransactionType
+ * (Charge/Payment/Refund/Discount) already shown elsewhere. */
+export function transactionCategoryLabel(t: Pick<TransactionDetailsRow, "clubMembership" | "reservation">): string {
+  if (t.clubMembership) return "Membership";
+  if (t.reservation) return "Guest / Room";
+  return "—";
+}
 
 const DISCOUNT_LABELS: Record<NonNullable<TransactionDetailsRow["discountType"]>, string> = {
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
+
+const ADDITIONAL_CHARGE_TYPE_LABELS: Record<NonNullable<TransactionDetailsRow["additionalChargeType"]>, string> = {
+  DAMAGE: "Damage",
+  LOST_ITEM: "Lost Item",
+  ADDITIONAL_SERVICE: "Additional Service",
+  OTHER: "Other",
+};
+
+function additionalChargeTypeLabel(t: Pick<TransactionDetailsRow, "additionalChargeType" | "otherChargeType">): string | null {
+  if (!t.additionalChargeType) return null;
+  if (t.additionalChargeType === "OTHER" && t.otherChargeType?.trim()) return t.otherChargeType.trim();
+  return ADDITIONAL_CHARGE_TYPE_LABELS[t.additionalChargeType];
+}
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   CHARGE: { label: "Unpaid", className: "bg-amber-100 text-amber-800 border-amber-200" },
@@ -192,8 +232,9 @@ export function TransactionDetailsDialog({
           <div className="space-y-3 border-t pt-4">
             <SectionHeading>Guest &amp; Reservation</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
+              <Field label="Transaction Type" value={transactionCategoryLabel(transaction)} />
               <Field
-                label="Guest"
+                label={transaction.clubMembership ? "Member" : "Guest"}
                 value={
                   reservation ? (
                     canViewGuests ? (
@@ -203,13 +244,15 @@ export function TransactionDetailsDialog({
                     ) : (
                       formatGuestFullName(reservation.guest)
                     )
+                  ) : transaction.clubMembership ? (
+                    formatGuestFullName(transaction.clubMembership.guest)
                   ) : (
                     "—"
                   )
                 }
               />
               <Field
-                label="Reservation"
+                label={transaction.clubMembership ? "Membership ID" : "Reservation"}
                 value={
                   reservation ? (
                     canViewReservations ? (
@@ -219,6 +262,8 @@ export function TransactionDetailsDialog({
                     ) : (
                       reservation.reservationNo
                     )
+                  ) : transaction.clubMembership ? (
+                    transaction.clubMembership.membershipNo
                   ) : (
                     "—"
                   )
@@ -254,7 +299,7 @@ export function TransactionDetailsDialog({
             <SectionHeading>Payment Information</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Transaction Type" value={TRANSACTION_TYPE_LABELS[transaction.type]} />
-              <Field label="Payment Method" value={transaction.paymentMethod ? transaction.paymentMethod.replaceAll("_", " ") : "Not recorded"} />
+              <Field label="Payment Method" value={formatPaymentMethod(transaction.paymentMethod, transaction.otherPaymentMethod) ?? "Not recorded"} />
             </div>
             <div className="rounded-md bg-slate-50 px-4 py-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Total Amount</p>
@@ -266,12 +311,29 @@ export function TransactionDetailsDialog({
             <SectionHeading>Discount &amp; Tax</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Discount Type" value={transaction.discountType ? DISCOUNT_LABELS[transaction.discountType] : "—"} />
+              <Field label="Discount Rate" value={formatDiscountRate(transaction.discountAmount, transaction.subtotal) ?? "—"} />
+              <Field
+                label="Discount Amount"
+                value={transaction.discountAmount ? currency(Number(transaction.discountAmount)) : "—"}
+              />
               <Field label="VAT" value={transaction.vatAmount ? currency(Number(transaction.vatAmount)) : "—"} />
             </div>
           </div>
 
+          {transaction.additionalChargeType || transaction.reference ? (
+            <div className="space-y-3 border-t pt-4">
+              <SectionHeading>Charge Details</SectionHeading>
+              <div className="grid grid-cols-2 gap-4">
+                {transaction.additionalChargeType ? (
+                  <Field label="Charge Type" value={additionalChargeTypeLabel(transaction)} />
+                ) : null}
+                {transaction.reference ? <Field label="Description" value={transaction.reference} /> : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-3 border-t pt-4">
-            <SectionHeading>Transacted By</SectionHeading>
+            <SectionHeading>Front Desk Officer</SectionHeading>
             <p className="text-sm font-medium text-slate-900">{transaction.processedBy || "Not recorded"}</p>
           </div>
 

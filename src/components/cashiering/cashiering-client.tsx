@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Receipt, Wallet, ReceiptText, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiFetch } from "@/lib/api-client";
 import { FrontOfficeModuleLayout } from "@/components/modules/front-office-module-layout";
@@ -30,6 +30,7 @@ const DISCOUNT_LABELS: Record<NonNullable<TransactionRow["discountType"]>, strin
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
 
 type Summary = {
@@ -142,6 +143,8 @@ export function CashieringClient({
           ) : (
             formatGuestFullName(r.reservation.guest)
           )
+        ) : r.clubMembership ? (
+          formatGuestFullName(r.clubMembership.guest)
         ) : (
           "—"
         ),
@@ -158,6 +161,8 @@ export function CashieringClient({
           ) : (
             r.reservation.reservationNo
           )
+        ) : r.clubMembership ? (
+          `Membership · ${r.clubMembership.membershipNo}`
         ) : (
           "—"
         ),
@@ -179,12 +184,22 @@ export function CashieringClient({
         ),
     },
     { key: "roomType", header: "Room Type", render: (r) => r.roomType?.name ?? r.reservation?.room?.roomType.name ?? "—" },
-    { key: "type", header: "Type", render: (r) => TRANSACTION_TYPE_LABELS[r.type] },
+    {
+      key: "type",
+      header: "Type",
+      render: (r) => `${TRANSACTION_TYPE_LABELS[r.type]}${r.clubMembership ? " — Membership" : ""}`,
+    },
     { key: "amount", header: "Amount", className: "text-right tabular-nums", render: (r) => currency(Number(r.amount)) },
-    { key: "method", header: "Payment Method", render: (r) => (r.paymentMethod ? r.paymentMethod.replaceAll("_", " ") : "Not recorded") },
+    { key: "method", header: "Payment Method", render: (r) => formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "Not recorded" },
     { key: "discount", header: "Discount Type", render: (r) => (r.discountType ? DISCOUNT_LABELS[r.discountType] : "—") },
+    {
+      key: "discountAmount",
+      header: "Discount Amount",
+      className: "text-right tabular-nums",
+      render: (r) => (r.discountAmount ? currency(Number(r.discountAmount)) : "—"),
+    },
     { key: "vat", header: "VAT", className: "text-right tabular-nums", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
-    { key: "cashier", header: "Transacted By", render: (r) => r.processedBy || "Not recorded" },
+    { key: "cashier", header: "Front Desk Officer", render: (r) => r.processedBy || "Not recorded" },
     {
       key: "status",
       header: "Status",

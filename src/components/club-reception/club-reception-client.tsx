@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Sparkles, UserCheck, UserPlus, ClipboardList, MessageSquarePlus, ListChecks } from "lucide-react";
+import { Sparkles, UserCheck, UserPlus, ClipboardList, MessageSquarePlus, ListChecks, BadgePlus, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,8 @@ import { ModuleEmptyState } from "@/components/modules/module-empty-state";
 import type { ModuleColumn } from "@/components/modules/types";
 
 import { ReceptionFormDialog } from "@/components/club-reception/reception-form-dialog";
+import { ClubMembershipDialog } from "@/components/club-reception/club-membership-dialog";
+import { MemberFinancialHistoryDialog } from "@/components/club-reception/member-financial-history-dialog";
 import { GuestRequestDialog } from "@/components/concierge/guest-request-dialog";
 
 type ReceptionRow = {
@@ -59,7 +61,9 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
 
-  const [dialog, setDialog] = useState<"register" | "verify" | "guest-reg" | "create" | "request" | null>(null);
+  const [dialog, setDialog] = useState<
+    "register" | "verify" | "guest-reg" | "create" | "request" | "membership" | "history" | null
+  >(null);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -128,6 +132,8 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
                 { label: "Register Visitor", icon: UserPlus, tone: "bg-blue-50 text-blue-700", onClick: () => setDialog("register") },
                 { label: "Member Verification", icon: UserCheck, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("verify") },
                 { label: "Guest Registration", icon: UserPlus, tone: "bg-violet-50 text-violet-700", onClick: () => setDialog("guest-reg") },
+                { label: "Register Club Member", icon: BadgePlus, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("membership") },
+                { label: "Financial History", icon: Wallet, tone: "bg-blue-50 text-blue-700", onClick: () => setDialog("history") },
                 { label: "Create Reception Record", icon: ClipboardList, tone: "bg-slate-100 text-slate-700", onClick: () => setDialog("create") },
                 { label: "Guest Request", icon: MessageSquarePlus, tone: "bg-red-50 text-red-700", onClick: () => setDialog("request") },
                 {
@@ -201,6 +207,8 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
         defaultIsVisitor={false}
       />
       <GuestRequestDialog open={dialog === "request"} onOpenChange={(o) => setDialog(o ? "request" : null)} onDone={() => load()} />
+      <ClubMembershipDialog open={dialog === "membership"} onOpenChange={(o) => setDialog(o ? "membership" : null)} onDone={() => load()} />
+      <MemberFinancialHistoryDialog open={dialog === "history"} onOpenChange={(o) => setDialog(o ? "history" : null)} />
     </>
   );
 }

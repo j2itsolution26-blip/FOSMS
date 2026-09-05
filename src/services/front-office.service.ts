@@ -76,6 +76,7 @@ export type FrontOfficeActivityTransaction = {
   type: "CHARGE" | "PAYMENT" | "REFUND" | "DISCOUNT";
   amount: string;
   paymentMethod: string | null;
+  otherPaymentMethod: string | null;
   reversedById: string | null;
   createdAt: string;
   paidAmount: number;
@@ -90,9 +91,18 @@ export type FrontOfficeActivityTransaction = {
   } | null;
   user: { firstName: string; lastName: string };
   roomType: { name: string } | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
+  discountAmount: string | null;
+  subtotal: string | null;
   vatAmount: string | null;
   processedBy: string | null;
+  reference: string | null;
+  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | null;
+  otherChargeType: string | null;
+  clubMembership: {
+    membershipNo: string;
+    guest: { firstName: string; middleName?: string | null; lastName: string };
+  } | null;
 };
 
 export type FrontOfficeActivityRow = {
@@ -131,6 +141,7 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     type: t.type,
     amount: t.amount.toString(),
     paymentMethod: t.paymentMethod,
+    otherPaymentMethod: t.otherPaymentMethod,
     reversedById: t.reversedById,
     createdAt: t.createdAt.toISOString(),
     paidAmount: t.paidAmount,
@@ -153,8 +164,14 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     user: t.user,
     roomType: t.roomType,
     discountType: t.discountType,
+    discountAmount: t.discountAmount?.toString() ?? null,
+    subtotal: t.subtotal?.toString() ?? null,
     vatAmount: t.vatAmount?.toString() ?? null,
     processedBy: t.processedBy,
+    reference: t.reference,
+    additionalChargeType: t.additionalChargeType,
+    otherChargeType: t.otherChargeType,
+    clubMembership: t.clubMembership ? { membershipNo: t.clubMembership.membershipNo, guest: t.clubMembership.guest } : null,
   };
 }
 
@@ -365,6 +382,22 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       );
     }
 
+    // A guest cannot be checked in while any required balance is unpaid — the
+    // same reservationBalance() math the check-out gate and Cashiering use, so
+    // this can never disagree with what Cashiering shows as owed. Enforced
+    // here (not just in the Check-In dialog) so it can't be bypassed by
+    // calling this API directly. Mode of Payment is never treated as proof of
+    // payment — only an actual PAYMENT/DISCOUNT/REFUND row reduces this.
+    const transactions = await tx.cashierTransaction.findMany({ where: { reservationId: reservation.id } });
+    const balance = reservationBalance(transactions);
+    if (balance > 0) {
+      throw new AppError(
+        `Guest cannot be checked in because there is an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking in.`,
+        "OUTSTANDING_BALANCE",
+        409
+      );
+    }
+
     // The room may have changed state since the reservation was made (taken by a
     // walk-in, flagged out of order, blocked, etc.) — re-verify it's still
     // assignable right before occupying it, not just trust the booking.
@@ -424,6 +457,7 @@ export async function listCheckInEligibleReservations() {
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, roomType: { select: { name: true } } } },
+      transactions: { select: { type: true, amount: true } },
     },
   });
 
@@ -436,6 +470,9 @@ export async function listCheckInEligibleReservations() {
     arrivalDate: r.arrivalDate,
     departureDate: r.departureDate,
     status: r.status,
+    // Same reservationBalance() math the checkIn() gate and Cashiering use —
+    // never a separate "is this paid" flag that could drift from the ledger.
+    balance: reservationBalance(r.transactions),
   }));
 }
 
@@ -456,7 +493,7 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
     const balance = reservationBalance(transactions);
     if (balance > 0) {
       throw new AppError(
-        `This guest has an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking out.`,
+        `Checkout cannot be completed because there is an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking out.`,
         "OUTSTANDING_BALANCE",
         409
       );
@@ -658,6 +695,13 @@ export async function verifyGuest(input: GuestVerificationInput, actor: ActorCon
   return reservation;
 }
 
+// A Walk-In here never posts a room charge (see the Guest Folio's own
+// createGuestFolioWithReservationAndCharge() for the flow that does) — the
+// reservation is created with zero cashier transactions, so its balance is
+// always ₱0 at the instant it's checked in below. The same payment gate
+// checkIn() enforces would already block this if a charge were ever added
+// to this flow; nothing here is exempt from that rule, there's simply
+// nothing yet to owe.
 export async function walkIn(input: WalkInInput, actor: ActorContext) {
   const arrivalDate = new Date();
   const departureDate = new Date();

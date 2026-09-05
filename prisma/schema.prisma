@@ -183,6 +183,18 @@ enum DiscountType {
   SENIOR_CITIZEN
   PWD
   STAKEHOLDER
+  CLUB_MEMBER
+}
+
+// Classifies a manually-posted CHARGE created during checkout for damage,
+// loss, or another chargeable extra — never set on the auto-created room
+// CHARGE (see resolveInitialReservationCharge/createInitialReservationCharge)
+// or on an ordinary manual Cashiering charge with no such category.
+enum AdditionalChargeType {
+  DAMAGE
+  LOST_ITEM
+  ADDITIONAL_SERVICE
+  OTHER
 }
 
 enum NightAuditStatus {
@@ -326,6 +338,7 @@ model User {
   serviceRequestsAssigned  ServiceRequest[]     @relation("ServiceAssignedTo")
   serviceRequestsCreated   ServiceRequest[]     @relation("ServiceRequestCreatedBy")
   clubReceptionsRegistered ClubReception[]      @relation("ClubReceptionRegisteredBy")
+  clubMembershipsRegistered ClubMembership[]    @relation("ClubMembershipRegisteredBy")
   assessmentsAssessed      Assessment[]         @relation("AssessmentAssessor")
   assessmentsReviewed      Assessment[]         @relation("AssessmentReviewedBy")
   assessmentsFinalized     Assessment[]         @relation("AssessmentFinalizedBy")
@@ -699,6 +712,7 @@ model Guest {
   reservations    Reservation[]
   documents       GuestDocument[]
   serviceRequests ServiceRequest[]
+  clubMembership  ClubMembership?
 
   @@index([lastName, firstName])
   @@map("guests")
@@ -794,6 +808,27 @@ model ClubReception {
   @@map("club_receptions")
 }
 
+// A one-time, paid Club Membership tied to a real Guest record (never matched
+// by name — guestId is the identity link, so a later Guest Folio/Walk-In for
+// the same Guest is automatically recognized as the same person's financial
+// history). One membership per guest; the ₱1,000 fee itself is recorded as an
+// ordinary CashierTransaction (type PAYMENT, clubMembershipId set below) so it
+// stays individually auditable in Cashiering exactly like any other payment.
+model ClubMembership {
+  id             String   @id @default(cuid())
+  membershipNo   String   @unique
+  guestId        String   @unique
+  feeAmount      Decimal  @db.Decimal(10, 2)
+  registeredById String?
+  createdAt      DateTime @default(now())
+
+  guest        Guest                @relation(fields: [guestId], references: [id])
+  registeredBy User?                @relation("ClubMembershipRegisteredBy", fields: [registeredById], references: [id])
+  transactions CashierTransaction[]
+
+  @@map("club_memberships")
+}
+
 model ServiceRequest {
   id           String                 @id @default(cuid())
   requestNo    String                 @unique
@@ -841,6 +876,9 @@ model CashierTransaction {
   type          TransactionType
   amount        Decimal         @db.Decimal(10, 2)
   paymentMethod PaymentMethod?
+  // User-entered label when paymentMethod is OTHER ("Others" in the UI) — e.g.
+  // "GCash", "Bank Transfer". Null for every other payment method.
+  otherPaymentMethod String?
   reference     String?
   // The cashiering transaction's own processor — a name manually typed by
   // the cashier on the transaction/settle/refund form, independent of both
@@ -865,6 +903,20 @@ model CashierTransaction {
   subtotal       Decimal?      @db.Decimal(10, 2)
   vatAmount      Decimal?      @db.Decimal(10, 2)
 
+  // Set only on a CHARGE posted from Check-Out's "Add Additional Charge" for
+  // guest damage/loss/extra services — null for the auto room CHARGE and for
+  // ordinary manual charges. otherChargeType holds the free-text label when
+  // additionalChargeType is OTHER, same convention as otherPaymentMethod above.
+  additionalChargeType AdditionalChargeType?
+  otherChargeType      String?
+
+  // Set on the one-time Club Membership fee PAYMENT — null for every other
+  // transaction (room charges/payments, refunds, discounts). This is what
+  // lets Cashiering/reporting tell a Membership payment apart from a
+  // Guest/Room/Walk-In one instead of guessing from amount or notes.
+  clubMembershipId String?
+  clubMembership   ClubMembership? @relation(fields: [clubMembershipId], references: [id])
+
   // Set on a PAYMENT row created by "Transact" to settle an existing CHARGE
   // in place: the charge keeps its own transactionNo/type/amount forever (no
   // new visible row), while this linked payment carries the real ledger
@@ -885,6 +937,7 @@ model CashierTransaction {
   @@index([createdAt])
   @@index([type, createdAt])
   @@index([settlesTransactionId])
+  @@index([clubMembershipId])
   @@map("cashier_transactions")
 }
 

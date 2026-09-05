@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api-client";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { getActiveSettlementId, type TransactionDetailsRow } from "@/components/cashiering/transaction-details-dialog";
 
 // No existing refund-reason list is configured anywhere in the system (unlike
@@ -143,7 +143,7 @@ export function RefundTransactionDialog({
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Payment Method</p>
-                <p className="font-medium text-slate-900">{transaction.paymentMethod?.replaceAll("_", " ") ?? "—"}</p>
+                <p className="font-medium text-slate-900">{formatPaymentMethod(transaction.paymentMethod, transaction.otherPaymentMethod) ?? "—"}</p>
               </div>
               <div className="col-span-2 border-t pt-2">
                 <p className="text-xs text-muted-foreground">Original Amount</p>
@@ -187,10 +187,10 @@ export function RefundTransactionDialog({
 
             <div className="space-y-1.5">
               <Label className="uppercase tracking-wider text-xs font-semibold text-slate-700">
-                Transacted By <span className="text-red-500">*</span>
+                Front Desk Officer <span className="text-red-500">*</span>
               </Label>
               <Input
-                placeholder="Enter name of person who processed this payment"
+                placeholder="Enter name of Front Desk Officer"
                 value={processedBy}
                 onChange={(e) => setProcessedBy(e.target.value)}
               />
@@ -218,7 +218,7 @@ export function RefundTransactionDialog({
                 <p className="font-medium text-slate-900">{reasonValue}</p>
               </div>
               <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">Transacted By</p>
+                <p className="text-xs text-muted-foreground">Front Desk Officer</p>
                 <p className="font-medium text-slate-900">{processedBy.trim()}</p>
               </div>
             </div>

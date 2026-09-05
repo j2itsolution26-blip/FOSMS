@@ -1,5 +1,5 @@
 import "server-only";
-import type { DiscountType, Prisma, ReservationStatus } from "@prisma/client";
+import type { DiscountType, PaymentMethod, Prisma, ReservationStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -199,7 +199,10 @@ export async function createReservationAndChargeInTx(
   input: CreateReservationInput,
   room: { id: string; roomTypeId: string },
   charge: FolioCharge,
-  actor: ActorContext
+  actor: ActorContext,
+  // Guest Folio's Mode of Payment, recorded upfront on the initial CHARGE —
+  // the standalone Reservations module has no such field and never passes this.
+  billing?: { paymentMethod?: PaymentMethod | null; otherPaymentMethod?: string | null }
 ) {
   const arrivalDate = new Date(input.arrivalDate);
   const departureDate = new Date(input.departureDate);
@@ -228,6 +231,8 @@ export async function createReservationAndChargeInTx(
     userId: actor.userId,
     roomTypeId: room.roomTypeId,
     charge,
+    paymentMethod: billing?.paymentMethod ?? null,
+    otherPaymentMethod: billing?.otherPaymentMethod ?? null,
   });
 
   return { reservation, transaction };

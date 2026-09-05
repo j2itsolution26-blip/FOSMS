@@ -59,7 +59,7 @@ export async function listGuests(pagination: PaginationInput) {
             transactions: {
               orderBy: { createdAt: "desc" },
               take: 1,
-              select: { bedCount: true, discountType: true, paymentMethod: true },
+              select: { bedCount: true, discountType: true, paymentMethod: true, otherPaymentMethod: true },
             },
           },
         },
@@ -85,7 +85,21 @@ export async function getGuestById(id: string) {
           transactions: {
             orderBy: { createdAt: "desc" },
             take: 1,
-            select: { bedCount: true, discountType: true, paymentMethod: true },
+            select: {
+              transactionNo: true,
+              type: true,
+              amount: true,
+              paymentMethod: true,
+              otherPaymentMethod: true,
+              discountType: true,
+              discountAmount: true,
+              subtotal: true,
+              vatAmount: true,
+              bedCount: true,
+              processedBy: true,
+              reversedById: true,
+              settledBy: { select: { amount: true, reversedById: true } },
+            },
           },
         },
       },
@@ -180,7 +194,8 @@ export async function createGuestFolioWithReservationAndCharge(
       },
       resolved.room,
       resolved.charge,
-      actor
+      actor,
+      { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod }
     );
 
     return { guest, reservation, transaction };

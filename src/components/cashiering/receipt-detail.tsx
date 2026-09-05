@@ -9,6 +9,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatDiscountRate, formatPaymentMethod } from "@/lib/formatters";
 
 export type ReceiptDetailData = {
   id: string;
@@ -17,10 +18,14 @@ export type ReceiptDetailData = {
   status: "PAID" | "REFUNDED" | "REFUND_ISSUED";
   amount: string;
   paymentMethod: string | null;
+  otherPaymentMethod: string | null;
   description: string | null;
   paymentDate: string;
   guestName: string | null;
   reservationNo: string | null;
+  // Present only for the one-time Club Membership fee — switches the receipt
+  // to "CLUB MEMBERSHIP RECEIPT" layout instead of the Guest/Reservation/Room one.
+  membership: { membershipNo: string } | null;
   processedBy: string | null;
   refundOfReceiptNumber: string | null;
   refundedByReceiptNumber: string | null;
@@ -32,7 +37,7 @@ export type ReceiptDetailData = {
   subtotal: string | null;
   bedCount: number | null;
   bedCharge: string | null;
-  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | null;
+  discountType: "SENIOR_CITIZEN" | "PWD" | "STAKEHOLDER" | "CLUB_MEMBER" | null;
   discountAmount: string | null;
   vatAmount: string | null;
 };
@@ -47,6 +52,7 @@ const DISCOUNT_LABELS: Record<NonNullable<ReceiptDetailData["discountType"]>, st
   SENIOR_CITIZEN: "Senior Citizen",
   PWD: "PWD",
   STAKEHOLDER: "Stakeholder",
+  CLUB_MEMBER: "Club Member",
 };
 
 function currency(n: number) {
@@ -120,7 +126,9 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               />
               <div>
                 <p className="text-lg font-bold text-slate-900">{orgName}</p>
-                <p className="text-sm text-muted-foreground">Official Receipt</p>
+                <p className="text-sm text-muted-foreground">
+                  {receipt.membership ? "Club Membership Receipt" : "Official Receipt"}
+                </p>
               </div>
             </div>
             <div className="text-right">
@@ -133,8 +141,12 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Guest" value={receipt.guestName ?? "—"} />
-            <Field label="Reservation" value={receipt.reservationNo ?? "—"} />
+            <Field label={receipt.membership ? "Member" : "Guest"} value={receipt.guestName ?? "—"} />
+            {receipt.membership ? (
+              <Field label="Membership ID" value={receipt.membership.membershipNo} />
+            ) : (
+              <Field label="Reservation" value={receipt.reservationNo ?? "—"} />
+            )}
             {receipt.roomNumber ? (
               <Field
                 label="Room"
@@ -143,13 +155,17 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
                 }`}
               />
             ) : null}
-            <Field label="Payment Method" value={receipt.paymentMethod ? receipt.paymentMethod.replaceAll("_", " ") : "—"} />
+            <Field label="Payment Method" value={formatPaymentMethod(receipt.paymentMethod, receipt.otherPaymentMethod) ?? "—"} />
             <Field
               label="Date / Time"
               value={new Date(receipt.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
             />
-            <Field label="Transacted By" value={receipt.processedBy || "Not recorded"} />
-            {!hasFolioBreakdown ? <Field label="Description / Purpose" value={receipt.description ?? "—"} /> : null}
+            <Field label="Front Desk Officer" value={receipt.processedBy || "Not recorded"} />
+            {receipt.membership ? (
+              <Field label="Payment Type" value="One-Time Membership Fee" />
+            ) : !hasFolioBreakdown ? (
+              <Field label="Description / Purpose" value={receipt.description ?? "—"} />
+            ) : null}
           </div>
 
           {hasFolioBreakdown ? (
@@ -161,6 +177,7 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               {receipt.discountType && discountAmount > 0 ? (
                 <>
                   <LineItem label="DISCOUNT TYPE" value={DISCOUNT_LABELS[receipt.discountType]} muted />
+                  <LineItem label="DISCOUNT RATE" value={formatDiscountRate(receipt.discountAmount, receipt.subtotal) ?? "—"} muted />
                   <LineItem label="DISCOUNT" value={`-${currency(discountAmount)}`} muted />
                 </>
               ) : (

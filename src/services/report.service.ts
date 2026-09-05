@@ -5,7 +5,7 @@ import { getCashieringKpis, getOutstandingBalanceTotal } from "@/services/cashie
 import { getFrontOfficeKpis } from "@/services/front-office.service";
 import { toCsv } from "@/lib/csv";
 import { recordAudit } from "@/lib/audit";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { isAvailableCategory, isOccupiedCategory, roomStatusLabel } from "@/config/room-status";
 import type { RoomStatus } from "@prisma/client";
 
@@ -93,7 +93,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           r.reservation ? formatGuestFullName(r.reservation.guest) : "—",
           r.reservation?.reservationNo ?? "—",
           Number(r.amount).toFixed(2),
-          r.paymentMethod ?? "—",
+          formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "—",
           r.discountType ?? "—",
           r.vatAmount ? Number(r.vatAmount).toFixed(2) : "—",
           r.createdAt.toISOString().slice(0, 10),
@@ -119,7 +119,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           r.reservation ? formatGuestFullName(r.reservation.guest) : "—",
           r.reservation?.reservationNo ?? "—",
           Number(r.amount).toFixed(2),
-          r.paymentMethod ?? "—",
+          formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "—",
           r.createdAt.toISOString().slice(0, 10),
         ])
       );

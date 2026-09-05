@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "DiscountType" ADD VALUE IF NOT EXISTS 'CLUB_MEMBER';

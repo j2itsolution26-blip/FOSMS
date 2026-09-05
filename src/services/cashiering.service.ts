@@ -114,6 +114,11 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
           room: { select: { number: true, roomType: { select: { name: true } } } },
         },
       },
+      clubMembership: {
+        include: {
+          guest: { select: { firstName: true, middleName: true, lastName: true } },
+        },
+      },
       user: { select: { firstName: true, lastName: true } },
       roomType: { select: { name: true } },
       settledBy: { select: { id: true, amount: true, reversedById: true, createdAt: true } },
@@ -219,6 +224,7 @@ export async function getGuestsAwaitingPayment() {
           type: true,
           amount: true,
           paymentMethod: true,
+          otherPaymentMethod: true,
           reversedById: true,
           createdAt: true,
           discountType: true,
@@ -273,6 +279,7 @@ export async function getGuestsAwaitingPayment() {
               type: targetCharge.type,
               amount: targetCharge.amount.toString(),
               paymentMethod: targetCharge.paymentMethod,
+              otherPaymentMethod: targetCharge.otherPaymentMethod,
               reversedById: targetCharge.reversedById,
               createdAt: targetCharge.createdAt.toISOString(),
               paidAmount: targetCharge.settledBy
@@ -317,7 +324,16 @@ export async function getGuestsAwaitingPayment() {
  */
 export async function createInitialReservationCharge(
   tx: Prisma.TransactionClient,
-  params: { reservationId: string; userId: string; roomTypeId: string; charge: FolioCharge }
+  params: {
+    reservationId: string;
+    userId: string;
+    roomTypeId: string;
+    charge: FolioCharge;
+    // Guest Folio's Mode of Payment, recorded upfront (the charge itself is
+    // still money owed, not money received — see the processedBy comment below).
+    paymentMethod?: PaymentMethod | null;
+    otherPaymentMethod?: string | null;
+  }
 ) {
   const existing = await tx.cashierTransaction.findFirst({
     where: { reservationId: params.reservationId, type: "CHARGE" },
@@ -333,6 +349,8 @@ export async function createInitialReservationCharge(
       reservationId: params.reservationId,
       type: "CHARGE",
       amount: params.charge.total,
+      paymentMethod: params.paymentMethod ?? null,
+      otherPaymentMethod: params.otherPaymentMethod || null,
       // Money owed, not money received — starts unprocessed. The cashier
       // types their own name only once they actually take the payment (see
       // payTransaction()); never copied from the actor creating the charge.
@@ -345,6 +363,41 @@ export async function createInitialReservationCharge(
       discountAmount: params.charge.discountAmount,
       subtotal: params.charge.subtotal,
       vatAmount: params.charge.vatAmount,
+    },
+  });
+}
+
+/**
+ * The one-time Club Membership fee's own PAYMENT transaction — reservationId
+ * is always null (a membership isn't tied to a room stay), clubMembershipId
+ * is what Cashiering/reports use to tell it apart from a Guest/Room/Walk-In
+ * payment. Reuses the same session/transaction-number plumbing as every
+ * other CashierTransaction so it stays individually auditable alongside them.
+ */
+export async function createClubMembershipPayment(
+  tx: Prisma.TransactionClient,
+  params: {
+    clubMembershipId: string;
+    userId: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    otherPaymentMethod?: string | null;
+    processedBy: string;
+  }
+) {
+  const sessionId = await getOrCreateCashierSession(tx, params.userId);
+  const transactionNo = await nextNumber(tx, "cashier-transaction", "TXN");
+  return tx.cashierTransaction.create({
+    data: {
+      transactionNo,
+      sessionId,
+      type: "PAYMENT",
+      amount: params.amount,
+      paymentMethod: params.paymentMethod,
+      otherPaymentMethod: params.otherPaymentMethod || null,
+      processedBy: params.processedBy,
+      userId: params.userId,
+      clubMembershipId: params.clubMembershipId,
     },
   });
 }
@@ -468,8 +521,11 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
         type: input.type,
         amount: charge ? charge.total : input.amount,
         paymentMethod: input.paymentMethod,
+        otherPaymentMethod: input.otherPaymentMethod || null,
         reference: input.reference || null,
         processedBy: input.processedBy || null,
+        additionalChargeType: input.additionalChargeType ?? null,
+        otherChargeType: input.otherChargeType || null,
         userId: actor.userId,
         ...(charge
           ? {
@@ -577,6 +633,7 @@ export async function payTransaction(
         type: "PAYMENT",
         amount: input.amount,
         paymentMethod: charge.paymentMethod,
+        otherPaymentMethod: charge.otherPaymentMethod,
         reference: input.reference || null,
         processedBy: input.processedBy,
         userId: actor.userId,
@@ -585,7 +642,7 @@ export async function payTransaction(
     });
 
     // The charge itself is what the Cashiering list/receipt display — once
-    // this payment fully settles it, the charge's own Transacted By becomes
+    // this payment fully settles it, the charge's own Front Desk Officer becomes
     // the cashier who took this payment (it started null: nobody had
     // processed it yet). A partial payment leaves it untouched, since the
     // charge isn't Paid yet.
@@ -656,6 +713,7 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
         type: "REFUND",
         amount: input.amount,
         paymentMethod: original.paymentMethod,
+        otherPaymentMethod: original.otherPaymentMethod,
         reference: input.reference || `Refund of ${original.transactionNo}`,
         processedBy: input.processedBy,
         userId: actor.userId,
@@ -700,6 +758,11 @@ const receiptInclude = {
       room: { select: { number: true, isSmoking: true, roomType: { select: { name: true, baseRate: true } } } },
     },
   },
+  clubMembership: {
+    include: {
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+    },
+  },
   user: { select: { firstName: true, lastName: true } },
   roomType: { select: { name: true } },
 } satisfies Prisma.CashierTransactionInclude;
@@ -719,10 +782,19 @@ function toReceiptRow(t: ReceiptTransaction) {
     status: receiptStatus(t),
     amount: t.amount,
     paymentMethod: t.paymentMethod,
+    otherPaymentMethod: t.otherPaymentMethod,
     description: t.reference,
     paymentDate: t.createdAt,
-    guestName: t.reservation ? formatGuestFullName(t.reservation.guest) : null,
+    guestName: t.reservation
+      ? formatGuestFullName(t.reservation.guest)
+      : t.clubMembership
+        ? formatGuestFullName(t.clubMembership.guest)
+        : null,
     reservationNo: t.reservation?.reservationNo ?? null,
+    // Present only for the one-time Club Membership fee — lets the receipt
+    // page render "CLUB MEMBERSHIP RECEIPT" with a Membership ID instead of
+    // the standard Guest/Reservation/Room layout.
+    membership: t.clubMembership ? { membershipNo: t.clubMembership.membershipNo } : null,
     processedBy: t.processedBy,
     // Folio pricing breakdown — null for plain (non-room) transactions.
     roomNumber: t.reservation?.room?.number ?? null,

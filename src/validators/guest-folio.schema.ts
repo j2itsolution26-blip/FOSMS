@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { guestSchema } from "@/validators/guest.schema";
-import { discountTypeEnum } from "@/validators/cashiering.schema";
+import { discountTypeEnum, paymentMethodEnum } from "@/validators/cashiering.schema";
 
 const dateOnly = z
   .string()
@@ -23,10 +23,18 @@ export const guestFolioRoomSchema = z
     departureDate: dateOnly,
     bedCount: z.coerce.number().int().min(0).max(10).optional(),
     discountType: discountTypeEnum.optional(),
+    paymentMethod: paymentMethodEnum.optional(),
+    // Only meaningful (and required) when paymentMethod is OTHER — see
+    // superRefine below.
+    otherPaymentMethod: z.string().trim().max(150).optional().or(z.literal("")),
   })
   .refine((data) => new Date(data.departureDate) > new Date(data.arrivalDate), {
     message: "Departure date must be after the arrival date.",
     path: ["departureDate"],
+  })
+  .refine((data) => data.paymentMethod !== "OTHER" || !!data.otherPaymentMethod?.trim(), {
+    message: "Please specify the payment method.",
+    path: ["otherPaymentMethod"],
   });
 
 export const createGuestFolioSchema = z.object({

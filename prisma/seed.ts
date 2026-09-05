@@ -356,14 +356,24 @@ async function main() {
         // No legal standard for this one — a reasonable configured default,
         // adjustable via System Settings.
         STAKEHOLDER: { rate: 0.1, vatExempt: false },
+        CLUB_MEMBER: { rate: 0.02, vatExempt: false },
       },
     },
     { key: "additional_bed_rate", value: { amount: 500 } },
   ];
   for (const def of settingDefs) {
+    // A plain upsert's `update: {}` is a no-op on a row that already exists,
+    // so a DB seeded before a new discount type was added would never pick
+    // up its rate. Merge any missing keys into the existing value instead —
+    // preserves whatever an admin already customized for existing types.
+    const existing = await prisma.systemSetting.findUnique({ where: { key: def.key } });
+    const mergedValue =
+      existing && typeof existing.value === "object" && existing.value !== null
+        ? { ...def.value, ...(existing.value as object) }
+        : def.value;
     await prisma.systemSetting.upsert({
       where: { key: def.key },
-      update: {},
+      update: { value: mergedValue },
       create: { key: def.key, value: def.value },
     });
   }
@@ -382,15 +392,21 @@ async function main() {
 
   const roomPlan: { number: string; floor: number; roomTypeIdx: number; isSmoking: boolean }[] = [];
   for (let floor = 1; floor <= 3; floor++) {
-    for (let i = 1; i <= 6; i++) {
-      // Every-other room is smoking, spread across all 3 room types (i=2,4,6
-      // map to roomTypeIdx 1,0,2) so the smoking-status picker always has a
-      // real room to offer regardless of which room type is selected.
-      roomPlan.push({ number: `${floor}0${i}`, floor, roomTypeIdx: (i - 1) % 3, isSmoking: i % 2 === 0 });
+    // Full floor of 20 rooms (x01–x20) — every-other room is smoking, spread
+    // across all 3 room types, so the smoking-status picker always has a
+    // real room to offer regardless of which room type is selected.
+    for (let i = 1; i <= 20; i++) {
+      roomPlan.push({
+        number: `${floor}${String(i).padStart(2, "0")}`,
+        floor,
+        roomTypeIdx: (i - 1) % 3,
+        isSmoking: i % 2 === 0,
+      });
     }
   }
 
   const rooms = [];
+  const roomByNumber = new Map<string, { id: string }>();
   for (const plan of roomPlan) {
     const room = await prisma.room.upsert({
       where: { number: plan.number },
@@ -404,6 +420,7 @@ async function main() {
       },
     });
     rooms.push(room);
+    roomByNumber.set(plan.number, room);
   }
 
   console.log("Seeding guests…");
@@ -435,7 +452,7 @@ async function main() {
 
   type ReservationPlan = {
     guest: number;
-    room: number;
+    room: string;
     arrival: number;
     departure: number;
     status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED" | "NO_SHOW";
@@ -446,16 +463,16 @@ async function main() {
   };
 
   const plans: ReservationPlan[] = [
-    { guest: 0, room: 0, arrival: 0, departure: 3, status: "CONFIRMED", createdAtOffset: -1 },
-    { guest: 1, room: 6, arrival: -1, departure: 2, status: "CHECKED_IN", createdAtOffset: -2, checkIn: { offset: -1 }, roomStatus: "OCC" },
-    { guest: 2, room: 7, arrival: -2, departure: 0, status: "CHECKED_IN", createdAtOffset: -3, checkIn: { offset: -2 }, roomStatus: "OCC" },
-    { guest: 3, room: 12, arrival: 1, departure: 4, status: "PENDING", createdAtOffset: 0 },
-    { guest: 4, room: 1, arrival: -5, departure: -2, status: "CHECKED_OUT", createdAtOffset: -6, checkIn: { offset: -5 }, checkOut: { offset: -2 } },
-    { guest: 5, room: 2, arrival: 2, departure: 5, status: "CONFIRMED", createdAtOffset: -1 },
-    { guest: 6, room: 8, arrival: -1, departure: 1, status: "CHECKED_IN", createdAtOffset: -1, checkIn: { offset: -1 }, roomStatus: "OCC" },
-    { guest: 7, room: 13, arrival: 0, departure: 2, status: "PENDING", createdAtOffset: 0 },
-    { guest: 8, room: 3, arrival: -10, departure: -8, status: "CANCELLED", createdAtOffset: -11 },
-    { guest: 9, room: 4, arrival: -1, departure: 2, status: "NO_SHOW", createdAtOffset: -3 },
+    { guest: 0, room: "101", arrival: 0, departure: 3, status: "CONFIRMED", createdAtOffset: -1 },
+    { guest: 1, room: "201", arrival: -1, departure: 2, status: "CHECKED_IN", createdAtOffset: -2, checkIn: { offset: -1 }, roomStatus: "OCC" },
+    { guest: 2, room: "202", arrival: -2, departure: 0, status: "CHECKED_IN", createdAtOffset: -3, checkIn: { offset: -2 }, roomStatus: "OCC" },
+    { guest: 3, room: "301", arrival: 1, departure: 4, status: "PENDING", createdAtOffset: 0 },
+    { guest: 4, room: "102", arrival: -5, departure: -2, status: "CHECKED_OUT", createdAtOffset: -6, checkIn: { offset: -5 }, checkOut: { offset: -2 } },
+    { guest: 5, room: "103", arrival: 2, departure: 5, status: "CONFIRMED", createdAtOffset: -1 },
+    { guest: 6, room: "203", arrival: -1, departure: 1, status: "CHECKED_IN", createdAtOffset: -1, checkIn: { offset: -1 }, roomStatus: "OCC" },
+    { guest: 7, room: "302", arrival: 0, departure: 2, status: "PENDING", createdAtOffset: 0 },
+    { guest: 8, room: "104", arrival: -10, departure: -8, status: "CANCELLED", createdAtOffset: -11 },
+    { guest: 9, room: "105", arrival: -1, departure: 2, status: "NO_SHOW", createdAtOffset: -3 },
   ];
 
   for (const plan of plans) {
@@ -469,7 +486,7 @@ async function main() {
       create: {
         reservationNo,
         guestId: guests[plan.guest].id,
-        roomId: rooms[plan.room].id,
+        roomId: roomByNumber.get(plan.room)!.id,
         status: plan.status,
         source: "WALK_IN",
         arrivalDate,
@@ -495,14 +512,14 @@ async function main() {
       });
     }
     if (plan.roomStatus) {
-      await prisma.room.update({ where: { id: rooms[plan.room].id }, data: { status: plan.roomStatus } });
+      await prisma.room.update({ where: { id: roomByNumber.get(plan.room)!.id }, data: { status: plan.roomStatus } });
     }
   }
 
   // A couple of rooms in dirty/out-of-order for a realistic room-status board.
-  await prisma.room.update({ where: { id: rooms[14].id }, data: { status: "VD" } });
-  await prisma.room.update({ where: { id: rooms[15].id }, data: { status: "VD" } });
-  await prisma.room.update({ where: { id: rooms[17].id }, data: { status: "OOO" } });
+  await prisma.room.update({ where: { id: roomByNumber.get("303")!.id }, data: { status: "VD" } });
+  await prisma.room.update({ where: { id: roomByNumber.get("304")!.id }, data: { status: "VD" } });
+  await prisma.room.update({ where: { id: roomByNumber.get("306")!.id }, data: { status: "OOO" } });
 
   // Never regress the counter: real usage (bookings made after the first seed run) may
   // have already advanced it past seqCounter, and re-running seed must not collide with those.

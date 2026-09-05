@@ -65,6 +65,7 @@ export function TransactionDialog({
       type: defaultType ?? "PAYMENT",
       amount: undefined as unknown as number,
       paymentMethod: "CASH" as const,
+      otherPaymentMethod: "",
       reference: "",
       processedBy: "",
     },
@@ -76,6 +77,15 @@ export function TransactionDialog({
   const paymentMethod = form.watch("paymentMethod");
   const selected = reservations.find((r) => r.id === reservationId);
 
+  // Switching away from "Others" clears the now-hidden free-text field so a
+  // stale value can never be silently submitted alongside a different method.
+  useEffect(() => {
+    if (paymentMethod !== "OTHER") {
+      form.setValue("otherPaymentMethod", "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethod]);
+
   useEffect(() => {
     if (!open) return;
     form.reset({
@@ -83,6 +93,7 @@ export function TransactionDialog({
       type: defaultType ?? "PAYMENT",
       amount: undefined as unknown as number,
       paymentMethod: "CASH",
+      otherPaymentMethod: "",
       reference: "",
       processedBy: "",
     });
@@ -266,6 +277,24 @@ export function TransactionDialog({
               />
             ) : null}
 
+            {showPaymentMethod && paymentMethod === "OTHER" ? (
+              <FormField
+                control={form.control}
+                name="otherPaymentMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Other Payment Method <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter payment method" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+
             <FormField
               control={form.control}
               name="reference"
@@ -280,20 +309,20 @@ export function TransactionDialog({
               )}
             />
 
-            {/* Cashiering's own Transacted By — manually typed by the cashier
+            {/* Cashiering's own Front Desk Officer — manually typed by the cashier
                 for this payment; never auto-filled from the logged-in user,
-                and entirely independent of the Guest Folio's Processed By. */}
+                and entirely independent of the Guest Folio's Front Desk Officer. */}
             <FormField
               control={form.control}
               name="processedBy"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Transacted By {processedByRequired ? <span className="text-red-500">*</span> : null}
+                    Front Desk Officer {processedByRequired ? <span className="text-red-500">*</span> : null}
                   </FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Enter name of person who processed this payment"
+                      placeholder="Enter name of Front Desk Officer"
                       className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
                       {...field}
                     />

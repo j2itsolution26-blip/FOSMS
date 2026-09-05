@@ -28,6 +28,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/shared/combobox";
 import { apiFetch } from "@/lib/api-client";
+import { formatDiscountRate } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
 import { guestSchema, type GuestInput } from "@/validators/guest.schema";
@@ -98,6 +99,7 @@ export function GuestFormDialog({
       departureDate: tomorrowIso(),
       bedCount: 0,
       paymentMethod: "CASH",
+      otherPaymentMethod: "",
     },
   });
   const roomTypeId = roomForm.watch("roomTypeId");
@@ -105,6 +107,16 @@ export function GuestFormDialog({
   const discountType = roomForm.watch("discountType");
   const roomArrivalDate = roomForm.watch("arrivalDate");
   const roomDepartureDate = roomForm.watch("departureDate");
+  const roomPaymentMethod = roomForm.watch("paymentMethod");
+
+  // Switching away from "Others" clears the now-hidden free-text field so a
+  // stale value can never be silently submitted alongside a different method.
+  useEffect(() => {
+    if (roomPaymentMethod !== "OTHER") {
+      roomForm.setValue("otherPaymentMethod", "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomPaymentMethod]);
 
   const { rows: roomRows, loading: roomsLoading } = useRoomOptions(
     ASSIGNABLE_ROOM_STATUS_QUERY,
@@ -145,6 +157,7 @@ export function GuestFormDialog({
         departureDate: tomorrowIso(),
         bedCount: 0,
         paymentMethod: "CASH",
+        otherPaymentMethod: "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +234,8 @@ export function GuestFormDialog({
               departureDate: room.departureDate,
               bedCount: room.bedCount,
               discountType: room.discountType,
+              paymentMethod: room.paymentMethod,
+              otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
             }
           : undefined,
       }),
@@ -324,7 +339,7 @@ export function GuestFormDialog({
                 />
               </div>
 
-              {/* Processed By (Full-width) — manually typed by staff; never
+              {/* Front Desk Officer (Full-width) — manually typed by staff; never
                   auto-filled from the logged-in user's account. */}
               <FormField
                 control={form.control}
@@ -332,11 +347,11 @@ export function GuestFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Processed By <span className="text-red-500">*</span>
+                      Front Desk Officer <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Enter name of person who processed this guest"
+                        placeholder="Enter name of Front Desk Officer"
                         className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
                         {...field}
                       />
@@ -598,6 +613,28 @@ export function GuestFormDialog({
                         />
                       </div>
 
+                      {roomPaymentMethod === "OTHER" ? (
+                        <FormField
+                          control={roomForm.control}
+                          name="otherPaymentMethod"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Other Payment Method <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Enter payment method"
+                                  className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage className="text-xs text-red-600" />
+                            </FormItem>
+                          )}
+                        />
+                      ) : null}
+
                       {selectedRoomType && charge ? (
                         <div className="space-y-1 rounded-md border border-slate-200 bg-white p-3 text-sm">
                           <div className="flex justify-between text-slate-600">
@@ -616,7 +653,10 @@ export function GuestFormDialog({
                           </div>
                           {charge.discountAmount > 0 ? (
                             <div className="flex justify-between text-emerald-700">
-                              <span>Discount ({FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === charge.discountType)?.label})</span>
+                              <span>
+                                Discount ({FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === charge.discountType)?.label}
+                                {formatDiscountRate(charge.discountAmount, charge.subtotal) ? ` — ${formatDiscountRate(charge.discountAmount, charge.subtotal)}` : ""})
+                              </span>
                               <span>-{currency(charge.discountAmount)}</span>
                             </div>
                           ) : null}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, AlertTriangle, Search, DoorOpen } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, Search, DoorOpen, ReceiptText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
+import { AdditionalChargeDialog } from "@/components/cashiering/additional-charge-dialog";
 
 type Candidate = {
   id: string;
@@ -70,11 +71,14 @@ export function CheckOutDialog({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [settleOpen, setSettleOpen] = useState(false);
+  const [chargeOpen, setChargeOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setSearch("");
     setNotes("");
+    setSettleOpen(false);
+    setChargeOpen(false);
     setLoadingCandidates(true);
     apiFetch<Candidate[]>("/api/front-office/check-out/candidates")
       .then((res) => {
@@ -280,11 +284,18 @@ export function CheckOutDialog({
                   <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 shrink-0" />
-                      Outstanding Balance
+                      Checkout cannot be completed because there is an outstanding balance.
                     </div>
+                    <p className="pl-6 text-xs text-amber-700">Outstanding Balance</p>
                     <p className="pl-6 text-base font-bold">{currency(balance)}</p>
                   </div>
                 )}
+
+                {/* Damage, lost item, or any other guest-caused charge discovered during
+                    checkout — links to this same reservation and enters the balance above. */}
+                <Button type="button" variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
+                  <ReceiptText className="h-4 w-4" /> Add Additional / Damage Charge
+                </Button>
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
@@ -349,7 +360,7 @@ export function CheckOutDialog({
                     </Button>
                   ) : (
                     <Button type="button" onClick={() => setSettleOpen(true)}>
-                      Settle Balance
+                      Process Payment
                     </Button>
                   )}
                 </div>
@@ -375,6 +386,17 @@ export function CheckOutDialog({
         initialReservationId={selectedId ?? undefined}
         onDone={() => {
           setSettleOpen(false);
+          refreshSummary();
+        }}
+      />
+
+      <AdditionalChargeDialog
+        reservationId={selectedId}
+        guestName={summary?.guestName}
+        open={chargeOpen}
+        onOpenChange={setChargeOpen}
+        onDone={() => {
+          setChargeOpen(false);
           refreshSummary();
         }}
       />
