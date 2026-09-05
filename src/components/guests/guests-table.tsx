@@ -19,7 +19,7 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { GuestFormDialog } from "@/components/guests/guest-form-dialog";
 import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
-import { formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
+import { formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
 import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.schema";
@@ -27,6 +27,7 @@ import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.
 type FolioReservation = {
   arrivalDate: string;
   departureDate: string;
+  guestType: "RESERVATION" | "WALK_IN" | null;
   room: { number: string; isSmoking: boolean; roomType: { name: string } };
   transactions: Array<{
     bedCount: number | null;
@@ -174,6 +175,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
               <TableHead>Full Name</TableHead>
+              <TableHead>Guest Type</TableHead>
               <TableHead>Front Desk Officer</TableHead>
               <TableHead>Room Type</TableHead>
               <TableHead>Smoking / Non-Smoking</TableHead>
@@ -190,7 +192,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 11 }).map((__, j) => (
+                  {Array.from({ length: 12 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -199,7 +201,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
                   No guests found.
                 </TableCell>
               </TableRow>
@@ -221,6 +223,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                         {formatGuestFullName(g)}
                       </button>
                     </TableCell>
+                    <TableCell>{folio ? guestTypeLabel(folio.guestType) : "—"}</TableCell>
                     <TableCell>{g.processedBy || "Not recorded"}</TableCell>
                     <TableCell>{folio?.room.roomType.name ?? "—"}</TableCell>
                     <TableCell>{folio ? (folio.room.isSmoking ? "Smoking" : "Non-Smoking") : "—"}</TableCell>

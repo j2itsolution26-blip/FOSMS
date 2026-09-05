@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, AlertTriangle, Search, DoorOpen, ReceiptText } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
+import { guestTypeLabel } from "@/lib/formatters";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { AdditionalChargeDialog } from "@/components/cashiering/additional-charge-dialog";
 
@@ -30,6 +32,7 @@ type Candidate = {
 };
 
 type FolioSummary = Candidate & {
+  guestType: "RESERVATION" | "WALK_IN" | null;
   folio: {
     roomCharges: number;
     additionalCharges: number;
@@ -212,7 +215,12 @@ export function CheckOutDialog({
             ) : step === "review" ? (
               <>
                 <div>
-                  <p className="text-lg font-bold text-slate-900">{summary.guestName}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-lg font-bold text-slate-900">{summary.guestName}</p>
+                    <Badge variant="outline" className="text-xs">
+                      {guestTypeLabel(summary.guestType)}
+                    </Badge>
+                  </div>
                   <p className="text-sm text-slate-600">Room {summary.room}</p>
                   <p className="text-xs text-muted-foreground">Reservation: {summary.reservationNo}</p>
                 </div>

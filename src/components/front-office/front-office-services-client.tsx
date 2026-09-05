@@ -71,12 +71,36 @@ const RANGE_OPTIONS = [
   { value: "month", label: "This Month" },
 ];
 
+// How the reservation behind this activity was created — distinct from
+// Status (operation state) above. "UNKNOWN" covers rows from before this
+// field existed, or with no reservation to trace back to.
+const GUEST_TYPE_META: Record<string, { label: string; className: string }> = {
+  RESERVATION: { label: "Reservation", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  WALK_IN: { label: "Walk-In", className: "bg-violet-50 text-violet-700 border-violet-200" },
+  UNKNOWN: { label: "Unknown", className: "bg-slate-100 text-slate-600 border-slate-200" },
+};
+
+const GUEST_TYPE_FILTER_OPTIONS = [
+  { value: "RESERVATION", label: "Reservation" },
+  { value: "WALK_IN", label: "Walk-In" },
+  { value: "UNKNOWN", label: "Unknown" },
+];
+
 function ActivityBadge({ activity }: { activity: FrontOfficeActivityType }) {
   const meta = ACTIVITY_META[activity];
   const Icon = meta.icon;
   return (
     <Badge variant="outline" className={`gap-1 font-medium ${meta.className}`}>
       <Icon className="h-3 w-3" /> {activity}
+    </Badge>
+  );
+}
+
+function GuestTypeBadge({ guestType }: { guestType: FrontOfficeActivityRow["guestType"] }) {
+  const meta = GUEST_TYPE_META[guestType ?? "UNKNOWN"];
+  return (
+    <Badge variant="outline" className={`font-medium ${meta.className}`}>
+      {meta.label}
     </Badge>
   );
 }
@@ -101,6 +125,7 @@ export function FrontOfficeServicesClient({
   const [activityFilter, setActivityFilter] = useState("");
   const [staffFilter, setStaffFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [guestTypeFilter, setGuestTypeFilter] = useState("");
   const [rangeFilter, setRangeFilter] = useState("today");
   const [page, setPage] = useState(1);
   const debouncedSearch = useDebouncedValue(search);
@@ -120,12 +145,13 @@ export function FrontOfficeServicesClient({
       if (activityFilter) params.set("activityType", activityFilter);
       if (staffFilter) params.set("staff", staffFilter);
       if (statusFilter) params.set("status", statusFilter);
+      if (guestTypeFilter) params.set("guestType", guestTypeFilter);
       const result = await apiFetch<Summary>(`/api/front-office/summary?${params.toString()}`);
       if (result.success) setSummary(result.data);
       setLoading(false);
       setRefreshing(false);
     },
-    [debouncedSearch, activityFilter, staffFilter, statusFilter, rangeFilter, page]
+    [debouncedSearch, activityFilter, staffFilter, statusFilter, guestTypeFilter, rangeFilter, page]
   );
 
   useEffect(() => {
@@ -134,7 +160,7 @@ export function FrontOfficeServicesClient({
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, activityFilter, staffFilter, statusFilter, rangeFilter]);
+  }, [debouncedSearch, activityFilter, staffFilter, statusFilter, guestTypeFilter, rangeFilter]);
 
   function openDialog(name: typeof dialog, reservationId?: string) {
     setPrefillReservationId(reservationId ?? null);
@@ -148,6 +174,13 @@ export function FrontOfficeServicesClient({
       placeholder: "All Activities",
       onChange: setActivityFilter,
       options: (summary?.filterOptions.activityTypes ?? []).map((a) => ({ value: a, label: a })),
+    },
+    {
+      label: "Guest Type",
+      value: guestTypeFilter,
+      placeholder: "All Guest Types",
+      onChange: setGuestTypeFilter,
+      options: GUEST_TYPE_FILTER_OPTIONS,
     },
     {
       label: "Staff",
@@ -187,6 +220,11 @@ export function FrontOfficeServicesClient({
         ) : (
           <span className="font-medium">{r.guestName}</span>
         ),
+    },
+    {
+      key: "guestType",
+      header: "Guest Type",
+      render: (r) => <GuestTypeBadge guestType={r.guestType} />,
     },
     {
       key: "room",
@@ -275,12 +313,13 @@ export function FrontOfficeServicesClient({
               ]
             : []
         }
-        search={{ value: search, onChange: setSearch, placeholder: "Search guest, room, reservation #, transaction #, activity…" }}
+        search={{ value: search, onChange: setSearch, placeholder: "Search guest, room, reservation #, transaction #, guest type…" }}
         filters={filters}
         onClearFilters={() => {
           setActivityFilter("");
           setStaffFilter("");
           setStatusFilter("");
+          setGuestTypeFilter("");
           setRangeFilter("today");
         }}
         tableTitle={rangeFilter === "today" ? "Today's Front Office Operations" : "Front Office Operations"}

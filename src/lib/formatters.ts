@@ -38,6 +38,19 @@ export function formatDiscountRate(discountAmount?: string | number | null, subt
   return `${Math.round((amount / base) * 100)}%`;
 }
 
+/**
+ * Formats how a reservation was created — RESERVATION (Guest Folio /
+ * Reservations module) vs WALK_IN (the dedicated Walk-In Guest flow) — for
+ * display anywhere Guest Type appears. Null (rows created before this field
+ * existed, or with no reservation to trace back to) reads as "Unknown"
+ * rather than being guessed at.
+ */
+export function guestTypeLabel(guestType?: "RESERVATION" | "WALK_IN" | null): string {
+  if (guestType === "RESERVATION") return "Reservation";
+  if (guestType === "WALK_IN") return "Walk-In";
+  return "Unknown";
+}
+
 export type GuestNameFields = {
   firstName?: string | null;
   middleName?: string | null;

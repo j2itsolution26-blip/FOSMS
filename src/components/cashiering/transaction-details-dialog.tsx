@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDiscountRate, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountRate, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 
 export type TransactionDetailsRow = {
   id: string;
@@ -34,6 +34,7 @@ export type TransactionDetailsRow = {
     reservationNo: string;
     guestId: string;
     roomId: string;
+    guestType: "RESERVATION" | "WALK_IN" | null;
     guest: { firstName: string; middleName?: string | null; lastName: string };
     room: { number: string; roomType: { name: string } };
   } | null;
@@ -269,6 +270,7 @@ export function TransactionDetailsDialog({
                   )
                 }
               />
+              {reservation ? <Field label="Guest Type" value={guestTypeLabel(reservation.guestType)} /> : null}
             </div>
           </div>
 

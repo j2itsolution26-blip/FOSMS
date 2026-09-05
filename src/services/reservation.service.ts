@@ -219,6 +219,12 @@ export async function createReservationAndChargeInTx(
       departureDate,
       numGuests: input.numGuests,
       source: input.source,
+      // Both callers of this shared function (the standalone Reservations
+      // module and the Guest Folio's room-assignment section) are the
+      // "normal reservation" process — only the separate walkIn() flow in
+      // front-office.service.ts marks WALK_IN. Independent of `source`
+      // above, which is just the booking channel a staff member can pick.
+      guestType: "RESERVATION",
       specialRequests: input.specialRequests || null,
       notes: input.notes || null,
       createdById: actor.userId,

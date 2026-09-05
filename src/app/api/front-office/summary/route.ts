@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
       activityType: params.get("activityType") ?? undefined,
       staff: params.get("staff") ?? undefined,
       status: params.get("status") ?? undefined,
+      guestType: params.get("guestType") ?? undefined,
       rangePreset: params.get("range") ?? "today",
       rangeFrom: params.get("from") ?? undefined,
       rangeTo: params.get("to") ?? undefined,

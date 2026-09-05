@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
-import { formatGuestFullName } from "@/lib/formatters";
+import { formatGuestFullName, guestTypeLabel } from "@/lib/formatters";
 import { assertRoomAvailable, nextReservationNumber } from "@/services/reservation.service";
 import { reservationBalance, listTodayTransactions } from "@/services/cashiering.service";
 import { resolveDateRange, type DateRange } from "@/services/report.service";
@@ -86,6 +86,7 @@ export type FrontOfficeActivityTransaction = {
     reservationNo: string;
     guestId: string;
     roomId: string;
+    guestType: "RESERVATION" | "WALK_IN" | null;
     guest: { firstName: string; middleName?: string | null; lastName: string };
     room: { number: string; roomType: { name: string } };
   } | null;
@@ -117,6 +118,12 @@ export type FrontOfficeActivityRow = {
   time: Date;
   staff: string;
   status: "AWAITING_CHECK_IN" | "AWAITING_CHECK_OUT" | "COMPLETED";
+  /** How the reservation this activity traces back to was created — read
+   * from the actual Reservation.guestType relationship (see schema comment),
+   * never inferred from the activity's own name/type. Null (displayed as
+   * "Unknown") for rows created before this field existed, or with no
+   * reservation to trace back to at all. */
+  guestType: "RESERVATION" | "WALK_IN" | null;
   /** Only present for Charge/Payment/Refund rows — lets the UI reuse the existing
    * Cashiering transaction-details dialog and receipt route without duplicating them. */
   transaction: FrontOfficeActivityTransaction | null;
@@ -127,12 +134,15 @@ export type FrontOfficeActivityFilters = {
   activityType?: string;
   staff?: string;
   status?: string;
+  /** "RESERVATION" | "WALK_IN" | "UNKNOWN" */
+  guestType?: string;
   rangePreset?: string;
   rangeFrom?: string;
   rangeTo?: string;
   page?: number;
   pageSize?: number;
 };
+
 
 function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTransactions>>>[number]): FrontOfficeActivityTransaction {
   return {
@@ -157,6 +167,7 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
           reservationNo: t.reservation.reservationNo,
           guestId: t.reservation.guestId,
           roomId: t.reservation.roomId,
+          guestType: t.reservation.guestType,
           guest: t.reservation.guest,
           room: t.reservation.room,
         }
@@ -222,6 +233,25 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
     listTodayTransactions("", range),
   ]);
 
+  // ROOM_TRANSFER/GUEST_VERIFICATION come only from the audit log, which has
+  // no Reservation relation — recordId is the reservation id (see
+  // transferRoom/verifyGuest), so batch-fetch guestType for just those.
+  const transferOrVerifyReservationIds = [
+    ...new Set(
+      activityLogs
+        .filter((t) => (t.action === "ROOM_TRANSFER" || t.action === "GUEST_VERIFICATION") && t.recordId)
+        .map((t) => t.recordId as string)
+    ),
+  ];
+  const guestTypeByReservationId = new Map<string, "RESERVATION" | "WALK_IN" | null>();
+  if (transferOrVerifyReservationIds.length) {
+    const reservations = await prisma.reservation.findMany({
+      where: { id: { in: transferOrVerifyReservationIds } },
+      select: { id: true, guestType: true },
+    });
+    for (const r of reservations) guestTypeByReservationId.set(r.id, r.guestType);
+  }
+
   // CheckIn/CheckOut records don't carry who performed them; the audit trail does.
   // A walk-in performs its own check-in as part of the same flow, so it counts as one too.
   const staffByReservationAction = new Map<string, string>();
@@ -247,6 +277,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       time: r.arrivalDate,
       staff: "—",
       status: "AWAITING_CHECK_IN" as const,
+      guestType: r.guestType,
       transaction: null,
     })),
     ...departures.map((r) => ({
@@ -261,6 +292,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       time: r.departureDate,
       staff: "—",
       status: "AWAITING_CHECK_OUT" as const,
+      guestType: r.guestType,
       transaction: null,
     })),
     ...checkIns.map((c) => ({
@@ -275,6 +307,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       time: c.checkedInAt,
       staff: staffByReservationAction.get(`${c.reservationId}:CHECK_IN`) ?? "—",
       status: "COMPLETED" as const,
+      guestType: c.reservation.guestType,
       transaction: null,
     })),
     ...checkOuts.map((c) => ({
@@ -289,6 +322,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       time: c.checkedOutAt,
       staff: staffByReservationAction.get(`${c.reservationId}:CHECK_OUT`) ?? "—",
       status: "COMPLETED" as const,
+      guestType: c.reservation.guestType,
       transaction: null,
     })),
     ...activityLogs
@@ -305,6 +339,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
         time: t.createdAt,
         staff: t.user ? `${t.user.firstName} ${t.user.lastName}` : "—",
         status: "COMPLETED" as const,
+        guestType: t.recordId ? (guestTypeByReservationId.get(t.recordId) ?? null) : null,
         transaction: null,
       })),
     ...reservationsCreated.map((r) => ({
@@ -319,6 +354,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       time: r.createdAt,
       staff: r.createdBy ? `${r.createdBy.firstName} ${r.createdBy.lastName}` : "—",
       status: "COMPLETED" as const,
+      guestType: r.guestType,
       transaction: null,
     })),
     ...transactions
@@ -335,6 +371,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
         time: t.createdAt,
         staff: `${t.user.firstName} ${t.user.lastName}`,
         status: "COMPLETED" as const,
+        guestType: t.reservation?.guestType ?? null,
         transaction: toTransactionShape(t),
       })),
   ];
@@ -348,8 +385,16 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
     if (filters.activityType && r.activity !== filters.activityType) return false;
     if (filters.staff && r.staff !== filters.staff) return false;
     if (filters.status && r.status !== filters.status) return false;
+    if (filters.guestType && (r.guestType ?? "UNKNOWN") !== filters.guestType) return false;
     if (searchLower) {
-      const haystack = [r.guestName, r.roomNumber, r.reservationNo ?? "", r.transaction?.transactionNo ?? "", r.activity]
+      const haystack = [
+        r.guestName,
+        r.roomNumber,
+        r.reservationNo ?? "",
+        r.transaction?.transactionNo ?? "",
+        r.activity,
+        guestTypeLabel(r.guestType),
+      ]
         .join(" ")
         .toLowerCase();
       if (!haystack.includes(searchLower)) return false;
@@ -596,6 +641,7 @@ export async function getCheckoutFolioSummary(reservationId: string) {
     id: reservation.id,
     reservationNo: reservation.reservationNo,
     guestName: formatGuestFullName(reservation.guest),
+    guestType: reservation.guestType,
     room: reservation.room.number,
     roomType: reservation.room.roomType.name,
     arrivalDate: reservation.arrivalDate,
@@ -733,6 +779,7 @@ export async function walkIn(input: WalkInInput, actor: ActorContext) {
         roomId: input.roomId,
         status: "CHECKED_IN",
         source: "WALK_IN",
+        guestType: "WALK_IN",
         arrivalDate,
         departureDate,
         numGuests: input.numGuests,

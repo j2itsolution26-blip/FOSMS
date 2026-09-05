@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Printer } from "lucide-react";
 
 import {
@@ -15,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api-client";
-import { formatDiscountRate, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
+import { formatDiscountRate, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 import { FOLIO_DISCOUNT_TYPE_OPTIONS } from "@/validators/folio-room-assignment.schema";
 
 type GuestTransaction = {
@@ -56,6 +57,7 @@ type GuestDetails = {
     status: string;
     arrivalDate: string;
     departureDate: string;
+    guestType: "RESERVATION" | "WALK_IN" | null;
     room: { number: string; isSmoking: boolean; roomType: { name: string } };
     transactions: GuestTransaction[];
   }>;
@@ -152,11 +154,13 @@ export function GuestDetailsDialog({
     });
   }, [open, guestId]);
 
-  // Scopes the print-only .guest-folio-print CSS (globals.css) to this one
-  // print, instead of a blanket print stylesheet — otherwise printing while
-  // this modal is open would print the whole Guests page behind it (table,
-  // sidebar, search, pagination) since a Dialog portals into <body>
-  // alongside that page rather than replacing it.
+  // Scopes the print isolation CSS (globals.css, keyed off this class) to
+  // this one print rather than a blanket print stylesheet — otherwise
+  // printing while this modal is open would print the whole Guests page
+  // behind it (table, sidebar, search, pagination) since a Dialog portals
+  // into <body> alongside that page rather than replacing it. The actual
+  // print-only content lives in a separate #guest-folio-print-root portal
+  // (below) that this class reveals.
   function handlePrintGuestFolio() {
     document.body.classList.add("printing-guest-folio");
     const cleanup = () => {
@@ -168,8 +172,9 @@ export function GuestDetailsDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-xl sm:max-w-2xl print:overflow-visible print:max-w-none print:border-none print:bg-white print:shadow-none">
+      <DialogContent className="max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-xl sm:max-w-2xl">
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 pt-5 pb-4 print:hidden">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#0b1c3f] uppercase">
@@ -213,6 +218,7 @@ export function GuestDetailsDialog({
                     const tx = r.transactions[0];
                     return (
                       <div key={r.id} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-4 sm:grid-cols-2">
+                        <Field label="Guest Type" value={guestTypeLabel(r.guestType)} />
                         <Field label="Room" value={r.room.number} />
                         <Field label="Room Type" value={r.room.roomType.name} />
                         <Field label="Smoking Preference" value={r.room.isSmoking ? "Smoking" : "Non-Smoking"} />
@@ -239,84 +245,6 @@ export function GuestDetailsDialog({
           )}
         </div>
 
-        {guest ? (
-          <div className="guest-folio-print hidden print:block print:px-8 print:py-6 print:text-black">
-            <div className="mb-4 flex items-start justify-between border-b-2 border-black pb-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-black">Front Office Servicing NC II</p>
-                <h2 className="text-lg font-bold uppercase text-black">Guest Folio</h2>
-                <p className="text-sm font-semibold text-black">{formatGuestFullName(guest)}</p>
-              </div>
-              <div className="text-right text-[11px] text-black">
-                {guest.reservations[0] ? <p>Folio No: {guest.reservations[0].reservationNo}</p> : null}
-                <p>Date Printed: {new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</p>
-              </div>
-            </div>
-
-            <PrintSection title="Guest Information">
-              <PrintRow label="Full Name" value={formatGuestFullName(guest)} />
-              <PrintRow label="First Name" value={guest.firstName} />
-              <PrintRow label="Middle Name" value={guest.middleName} />
-              <PrintRow label="Last Name" value={guest.lastName} />
-              <PrintRow label="Front Desk Officer" value={guest.processedBy} />
-            </PrintSection>
-
-            {guest.preferences || guest.notes ? (
-              <PrintSection title="Guest Preferences">
-                <PrintRow label="Guest Preferences" value={guest.preferences} />
-                <PrintRow label="Notes" value={guest.notes} />
-              </PrintSection>
-            ) : null}
-
-            {guest.reservations.map((r) => {
-              const tx = r.transactions[0];
-              return (
-                <div key={r.id}>
-                  <PrintSection title="Reservation / Folio">
-                    <PrintRow label="Room" value={r.room.number} />
-                    <PrintRow label="Room Type" value={r.room.roomType.name} />
-                    <PrintRow label="Smoking Preference" value={r.room.isSmoking ? "Smoking" : "Non-Smoking"} />
-                    <PrintRow label="Status" value={r.status} />
-                    <PrintRow label="Arrival Date" value={fmtDate(r.arrivalDate)} />
-                    <PrintRow label="Departure Date" value={fmtDate(r.departureDate)} />
-                    <PrintRow label="Additional Beds" value={tx?.bedCount != null ? String(tx.bedCount) : null} />
-                    <PrintRow
-                      label="Discount Type"
-                      value={
-                        tx?.discountType
-                          ? FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === tx.discountType)?.label ?? tx.discountType
-                          : null
-                      }
-                    />
-                    <PrintRow label="Discount Rate" value={formatDiscountRate(tx?.discountAmount, tx?.subtotal)} />
-                    <PrintRow label="Mode of Payment" value={formatPaymentMethod(tx?.paymentMethod, tx?.otherPaymentMethod)} />
-                  </PrintSection>
-
-                  {tx ? (
-                    <>
-                      <PrintSection title="Transaction / Billing">
-                        <PrintRow label="Transaction #" value={tx.transactionNo} />
-                        <PrintRow label="Payment Method" value={formatPaymentMethod(tx.paymentMethod, tx.otherPaymentMethod)} />
-                        <PrintRow label="Status" value={transactionStatusLabel(tx)} />
-                        <PrintRow label="Front Desk Officer" value={tx.processedBy} />
-                      </PrintSection>
-
-                      <PrintSection title="Financial Summary">
-                        <PrintRow label="Room / Service Charges" value={currency(tx.subtotal)} />
-                        <PrintRow label="Discount" value={currency(tx.discountAmount)} />
-                        <PrintRow label="VAT" value={currency(tx.vatAmount)} />
-                        <PrintRow label="Total" value={currency(tx.amount)} />
-                        <PrintRow label="Amount Paid" value={currency(paidAmountFor(tx).toFixed(2))} />
-                        <PrintRow label="Balance" value={currency(Math.max(0, Number(tx.amount) - paidAmountFor(tx)).toFixed(2))} />
-                      </PrintSection>
-                    </>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
-
         <DialogFooter className="print:hidden">
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
@@ -327,5 +255,101 @@ export function GuestDetailsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Rendered directly into document.body — a sibling of the app root and every
+        Dialog portal, never nested inside either — so the print CSS (globals.css)
+        can hide "every other direct child of body" without also hiding this. See
+        the comment above .guest-folio-print-root in globals.css for why nesting
+        it inside the Dialog (as before) produced a blank page 1 + folio on page 2. */}
+    {open && guest && typeof document !== "undefined"
+      ? createPortal(
+          <div id="guest-folio-print-root" className="guest-folio-print-root print:px-8 print:py-6 print:text-black">
+            <GuestFolioPrintContent guest={guest} />
+          </div>,
+          document.body
+        )
+      : null}
+    </>
+  );
+}
+
+function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
+  return (
+    <>
+      <div className="mb-4 flex items-start justify-between border-b-2 border-black pb-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-black">Front Office Servicing NC II</p>
+          <h2 className="text-lg font-bold uppercase text-black">Guest Folio</h2>
+          <p className="text-sm font-semibold text-black">{formatGuestFullName(guest)}</p>
+        </div>
+        <div className="text-right text-[11px] text-black">
+          {guest.reservations[0] ? <p>Folio No: {guest.reservations[0].reservationNo}</p> : null}
+          <p>Date Printed: {new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</p>
+        </div>
+      </div>
+
+      <PrintSection title="Guest Information">
+        <PrintRow label="Full Name" value={formatGuestFullName(guest)} />
+        <PrintRow label="First Name" value={guest.firstName} />
+        <PrintRow label="Middle Name" value={guest.middleName} />
+        <PrintRow label="Last Name" value={guest.lastName} />
+        <PrintRow label="Front Desk Officer" value={guest.processedBy} />
+      </PrintSection>
+
+      {guest.preferences || guest.notes ? (
+        <PrintSection title="Guest Preferences">
+          <PrintRow label="Guest Preferences" value={guest.preferences} />
+          <PrintRow label="Notes" value={guest.notes} />
+        </PrintSection>
+      ) : null}
+
+      {guest.reservations.map((r) => {
+        const tx = r.transactions[0];
+        return (
+          <div key={r.id}>
+            <PrintSection title="Reservation / Folio">
+              <PrintRow label="Guest Type" value={guestTypeLabel(r.guestType)} />
+              <PrintRow label="Room" value={r.room.number} />
+              <PrintRow label="Room Type" value={r.room.roomType.name} />
+              <PrintRow label="Smoking Preference" value={r.room.isSmoking ? "Smoking" : "Non-Smoking"} />
+              <PrintRow label="Status" value={r.status} />
+              <PrintRow label="Arrival Date" value={fmtDate(r.arrivalDate)} />
+              <PrintRow label="Departure Date" value={fmtDate(r.departureDate)} />
+              <PrintRow label="Additional Beds" value={tx?.bedCount != null ? String(tx.bedCount) : null} />
+              <PrintRow
+                label="Discount Type"
+                value={
+                  tx?.discountType
+                    ? FOLIO_DISCOUNT_TYPE_OPTIONS.find((o) => o.value === tx.discountType)?.label ?? tx.discountType
+                    : null
+                }
+              />
+              <PrintRow label="Discount Rate" value={formatDiscountRate(tx?.discountAmount, tx?.subtotal)} />
+              <PrintRow label="Mode of Payment" value={formatPaymentMethod(tx?.paymentMethod, tx?.otherPaymentMethod)} />
+            </PrintSection>
+
+            {tx ? (
+              <>
+                <PrintSection title="Transaction / Billing">
+                  <PrintRow label="Transaction #" value={tx.transactionNo} />
+                  <PrintRow label="Payment Method" value={formatPaymentMethod(tx.paymentMethod, tx.otherPaymentMethod)} />
+                  <PrintRow label="Status" value={transactionStatusLabel(tx)} />
+                  <PrintRow label="Front Desk Officer" value={tx.processedBy} />
+                </PrintSection>
+
+                <PrintSection title="Financial Summary">
+                  <PrintRow label="Room / Service Charges" value={currency(tx.subtotal)} />
+                  <PrintRow label="Discount" value={currency(tx.discountAmount)} />
+                  <PrintRow label="VAT" value={currency(tx.vatAmount)} />
+                  <PrintRow label="Total" value={currency(tx.amount)} />
+                  <PrintRow label="Amount Paid" value={currency(paidAmountFor(tx).toFixed(2))} />
+                  <PrintRow label="Balance" value={currency(Math.max(0, Number(tx.amount) - paidAmountFor(tx)).toFixed(2))} />
+                </PrintSection>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+    </>
   );
 }

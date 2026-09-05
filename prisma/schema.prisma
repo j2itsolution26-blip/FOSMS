@@ -41,6 +41,17 @@ enum ReservationSource {
   OTHER
 }
 
+// How the reservation was CREATED (which front-desk process/dialog was used)
+// — independent of ReservationSource, which is the guest-facing booking
+// channel a staff member can pick (Phone/Online/"Walk-in" etc.) even for a
+// normal Reservation/Guest Folio entry. Nullable: rows created before this
+// field existed have no safe way to tell them apart, so they read as
+// "Unknown" in the UI rather than being guessed at.
+enum GuestType {
+  RESERVATION
+  WALK_IN
+}
+
 // Standardized front-office room-status codes. Labels/descriptions/colors live
 // in src/config/room-status.ts (the single source of truth used across the app) —
 // this enum is just the persisted set of valid codes. Five codes contain a slash,
@@ -739,6 +750,9 @@ model Reservation {
   roomId          String
   status          ReservationStatus @default(PENDING)
   source          ReservationSource @default(WALK_IN)
+  // Which process created this reservation (Guest Folio/Reservations module
+  // vs the dedicated Walk-In Guest flow) — see the GuestType enum comment.
+  guestType       GuestType?
   arrivalDate     DateTime          @db.Date
   departureDate   DateTime          @db.Date
   numGuests       Int               @default(1)

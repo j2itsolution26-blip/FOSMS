@@ -158,6 +158,8 @@ export function GuestFormDialog({
         bedCount: 0,
         paymentMethod: "CASH",
         otherPaymentMethod: "",
+        otherDiscountType: "",
+        otherDiscountRate: undefined,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
