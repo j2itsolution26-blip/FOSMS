@@ -73,7 +73,11 @@ export function ClubMembershipDialog({
     setIsNewGuest(false);
     setRegistered(null);
     setAlreadyMember(null);
-    apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+    // paginationSchema caps pageSize at 100 (shared across every list route) —
+    // requesting more throws an uncaught ZodError server-side, returning a
+    // bodyless 500 that crashes this fetch's .json() parse before the dialog
+    // even renders the guest picker.
+    apiFetch<GuestRow[]>("/api/guests?pageSize=100").then((res) => {
       if (res.success) setGuests(res.data);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

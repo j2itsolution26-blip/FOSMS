@@ -9,5 +9,18 @@ export async function apiFetch<T>(input: string, init?: RequestInit): Promise<Ap
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  return (await res.json()) as ApiResult<T>;
+  try {
+    return (await res.json()) as ApiResult<T>;
+  } catch {
+    // An uncaught exception (e.g. a route that throws before reaching any
+    // apiError()/apiSuccess() call, like an unvalidated pagination param)
+    // returns a bodyless/non-JSON response — surface it as a real error
+    // result instead of an unhandled promise rejection callers never see.
+    return {
+      success: false,
+      message: `Request failed (HTTP ${res.status}). Please try again.`,
+      code: "INVALID_RESPONSE",
+      errors: [],
+    };
+  }
 }

@@ -33,11 +33,20 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
       const guest = await tx.guest.findUnique({ where: { id: guestId, deletedAt: null } });
       if (!guest) throw new NotFoundError("Guest not found.");
     } else if (input.newGuest) {
+      // Enforced server-side (not just by the shared Zod schema's superRefine)
+      // so a direct API call can never create a nameless guest — matches the
+      // same "backend, not just frontend" rule the membership-uniqueness
+      // check below follows.
+      const firstName = input.newGuest.firstName?.trim();
+      const lastName = input.newGuest.lastName?.trim();
+      if (!firstName) throw new AppError("First Name is required.", "VALIDATION_ERROR", 400);
+      if (!lastName) throw new AppError("Last Name is required.", "VALIDATION_ERROR", 400);
+
       const guest = await tx.guest.create({
         data: {
-          firstName: input.newGuest.firstName,
-          middleName: input.newGuest.middleName || null,
-          lastName: input.newGuest.lastName,
+          firstName,
+          middleName: input.newGuest.middleName?.trim() || null,
+          lastName,
           // The staff member registering this membership is that guest's own
           // Front Desk Officer at the moment of creation — a separate value
           // from (never copied into) the membership payment's own processedBy.
