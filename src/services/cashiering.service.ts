@@ -19,6 +19,31 @@ import { paginationMeta } from "@/validators/pagination.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
+/**
+ * The Club Member 2% discount's eligibility gate — a guest is an ACTIVE
+ * member iff they have a ClubMembership row (guestId is @unique, so there's
+ * at most one) AND its one-time fee payment hasn't been reversed. There's no
+ * separate status/expiry column (see prisma schema comment on
+ * ClubMembership) — "the payment cleared and was never refunded" IS what
+ * ACTIVE means here, matching how the rest of Cashiering already treats a
+ * reversed payment as no longer counting (see isCompletedPayment()). Defined
+ * here (not club-membership.service.ts, which already imports from this
+ * file) so reservation.service.ts and this file can both use it without a
+ * circular import. Checked server-side wherever discountType: "CLUB_MEMBER"
+ * is accepted, so hiding the option in a form is never the only thing
+ * stopping a non-member from getting the discount.
+ */
+export async function isActiveClubMember(guestId: string): Promise<boolean> {
+  const membership = await prisma.clubMembership.findUnique({
+    where: { guestId },
+    select: { transactions: { select: { reversedById: true }, where: { type: "PAYMENT" } } },
+  });
+  if (!membership) return false;
+  return membership.transactions.some((t) => !t.reversedById);
+}
+
+export const CLUB_MEMBER_DISCOUNT_ERROR = "Club Member discount is only available to active Club Members.";
+
 function startOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -497,6 +522,21 @@ export async function closeCashierSession(input: CloseCashierInput, actor: Actor
 }
 
 export async function createTransaction(input: CreateTransactionInput, actor: ActorContext) {
+  // The 2% Club Member rate is a benefit of an ACTIVE membership, never a
+  // plain discount anyone can pick — verified server-side (same gate
+  // resolveInitialReservationCharge uses) so a manual Cashiering charge can't
+  // apply it to a non-member even if a client sent it directly.
+  if (input.discountType === "CLUB_MEMBER") {
+    const reservationForEligibility = await prisma.reservation.findUnique({
+      where: { id: input.reservationId },
+      select: { guestId: true },
+    });
+    const eligible = reservationForEligibility ? await isActiveClubMember(reservationForEligibility.guestId) : false;
+    if (!eligible) {
+      throw new AppError(CLUB_MEMBER_DISCOUNT_ERROR, "NOT_A_CLUB_MEMBER", 403);
+    }
+  }
+
   // When a room type is specified, the amount is server-computed from
   // configured rates (never trusting a client-supplied amount for the priced
   // portion) — this is what backs the Guest Folio auto-charge as well as any

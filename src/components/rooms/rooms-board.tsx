@@ -2,13 +2,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { History, LayoutGrid, Plus, Search, Tags, Table as TableIcon, UserPlus } from "lucide-react";
+import {
+  Building2,
+  DoorOpen,
+  History,
+  LayoutGrid,
+  Plus,
+  Search,
+  Tags,
+  Table as TableIcon,
+  UserPlus,
+} from "lucide-react";
 import type { RoomStatus } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RoomStatusBadge } from "@/components/shared/status-badge";
 import { RoomStatusMenu } from "@/components/rooms/room-status-menu";
 import { RoomStatusHistoryDialog } from "@/components/rooms/room-status-history-dialog";
@@ -24,6 +35,7 @@ import {
   ROOM_STATUS_OPTIONS,
   roomStatusCategory,
   roomStatusCode,
+  roomStatusDescription,
 } from "@/config/room-status";
 
 type RoomRow = {
@@ -39,6 +51,8 @@ type StatusSummary = { total: number; byStatus: Record<string, number> };
 
 /** Quick-filter chips for the codes Front Desk reaches for most often. */
 const QUICK_FILTER_CODES: RoomStatus[] = ["VC", "VD", "OC", "OD", "OOO", "BLO", "DND", "SO"];
+
+const NAVY = "#0b1c3f";
 
 export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; canOverride: boolean }) {
   const router = useRouter();
@@ -102,18 +116,35 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Room Management</h1>
-          <p className="text-sm text-muted-foreground">Live room status board and room configuration.</p>
+        <div className="flex items-center gap-3">
+          <span
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+            style={{ backgroundColor: `${NAVY}14` }}
+          >
+            <DoorOpen className="h-5.5 w-5.5" style={{ color: NAVY }} />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Room Management</h1>
+            <p className="text-sm text-muted-foreground">Live room status board and room configuration.</p>
+          </div>
         </div>
         {canManage ? (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setTypeDialogOpen(true)}>
+            <Button
+              variant="outline"
+              className="h-10 rounded-lg border-slate-300 bg-white font-medium text-slate-700 shadow-none hover:bg-slate-50"
+              onClick={() => setTypeDialogOpen(true)}
+            >
               <Tags className="h-4 w-4" /> Room Types
             </Button>
-            <Button onClick={() => setRoomDialogOpen(true)}>
+            <Button
+              className="h-10 rounded-lg font-semibold shadow-sm"
+              style={{ backgroundColor: NAVY }}
+              onClick={() => setRoomDialogOpen(true)}
+            >
               <Plus className="h-4 w-4" /> New Room
             </Button>
           </div>
@@ -121,7 +152,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
       </div>
 
       {focusedRoomId ? (
-        <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+        <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-sm text-blue-800">
           <span>Showing the selected room only.</span>
           <Button variant="ghost" size="sm" className="h-7 text-blue-800 hover:bg-blue-100" onClick={() => setFocusedRoomId("")}>
             Show all rooms
@@ -129,8 +160,9 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
         </div>
       ) : null}
 
+      {/* Status summary cards */}
       {statusSummary ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {Object.entries(statusSummary.byStatus)
             .filter(([, count]) => count > 0)
             .map(([status, count]) => {
@@ -138,16 +170,22 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
               return (
                 <div
                   key={status}
-                  className={cn("flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm", meta.badgeClass)}
+                  className={cn("rounded-xl border px-3.5 py-3 transition-shadow hover:shadow-sm", meta.badgeClass)}
                 >
-                  <span className="font-bold">{roomStatusCode(status as RoomStatus)}</span>
-                  <span className="opacity-90">{count}</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-bold tracking-wide">{roomStatusCode(status as RoomStatus)}</span>
+                    <span className="text-2xl font-bold leading-none">{count}</span>
+                  </div>
+                  <p className="mt-1 truncate text-[11px] font-medium opacity-80">
+                    {roomStatusDescription(status as RoomStatus)}
+                  </p>
                 </div>
               );
             })}
         </div>
       ) : null}
 
+      {/* Status filter pills */}
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -156,9 +194,12 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
             setFocusedRoomId("");
           }}
           className={cn(
-            "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-            statusFilter === "" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+            statusFilter === ""
+              ? "border-transparent text-white shadow-sm"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
           )}
+          style={statusFilter === "" ? { backgroundColor: NAVY } : undefined}
         >
           All
         </button>
@@ -171,20 +212,25 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
               setFocusedRoomId("");
             }}
             className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-              statusFilter === code ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+              statusFilter === code
+                ? "border-transparent text-white shadow-sm"
+                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
             )}
+            style={statusFilter === code ? { backgroundColor: NAVY } : undefined}
+            title={roomStatusDescription(code)}
           >
             {code}
           </button>
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+      {/* Search / filter toolbar */}
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-9"
+            className="h-9.5 rounded-lg border-slate-200 pl-9 focus-visible:ring-2"
             placeholder="Search room #, type, status code…"
             value={search}
             onChange={(e) => {
@@ -194,7 +240,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           />
         </div>
         <select
-          className="h-9 rounded-md border bg-white px-3 text-sm"
+          className="h-9.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value);
@@ -210,7 +256,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           ))}
         </select>
         <select
-          className="h-9 rounded-md border bg-white px-3 text-sm"
+          className="h-9.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           value={roomTypeFilter}
           onChange={(e) => {
             setRoomTypeFilter(e.target.value);
@@ -226,7 +272,7 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           ))}
         </select>
         <select
-          className="h-9 rounded-md border bg-white px-3 text-sm"
+          className="h-9.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           value={floorFilter}
           onChange={(e) => setFloorFilter(e.target.value)}
           aria-label="Filter by floor"
@@ -239,41 +285,55 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           ))}
         </select>
 
-        <div className="ml-auto flex gap-1 rounded-md border bg-white p-0.5">
-          <Button
-            type="button"
-            variant={view === "grid" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setView("grid")}
-            aria-label="Grid view"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant={view === "table" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setView("table")}
-            aria-label="Table view"
-          >
-            <TableIcon className="h-4 w-4" />
-          </Button>
+        <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:ml-auto">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setView("grid")}
+                aria-label="Grid view"
+                className={cn(
+                  "flex h-7.5 w-9 items-center justify-center rounded-md transition-colors",
+                  view === "grid" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                )}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Grid view</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setView("table")}
+                aria-label="Table view"
+                className={cn(
+                  "flex h-7.5 w-9 items-center justify-center rounded-md transition-colors",
+                  view === "table" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                )}
+              >
+                <TableIcon className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Table view</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {Array.from({ length: 10 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
+            <Skeleton key={i} className="h-28 rounded-xl" />
           ))}
         </div>
       ) : visibleRooms.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">No rooms found.</p>
       ) : view === "table" ? (
-        <div className="overflow-x-auto rounded-lg border bg-white">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
                 <TableHead>Room</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Code</TableHead>
@@ -308,18 +368,28 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {assignable && canManage ? (
-                          <Button variant="outline" size="sm" onClick={() => openAssign(room.id)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => openAssign(room.id)}
+                          >
                             <UserPlus className="h-4 w-4" /> Assign
                           </Button>
                         ) : null}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`View history for room ${room.number}`}
-                          onClick={() => setHistoryRoom({ id: room.id, number: room.number })}
-                        >
-                          <History className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`View history for room ${room.number}`}
+                              onClick={() => setHistoryRoom({ id: room.id, number: room.number })}
+                            >
+                              <History className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Room History</TooltipContent>
+                        </Tooltip>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -329,55 +399,70 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
           </Table>
         </div>
       ) : (
-        floors.map((floor) => (
-          <div key={floor}>
-            <p className="mb-2 text-sm font-semibold text-slate-700">Floor {floor}</p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {visibleRooms
-                .filter((r) => r.floor === floor)
-                .map((room) => {
+        floors.map((floor) => {
+          const floorRooms = visibleRooms.filter((r) => r.floor === floor);
+          return (
+            <div key={floor} className="space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+                  <Building2 className="h-4 w-4 text-slate-400" />
+                  Floor {floor}
+                </div>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {floorRooms.length} {floorRooms.length === 1 ? "Room" : "Rooms"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {floorRooms.map((room) => {
                   const borderClass = ROOM_STATUS_CATEGORY_META[roomStatusCategory(room.status)].borderClass;
                   const assignable = ASSIGNABLE_ROOM_STATUSES.includes(room.status);
                   const card = (
                     <div
                       className={cn(
-                        "relative rounded-lg border border-l-4 bg-white p-3 text-left shadow-sm transition-shadow",
+                        "relative rounded-xl border border-l-4 bg-white p-3.5 text-left shadow-sm transition-all",
                         borderClass,
-                        canManage && "cursor-pointer hover:shadow-md"
+                        canManage && "cursor-pointer hover:-translate-y-0.5 hover:shadow-md"
                       )}
                     >
-                      <button
-                        type="button"
-                        className="absolute top-1.5 right-1.5 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                        aria-label={`View history for room ${room.number}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setHistoryRoom({ id: room.id, number: room.number });
-                        }}
-                      >
-                        <History className="h-3.5 w-3.5" />
-                      </button>
-                      <p className="text-lg font-bold text-slate-900">{room.number}</p>
-                      <p className="truncate text-xs text-muted-foreground">{room.roomType.name}</p>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="absolute top-2 right-2 rounded-md p-1 text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                            aria-label={`View history for room ${room.number}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setHistoryRoom({ id: room.id, number: room.number });
+                            }}
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Room History</TooltipContent>
+                      </Tooltip>
+                      <p className="text-xl font-bold text-slate-900">{room.number}</p>
+                      <p className="mb-2.5 truncate text-xs text-muted-foreground">{room.roomType.name}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <RoomStatusBadge status={room.status} codeOnly />
+                        {assignable && canManage ? (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-[11px] font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openAssign(room.id);
+                            }}
+                          >
+                            <UserPlus className="h-3 w-3" /> Assign
+                          </button>
+                        ) : null}
+                      </div>
                       {room.currentGuestName ? (
-                        <p className="mb-2 truncate text-xs text-slate-500">{room.currentGuestName}</p>
-                      ) : (
-                        <div className="mb-2" />
-                      )}
-                      <RoomStatusBadge status={room.status} codeOnly />
-                      {assignable && canManage ? (
-                        <button
-                          type="button"
-                          className="mt-2 block text-xs font-medium text-blue-600 hover:underline"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openAssign(room.id);
-                          }}
-                        >
-                          Assign
-                        </button>
+                        <p className="mt-2 truncate border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+                          {room.currentGuestName}
+                        </p>
                       ) : null}
                     </div>
                   );
@@ -390,9 +475,10 @@ export function RoomsBoard({ canManage, canOverride }: { canManage: boolean; can
                     <div key={room.id}>{card}</div>
                   );
                 })}
+              </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
 
       <RoomFormDialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen} roomTypes={roomTypes} onCreated={load} />

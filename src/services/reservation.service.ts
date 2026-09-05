@@ -6,7 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
 import { isRestrictedStatus } from "@/config/room-status";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
-import { createInitialReservationCharge } from "@/services/cashiering.service";
+import { createInitialReservationCharge, isActiveClubMember, CLUB_MEMBER_DISCOUNT_ERROR } from "@/services/cashiering.service";
 import type { CreateReservationInput, UpdateReservationInput } from "@/validators/reservation.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -174,12 +174,28 @@ export async function resolveInitialReservationCharge(
     discountType?: DiscountType | null;
     otherDiscountType?: string | null;
     otherDiscountRate?: number | null;
+    // Present only when pricing for an already-existing guest (the standalone
+    // Reservations module) — the Guest Folio/Walk-In flows price BEFORE the
+    // guest exists, so they never have one to pass, which is exactly why
+    // CLUB_MEMBER can never be eligible there (see the check below).
+    guestId?: string | null;
   }
 ) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room) throw new NotFoundError("Room not found.");
   if (isRestrictedStatus(room.status)) {
     throw new AppError("This room is not available for reservations.", "ROOM_UNAVAILABLE", 409);
+  }
+
+  // The 2% Club Member rate is a benefit of an ACTIVE membership, never a
+  // plain discount anyone can pick — verified server-side so hiding the
+  // option in a form is never the only thing enforcing this (see
+  // isActiveClubMember() for what "ACTIVE" means with no status column).
+  if (pricing.discountType === "CLUB_MEMBER") {
+    const eligible = pricing.guestId ? await isActiveClubMember(pricing.guestId) : false;
+    if (!eligible) {
+      throw new AppError(CLUB_MEMBER_DISCOUNT_ERROR, "NOT_A_CLUB_MEMBER", 403);
+    }
   }
 
   const charge = await computeFolioCharge({
@@ -259,6 +275,7 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
     discountType: input.discountType,
     otherDiscountType: input.otherDiscountType,
     otherDiscountRate: input.otherDiscountRate ? Number(input.otherDiscountRate) : null,
+    guestId: input.guestId,
   });
 
   const { reservation, transaction } = await prisma.$transaction(async (tx) => {

@@ -9,6 +9,13 @@ import { formatGuestFullName } from "@/lib/formatters";
 import { createClubMembershipPayment } from "@/services/cashiering.service";
 import { CLUB_MEMBERSHIP_FEE, type RegisterClubMembershipInput } from "@/validators/club-membership.schema";
 
+// Re-exported for convenience — the canonical definitions live in
+// cashiering.service.ts (which this file already depends on) rather than
+// here, so reservation.service.ts/cashiering.service.ts can both import the
+// eligibility check without this file and cashiering.service.ts importing
+// each other.
+export { isActiveClubMember, CLUB_MEMBER_DISCOUNT_ERROR } from "@/services/cashiering.service";
+
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
 /**
@@ -44,7 +51,7 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
 
     const existing = await tx.clubMembership.findUnique({ where: { guestId } });
     if (existing) {
-      throw new AppError("This guest already has a Club Membership.", "MEMBERSHIP_ALREADY_EXISTS", 409);
+      throw new AppError("Guest is already an Active Club Member.", "MEMBERSHIP_ALREADY_EXISTS", 409);
     }
 
     const membershipNo = await nextNumber(tx, "club-membership", "CM");

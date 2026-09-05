@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import Link from "next/link";
-import { CheckCircle2, FileText, Printer } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,9 @@ export function ClubMembershipDialog({
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [isNewGuest, setIsNewGuest] = useState(false);
   const [registered, setRegistered] = useState<{ guestName: string; membershipNo: string; transactionId: string } | null>(null);
+  const [alreadyMember, setAlreadyMember] = useState<{ guestName: string; membershipNo: string; transactionId: string | null } | null>(
+    null
+  );
 
   const form = useForm<RegisterClubMembershipInput>({
     resolver: zodResolver(registerClubMembershipSchema),
@@ -69,6 +72,7 @@ export function ClubMembershipDialog({
     form.reset(EMPTY);
     setIsNewGuest(false);
     setRegistered(null);
+    setAlreadyMember(null);
     apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
       if (res.success) setGuests(res.data);
     });
@@ -116,6 +120,21 @@ export function ClubMembershipDialog({
     }>("/api/club-membership", { method: "POST", body: JSON.stringify(body) });
     if (!result.success) {
       toast.error(result.message);
+      // Existing-member protection: this can only happen for a selected
+      // existing guest (a brand-new person can never already have a
+      // membership) — pull up their real membership instead of leaving the
+      // staff member with just an error and no way to see it.
+      if (result.code === "MEMBERSHIP_ALREADY_EXISTS" && !isNewGuest && values.guestId) {
+        const guestName = formatGuestFullName(guests.find((g) => g.id === values.guestId));
+        const history = await apiFetch<{ membership: { membershipNo: string; transaction: { id: string } | null } | null }>(
+          `/api/club-membership/${values.guestId}`
+        );
+        setAlreadyMember({
+          guestName,
+          membershipNo: history.success ? (history.data.membership?.membershipNo ?? "—") : "—",
+          transactionId: history.success ? (history.data.membership?.transaction?.id ?? null) : null,
+        });
+      }
       return;
     }
     toast.success("Club Membership registered — ₱1,000.00 fee paid.");
@@ -137,25 +156,56 @@ export function ClubMembershipDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {registered ? (
+        {alreadyMember ? (
+          <div className="space-y-4">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">Guest is already an Active Club Member.</p>
+              <p className="text-amber-800">
+                {alreadyMember.guestName} — Membership ID: {alreadyMember.membershipNo}
+              </p>
+              <p className="mt-1 text-amber-800">No new membership or payment was created.</p>
+            </div>
+            {alreadyMember.transactionId ? (
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/cashiering/receipts/${alreadyMember.transactionId}`}>
+                  <FileText className="h-4 w-4" /> View Existing Membership Receipt
+                </Link>
+              </Button>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAlreadyMember(null)}>
+                Back
+              </Button>
+              <Button type="button" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : registered ? (
           <div className="space-y-4">
             <div className="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <p className="font-medium">{registered.guestName} is now a Club Member.</p>
-                <p className="text-emerald-800">Membership ID: {registered.membershipNo}</p>
+                <p className="font-semibold">✓ Club Membership Registered Successfully</p>
+                <p className="mt-1">
+                  <span className="text-emerald-800">Member:</span> {registered.guestName}
+                </p>
+                <p className="text-emerald-800">Membership: ACTIVE</p>
+                <p className="text-emerald-800">Membership Fee: {currency(CLUB_MEMBERSHIP_FEE)}</p>
+                <p className="text-emerald-800">Payment: PAID</p>
+                <p className="text-emerald-800">Club Member Benefit: 2% discount on eligible check-ins</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" asChild>
-                <Link href={`/cashiering/receipts/${registered.transactionId}`}>
-                  <FileText className="h-4 w-4" /> View Receipt
-                </Link>
-              </Button>
-              <Button type="button" variant="outline" asChild>
                 <a href={`/cashiering/receipts/${registered.transactionId}?print=1`} target="_blank" rel="noopener noreferrer">
                   <Printer className="h-4 w-4" /> Print Receipt
                 </a>
+              </Button>
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/cashiering/receipts/${registered.transactionId}`}>
+                  <FileText className="h-4 w-4" /> View Receipt
+                </Link>
               </Button>
             </div>
             <DialogFooter>
@@ -316,7 +366,13 @@ export function ClubMembershipDialog({
                   Cancel
                 </Button>
                 <Button type="submit" disabled={form.formState.isSubmitting}>
-                  {form.formState.isSubmitting ? "Processing…" : `Pay ${currency(CLUB_MEMBERSHIP_FEE)} & Register`}
+                  {form.formState.isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Registering Club Member…
+                    </>
+                  ) : (
+                    "Register Club Member"
+                  )}
                 </Button>
               </DialogFooter>
             </form>

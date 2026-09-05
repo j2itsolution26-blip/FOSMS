@@ -595,7 +595,11 @@ export function GuestFormDialog({
                                 </FormControl>
                                 <SelectContent>
                                   <SelectItem value="none">None</SelectItem>
-                                  {FOLIO_DISCOUNT_TYPE_OPTIONS.map((opt) => (
+                                  {/* Club Member is never offered here — this always creates a
+                                      brand-new Guest record, which can't already have an ACTIVE
+                                      membership (see isActiveClubMember() in cashiering.service.ts,
+                                      enforced server-side regardless of what this dropdown shows). */}
+                                  {FOLIO_DISCOUNT_TYPE_OPTIONS.filter((opt) => opt.value !== "CLUB_MEMBER").map((opt) => (
                                     <SelectItem key={opt.value} value={opt.value}>
                                       {opt.label}
                                     </SelectItem>

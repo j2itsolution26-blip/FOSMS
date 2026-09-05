@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, Pencil, Eye, Users } from "lucide-react";
+import { Plus, Search, Pencil, Eye, Users, CalendarDays, UserRound } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -26,6 +27,34 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { GuestInput } from "@/validators/guest.schema";
 
 type RoomTypeOption = { id: string; name: string };
+
+const NEUTRAL_BADGE = "border-slate-200 bg-slate-100 text-slate-600";
+
+/** Same category, same value — only the pastel badge color is presentational. */
+function guestTypeBadgeClass(guestType: "RESERVATION" | "WALK_IN" | null) {
+  if (guestType === "WALK_IN") return "border-purple-200 bg-purple-50 text-purple-700";
+  if (guestType === "RESERVATION") return "border-blue-200 bg-blue-50 text-blue-700";
+  return NEUTRAL_BADGE;
+}
+
+function smokingBadgeClass(isSmoking: boolean) {
+  return isSmoking ? "border-orange-200 bg-orange-50 text-orange-700" : "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function discountBadgeClass(discountType: string | null) {
+  return discountType ? "border-amber-200 bg-amber-50 text-amber-700" : NEUTRAL_BADGE;
+}
+
+const PAYMENT_BADGE_CLASSES: Record<string, string> = {
+  CASH: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  ONLINE: "border-blue-200 bg-blue-50 text-blue-700",
+  CARD: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  OTHER: "border-amber-200 bg-amber-50 text-amber-700",
+};
+
+function paymentBadgeClass(paymentMethod: string | null) {
+  return (paymentMethod && PAYMENT_BADGE_CLASSES[paymentMethod]) || NEUTRAL_BADGE;
+}
 
 type FolioReservation = {
   arrivalDate: string;
@@ -156,8 +185,8 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
     <div className="space-y-6">
       {/* Centered page title — sits directly below the app header, above the
           toolbar/table card, never left-aligned or nested inside the card. */}
-      <div className="flex flex-col items-center gap-2 py-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+      <div className="flex flex-col items-center gap-2.5 py-4 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100">
           <Users className="h-6 w-6" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Guest Information</h1>
@@ -166,12 +195,12 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm sm:flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-9"
+              className="h-10 rounded-lg pl-10"
               placeholder="Search guest name, room, or reservation…"
               value={search}
               onChange={(e) => {
@@ -189,7 +218,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-[150px]" aria-label="Guest Type">
+              <SelectTrigger className="h-10 w-[150px] rounded-lg" aria-label="Guest Type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -206,7 +235,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="w-[170px]" aria-label="Room Type">
+              <SelectTrigger className="h-10 w-[170px] rounded-lg" aria-label="Room Type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -221,6 +250,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
 
             {canManage ? (
               <Button
+                className="h-10 rounded-lg bg-blue-600 hover:bg-blue-700"
                 onClick={() => {
                   setEditingGuest(null);
                   setDialogOpen(true);
@@ -232,22 +262,21 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <Table>
-          <TableHeader className="sticky top-0 z-10 bg-slate-50">
-            <TableRow>
-              <TableHead>Full Name</TableHead>
-              <TableHead>Guest Type</TableHead>
-              <TableHead>Front Desk Officer</TableHead>
-              <TableHead>Room Type</TableHead>
-              <TableHead>Smoking / Non-Smoking</TableHead>
-              <TableHead>Room</TableHead>
-              <TableHead>Arrival Date</TableHead>
-              <TableHead>Departure Date</TableHead>
-              <TableHead>Additional Beds</TableHead>
-              <TableHead>Discount Type</TableHead>
-              <TableHead>Mode of Payment</TableHead>
-              <TableHead className="w-20">Actions</TableHead>
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-sm">
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Full Name</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Guest Type</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Front Desk Officer</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Room Type</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Smoking / Non-Smoking</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Room</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Arrival Date</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Departure Date</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Additional Beds</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Discount Type</TableHead>
+              <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Mode of Payment</TableHead>
+              <TableHead className="h-11 w-24 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -255,15 +284,15 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   {Array.from({ length: 12 }).map((__, j) => (
-                    <TableCell key={j}>
+                    <TableCell key={j} className="px-4 py-3.5">
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={12} className="py-14 text-center text-sm text-muted-foreground">
                   No guests found.
                 </TableCell>
               </TableRow>
@@ -271,12 +300,13 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               rows.map((g) => {
                 const folio = g.reservations[0];
                 const tx = folio?.transactions[0];
+                const discountValue = folio ? (tx?.discountType ?? null) : null;
                 return (
                   <TableRow key={g.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="px-4 py-3.5 font-medium text-slate-900">
                       <button
                         type="button"
-                        className="hover:underline"
+                        className="hover:underline hover:decoration-blue-600 hover:underline-offset-2"
                         onClick={() => {
                           setDetailsGuestId(g.id);
                           setDetailsOpen(true);
@@ -285,51 +315,114 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                         {formatGuestFullName(g)}
                       </button>
                     </TableCell>
-                    <TableCell>{folio ? guestTypeLabel(folio.guestType) : "—"}</TableCell>
-                    <TableCell>{g.processedBy || "Not recorded"}</TableCell>
-                    <TableCell>{folio?.room.roomType.name ?? "—"}</TableCell>
-                    <TableCell>{folio ? (folio.room.isSmoking ? "Smoking" : "Non-Smoking") : "—"}</TableCell>
-                    <TableCell>{folio?.room.number ?? "—"}</TableCell>
-                    <TableCell>{folio ? formatFolioDate(folio.arrivalDate) : "—"}</TableCell>
-                    <TableCell>{folio ? formatFolioDate(folio.departureDate) : "—"}</TableCell>
-                    <TableCell>{folio ? (tx?.bedCount ?? 0) : "—"}</TableCell>
-                    <TableCell>{folio ? discountLabel(tx?.discountType ?? null, tx?.otherDiscountType ?? null) : "—"}</TableCell>
-                    <TableCell>{folio ? paymentLabel(tx?.paymentMethod ?? null, tx?.otherPaymentMethod ?? null) : "—"}</TableCell>
-                    <TableCell className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="View guest"
-                            onClick={() => {
-                              setDetailsGuestId(g.id);
-                              setDetailsOpen(true);
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>View</TooltipContent>
-                      </Tooltip>
-                      {canManage ? (
+                    <TableCell className="px-4 py-3.5">
+                      {folio ? (
+                        <Badge variant="outline" className={guestTypeBadgeClass(folio.guestType)}>
+                          {guestTypeLabel(folio.guestType)}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5 text-slate-700">
+                      <span className="flex items-center gap-1.5">
+                        <UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        {g.processedBy || "Not recorded"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5 text-slate-700">{folio?.room.roomType.name ?? "—"}</TableCell>
+                    <TableCell className="px-4 py-3.5">
+                      {folio ? (
+                        <Badge variant="outline" className={smokingBadgeClass(folio.room.isSmoking)}>
+                          {folio.room.isSmoking ? "Smoking" : "Non-Smoking"}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5 font-semibold text-blue-700">{folio?.room.number ?? "—"}</TableCell>
+                    <TableCell className="px-4 py-3.5 text-slate-700">
+                      {folio ? (
+                        <span className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          {formatFolioDate(folio.arrivalDate)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5 text-slate-700">
+                      {folio ? (
+                        <span className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          {formatFolioDate(folio.departureDate)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5 text-slate-700">{folio ? (tx?.bedCount ?? 0) : "—"}</TableCell>
+                    <TableCell className="px-4 py-3.5">
+                      {folio ? (
+                        <Badge variant="outline" className={discountBadgeClass(discountValue)}>
+                          {discountLabel(discountValue, tx?.otherDiscountType ?? null)}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5">
+                      {folio ? (
+                        <Badge variant="outline" className={paymentBadgeClass(tx?.paymentMethod ?? null)}>
+                          {paymentLabel(tx?.paymentMethod ?? null, tx?.otherPaymentMethod ?? null)}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3.5">
+                      <div className="flex items-center gap-1.5">
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Edit guest" onClick={() => openEdit(g)}>
-                              <Pencil className="h-4 w-4" />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-full border-slate-200 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              aria-label="View guest"
+                              onClick={() => {
+                                setDetailsGuestId(g.id);
+                                setDetailsOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Edit</TooltipContent>
+                          <TooltipContent>View Guest</TooltipContent>
                         </Tooltip>
-                      ) : null}
+                        {canManage ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 rounded-full border-slate-200 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                aria-label="Edit guest"
+                                onClick={() => openEdit(g)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit Guest</TooltipContent>
+                          </Tooltip>
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
               })
             )}
           </TableBody>
-          </Table>
-        </div>
+        </Table>
       </div>
 
       {meta ? <PaginationBar meta={meta} onPageChange={setPage} /> : null}

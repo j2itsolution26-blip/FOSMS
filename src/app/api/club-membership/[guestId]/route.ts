@@ -6,15 +6,15 @@ import { handleServiceError } from "@/lib/handle-service-error";
 import { PERMISSIONS } from "@/config/permissions";
 import { getGuestFinancialHistory } from "@/services/club-membership.service";
 
-type RouteParams = { params: Promise<{ guestId: string }> };
+type RouteContext = { params: Promise<{ guestId: string }> };
 
 /**
- * A guest/member's combined financial history (Membership + every
- * Guest/Room/Walk-In transaction) — read-only, powers Club Reception's
- * Financial History section and the Combined Receipt. Never creates or
- * modifies a transaction.
+ * A guest's Club Membership + full financial history — used by the
+ * "already a member" view in club-membership-dialog.tsx (existing-member
+ * protection: shows the real membership instead of just an error) and by
+ * anything else that needs to look one up by guest id.
  */
-export async function GET(req: NextRequest, { params }: RouteParams) {
+export async function GET(_req: NextRequest, { params }: RouteContext) {
   const auth = await authorize(PERMISSIONS.CLUB_RECEPTION_VIEW);
   if (auth.error) return auth.error;
 

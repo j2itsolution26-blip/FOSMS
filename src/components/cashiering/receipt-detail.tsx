@@ -157,7 +157,15 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
             />
             <Field label="Front Desk Officer" value={receipt.processedBy || "Not recorded"} />
             {receipt.membership ? (
-              <Field label="Payment Type" value="One-Time Membership Fee" />
+              <>
+                <Field label="Membership Type" value="Club Member" />
+                {/* A membership fee is a single one-time payment (see
+                    registerClubMembership()) — never partial, so ACTIVE/PAID
+                    here is exactly receipt.status, not a separate flag. */}
+                <Field label="Membership Status" value={receipt.status === "PAID" ? "ACTIVE" : statusMeta.label} />
+                <Field label="Membership Fee" value={currency(amountPaid)} />
+                <Field label="Balance" value={currency(0)} />
+              </>
             ) : !hasFolioBreakdown ? (
               <Field label="Description / Purpose" value={receipt.description ?? "—"} />
             ) : null}
