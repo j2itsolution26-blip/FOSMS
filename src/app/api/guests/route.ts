@@ -19,6 +19,10 @@ export async function GET(req: NextRequest) {
   const { rows, meta } = await listGuests(pagination, {
     guestType: guestTypeParam === "RESERVATION" || guestTypeParam === "WALK_IN" ? guestTypeParam : undefined,
     roomTypeId: roomTypeId || undefined,
+    // Person-search comboboxes (Guest Folio, Walk-In, Reservations, Member
+    // Verification, Club Membership) pass this so a membership-only person
+    // stays findable there — only the /guests list page itself omits it.
+    includeMembershipOnly: req.nextUrl.searchParams.get("includeMembershipOnly") === "1",
   });
   return apiSuccess(rows, meta);
 }

@@ -300,7 +300,7 @@ export function WalkInDialog({
     apiFetch<RoomTypeRow[]>("/api/room-types").then((res) => {
       if (res.success) setRoomTypes(res.data);
     });
-    apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+    apiFetch<GuestRow[]>("/api/guests?pageSize=100&includeMembershipOnly=1").then((res) => {
       if (res.success) setGuests(res.data);
     });
   }, [open]);

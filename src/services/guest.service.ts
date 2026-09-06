@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
+import { promoteGuestToRegular } from "@/services/cashiering.service";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -20,9 +21,18 @@ type ActorContext = {
 export type GuestListFilters = {
   /** Matches the Guests page's own display convention — a guest's row shows
    * their most recent reservation, so this filters on "has a reservation of
-   * this guest type" rather than requiring every reservation to match. */
+   * this guest type" rather than requiring every reservation to match.
+   * (Reservation-level GuestType — RESERVATION/WALK_IN — not to be confused
+   * with the Guest-level guestType/GuestRecordType below.) */
   guestType?: "RESERVATION" | "WALK_IN";
   roomTypeId?: string;
+  /** A membership-only Guest (see the schema comment on Guest.guestType)
+   * must stay findable wherever staff pick an existing person for a real
+   * workflow (Guest Folio, Walk-In, Reservation, Member Verification) — that
+   * selection is exactly what promotes them to REGULAR. Only the actual
+   * /guests list page omits this, which is what keeps them out of the
+   * normal Guest UI. Defaults to false (excluded). */
+  includeMembershipOnly?: boolean;
 };
 
 /**
@@ -37,6 +47,12 @@ export async function listGuests(pagination: PaginationInput, filters: GuestList
 
   const where: Prisma.GuestWhereInput = {
     deletedAt: null,
+    // A membership-only Guest (see the schema comment on Guest.guestType)
+    // exists only to satisfy ClubMembership.guestId's foreign key and must
+    // never appear as a normal Guest — the row stays in the DB, just
+    // excluded from this query. Never derived from "has no folio/reservation"
+    // (a legitimate no-room Guest must still show up here).
+    ...(filters.includeMembershipOnly ? {} : { guestType: "REGULAR" }),
     ...(search
       ? {
           OR: [
@@ -175,6 +191,12 @@ async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: Pe
   if (person.guestId) {
     const guest = await tx.guest.findUnique({ where: { id: person.guestId, deletedAt: null } });
     if (!guest) throw new NotFoundError("Guest not found.");
+    // Selecting an existing person for a real Guest Folio/Walk-In IS the
+    // "becomes a legitimate Guest" event — flip MEMBERSHIP_ONLY -> REGULAR
+    // here so they now appear in the normal Guest UI. Their ClubMembership
+    // row is untouched (see promoteGuestToRegular), so an ACTIVE member
+    // keeps their 2% discount eligibility across the flip.
+    await promoteGuestToRegular(tx, guest);
     return guest;
   }
   if (person.guest) {

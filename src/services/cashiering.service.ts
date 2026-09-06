@@ -1,5 +1,5 @@
 import "server-only";
-import type { PaymentMethod, Prisma } from "@prisma/client";
+import type { GuestRecordType, PaymentMethod, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -43,6 +43,27 @@ export async function isActiveClubMember(guestId: string): Promise<boolean> {
 }
 
 export const CLUB_MEMBER_DISCOUNT_ERROR = "Club Member discount is only available to active Club Members.";
+
+/**
+ * Flips a Guest created solely for a Club Membership's foreign key
+ * (guestType MEMBERSHIP_ONLY — see the schema comment on Guest) back to a
+ * REGULAR guest the moment they go through any real guest workflow (Guest
+ * Folio, Walk-In, standalone Reservation) — see resolveOrCreateGuestInTx in
+ * guest.service.ts and createReservation in reservation.service.ts. Only
+ * ever touches the guestType column; the person's ClubMembership row (and
+ * therefore their ACTIVE status/2% eligibility) is completely untouched by
+ * this flip. A no-op for a guest who's already REGULAR. Defined here (not
+ * guest.service.ts) so reservation.service.ts can use it too without a
+ * circular import — same reasoning as isActiveClubMember above.
+ */
+export async function promoteGuestToRegular(
+  tx: Prisma.TransactionClient,
+  guest: { id: string; guestType: GuestRecordType }
+) {
+  if (guest.guestType === "MEMBERSHIP_ONLY") {
+    await tx.guest.update({ where: { id: guest.id }, data: { guestType: "REGULAR" } });
+  }
+}
 
 function startOfDay(d: Date) {
   const x = new Date(d);

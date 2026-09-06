@@ -717,6 +717,16 @@ model Guest {
   emergencyContact   String?
   notes              String?
   processedBy        String?
+  // Distinguishes a real Guest from a Guest row that exists ONLY to satisfy
+  // ClubMembership.guestId's foreign key (a person registered as a Club
+  // Member who has never actually been a guest) — unrelated to the GuestType
+  // enum above, which classifies a *Reservation's* origin, not a person.
+  // MEMBERSHIP_ONLY rows are excluded from the /guests list/UI (see
+  // listGuests in guest.service.ts) but are never deleted, and flip back to
+  // REGULAR the moment that person goes through any real guest workflow
+  // (Guest Folio, Walk-In, Reservation) — see resolveOrCreateGuestInTx /
+  // promoteGuestToRegular. Their ClubMembership is untouched by this flip.
+  guestType          GuestRecordType     @default(REGULAR)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
@@ -728,6 +738,15 @@ model Guest {
 
   @@index([lastName, firstName])
   @@map("guests")
+}
+
+// A Guest row's own classification — separate from GuestType above (which
+// classifies a Reservation's origin, not a person). REGULAR is any normal
+// guest; MEMBERSHIP_ONLY is a person who exists solely because they
+// registered as a Club Member and has never actually been a guest.
+enum GuestRecordType {
+  REGULAR
+  MEMBERSHIP_ONLY
 }
 
 model GuestDocument {

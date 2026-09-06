@@ -6,7 +6,12 @@ import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
 import { isRestrictedStatus } from "@/config/room-status";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
-import { createInitialReservationCharge, isActiveClubMember, CLUB_MEMBER_DISCOUNT_ERROR } from "@/services/cashiering.service";
+import {
+  createInitialReservationCharge,
+  isActiveClubMember,
+  promoteGuestToRegular,
+  CLUB_MEMBER_DISCOUNT_ERROR,
+} from "@/services/cashiering.service";
 import type { CreateReservationInput, UpdateReservationInput } from "@/validators/reservation.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -281,6 +286,10 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
   const { reservation, transaction } = await prisma.$transaction(async (tx) => {
     const guest = await tx.guest.findUnique({ where: { id: input.guestId, deletedAt: null } });
     if (!guest) throw new NotFoundError("Guest not found.");
+    // Booking a real Reservation for this person IS a "becomes a legitimate
+    // Guest" event for someone who was membership-only — see the identical
+    // flip in guest.service.ts's resolveOrCreateGuestInTx.
+    await promoteGuestToRegular(tx, guest);
 
     return createReservationAndChargeInTx(tx, input, room, charge, actor);
   });

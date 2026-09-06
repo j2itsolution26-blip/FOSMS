@@ -223,7 +223,9 @@ export function GuestFormDialog({
     apiFetch<RoomTypeRow[]>("/api/room-types").then((res) => {
       if (res.success) setRoomTypes(res.data);
     });
-    apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+    // pageSize is capped at 100 (shared across every list route) — asking for
+    // more throws an uncaught error server-side that silently empties this list.
+    apiFetch<GuestRow[]>("/api/guests?pageSize=100&includeMembershipOnly=1").then((res) => {
       if (res.success) setGuests(res.data);
     });
   }, [open, isCreate]);

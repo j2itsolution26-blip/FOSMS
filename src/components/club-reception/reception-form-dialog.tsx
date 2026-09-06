@@ -64,7 +64,7 @@ export function ReceptionFormDialog({
     setLookupGuestId("");
     setMembershipStatus(null);
     if (guestLookup) {
-      apiFetch<GuestRow[]>("/api/guests?pageSize=200").then((res) => {
+      apiFetch<GuestRow[]>("/api/guests?pageSize=100&includeMembershipOnly=1").then((res) => {
         if (res.success) setGuests(res.data);
       });
     }

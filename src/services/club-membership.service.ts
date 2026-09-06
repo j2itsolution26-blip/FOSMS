@@ -10,6 +10,7 @@ import { createClubMembershipPayment } from "@/services/cashiering.service";
 import { CLUB_MEMBERSHIP_FEE, type RegisterClubMembershipInput } from "@/validators/club-membership.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
+import { sameNormalizedName } from "@/lib/guest-identity";
 
 // Re-exported for convenience — the canonical definitions live in
 // cashiering.service.ts (which this file already depends on) rather than
@@ -136,19 +137,66 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
       // same "backend, not just frontend" rule the membership-uniqueness
       // check below follows.
       const firstName = input.newGuest.firstName?.trim();
+      const middleName = input.newGuest.middleName?.trim() || null;
       const lastName = input.newGuest.lastName?.trim();
       if (!firstName) throw new AppError("First Name is required.", "VALIDATION_ERROR", 400);
       if (!lastName) throw new AppError("Last Name is required.", "VALIDATION_ERROR", 400);
 
+      // Guard against the same real person being registered twice under a
+      // second Guest record with the name typed differently (e.g. "Manny
+      // Pacquiao" vs "Pacquiao Manny") — this can't be caught by the
+      // guestId-based check below since a brand-new Guest never collides on
+      // ID. Only blocks when the name-matching existing guest ALREADY has an
+      // active membership (the actual rule this exists to protect); two
+      // different real people sharing a name, or a name-alike guest with no
+      // membership, are left alone rather than guessed at — see the schema
+      // comment on ClubMembership and item 4 of the one-membership brief.
+      const candidates = await tx.guest.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { firstName: { contains: firstName, mode: "insensitive" } },
+            { lastName: { contains: lastName, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          clubMembership: {
+            select: { membershipNo: true, transactions: { where: { type: "PAYMENT" }, select: { reversedById: true } } },
+          },
+        },
+      });
+      // Two different real people can share a name (item 7/Test D) — a name
+      // match alone is never grounds to block. Scan every name-matching
+      // candidate (not just the first) for the one that's actually an active
+      // Club Member; a same-named guest who isn't a member is left alone.
+      const nameMatches = candidates.filter((c) => sameNormalizedName(c, { firstName, middleName, lastName }));
+      const activeNameMatch = nameMatches.find((c) => c.clubMembership?.transactions.some((t) => !t.reversedById));
+      if (activeNameMatch?.clubMembership) {
+        throw new AppError(
+          `A guest matching this name (${formatGuestFullName(activeNameMatch)}) already has an active Club Membership (${activeNameMatch.clubMembership.membershipNo}). Select the existing guest instead of registering a new one.`,
+          "POSSIBLE_DUPLICATE_PERSON",
+          409
+        );
+      }
+
       const guest = await tx.guest.create({
         data: {
           firstName,
-          middleName: input.newGuest.middleName?.trim() || null,
+          middleName,
           lastName,
           // The staff member registering this membership is that guest's own
           // Front Desk Officer at the moment of creation — a separate value
           // from (never copied into) the membership payment's own processedBy.
           processedBy: input.processedBy,
+          // This Guest row exists solely to satisfy ClubMembership.guestId's
+          // foreign key — no real guest workflow created them. Excluded from
+          // the /guests list until they actually become a guest (see the
+          // schema comment on Guest.guestType and promoteGuestToRegular).
+          guestType: "MEMBERSHIP_ONLY",
         },
       });
       guestId = guest.id;
