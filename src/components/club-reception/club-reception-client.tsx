@@ -61,7 +61,7 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
 
-  const [dialog, setDialog] = useState<"register" | "verify" | "guest-reg" | "membership" | null>(null);
+  const [dialog, setDialog] = useState<"register" | "membership" | null>(null);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -128,8 +128,6 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
           canManage
             ? [
                 { label: "Register Visitor", icon: UserPlus, tone: "bg-blue-50 text-blue-700", onClick: () => setDialog("register") },
-                { label: "Member Verification", icon: UserCheck, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("verify") },
-                { label: "Guest Registration", icon: UserPlus, tone: "bg-violet-50 text-violet-700", onClick: () => setDialog("guest-reg") },
                 { label: "Register Club Member", icon: BadgePlus, tone: "bg-emerald-50 text-emerald-700", onClick: () => setDialog("membership") },
                 {
                   label: "Club Members",
@@ -181,23 +179,6 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
         onDone={() => load()}
         title="Register Visitor"
         description="Log a non-member visitor entering the club."
-        defaultIsVisitor
-      />
-      <ReceptionFormDialog
-        open={dialog === "verify"}
-        onOpenChange={(o) => setDialog(o ? "verify" : null)}
-        onDone={() => load()}
-        title="Member Verification"
-        description="Verify and log a member's entry."
-        defaultIsVisitor={false}
-        guestLookup
-      />
-      <ReceptionFormDialog
-        open={dialog === "guest-reg"}
-        onOpenChange={(o) => setDialog(o ? "guest-reg" : null)}
-        onDone={() => load()}
-        title="Guest Registration"
-        description="Register a guest accompanying a member."
         defaultIsVisitor
       />
       <ClubMembershipDialog open={dialog === "membership"} onOpenChange={(o) => setDialog(o ? "membership" : null)} onDone={() => load()} />

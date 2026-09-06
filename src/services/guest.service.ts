@@ -28,10 +28,10 @@ export type GuestListFilters = {
   roomTypeId?: string;
   /** A membership-only Guest (see the schema comment on Guest.guestType)
    * must stay findable wherever staff pick an existing person for a real
-   * workflow (Guest Folio, Walk-In, Reservation, Member Verification) — that
-   * selection is exactly what promotes them to REGULAR. Only the actual
-   * /guests list page omits this, which is what keeps them out of the
-   * normal Guest UI. Defaults to false (excluded). */
+   * workflow (Guest Folio, Walk-In, Reservation) — that selection is exactly
+   * what promotes them to REGULAR. Only the actual /guests list page omits
+   * this, which is what keeps them out of the normal Guest UI. Defaults to
+   * false (excluded). */
   includeMembershipOnly?: boolean;
 };
 
