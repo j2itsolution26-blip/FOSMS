@@ -26,25 +26,39 @@ const TRANSITIONS: Record<string, { label: string; status: string }[]> = {
   ],
 };
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function ReservationStatusMenu({
   reservationId,
+  reservationNo,
   status,
   guestName,
   arrivalDate,
+  departureDate,
   canUpdate,
   canCancel,
   onChanged,
 }: {
   reservationId: string;
+  reservationNo: string;
   status: string;
   guestName: string;
   arrivalDate: string;
+  departureDate: string;
   canUpdate: boolean;
   canCancel: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [noShowConfirmOpen, setNoShowConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   // The guest can only be a "no-show" once they were actually due to arrive —
   // hide the action until then rather than letting staff flag it pre-emptively.
@@ -78,15 +92,12 @@ export function ReservationStatusMenu({
       setNoShowConfirmOpen(true);
       return;
     }
+    if (newStatus === "CANCELLED") {
+      setCancelConfirmOpen(true);
+      return;
+    }
     void applyStatus(newStatus);
   }
-
-  const arrivalLabel = new Date(arrivalDate).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
 
   return (
     <>
@@ -109,12 +120,26 @@ export function ReservationStatusMenu({
         open={noShowConfirmOpen}
         onOpenChange={setNoShowConfirmOpen}
         title="Mark this reservation as No Show?"
-        description={`Guest: ${guestName}. Arrival: ${arrivalLabel}. This will record that the guest did not arrive and was not checked in.`}
+        description={`Guest: ${guestName}. Arrival: ${formatDate(arrivalDate)}. This will record that the guest did not arrive and was not checked in.`}
         confirmLabel="Mark No Show"
         destructive
         onConfirm={async () => {
           await applyStatus("NO_SHOW");
           setNoShowConfirmOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={setCancelConfirmOpen}
+        title="Cancel Reservation?"
+        description={`Guest: ${guestName}. Reservation: ${reservationNo}. Arrival: ${formatDate(arrivalDate)}. Departure: ${formatDate(departureDate)}. Are you sure you want to cancel this reservation?`}
+        confirmLabel="Cancel Reservation"
+        cancelLabel="Keep Reservation"
+        destructive
+        onConfirm={async () => {
+          await applyStatus("CANCELLED");
+          setCancelConfirmOpen(false);
         }}
       />
     </>

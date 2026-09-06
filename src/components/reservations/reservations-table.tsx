@@ -201,9 +201,11 @@ export function ReservationsTable({
                   <TableCell>
                     <ReservationStatusMenu
                       reservationId={r.id}
+                      reservationNo={r.reservationNo}
                       status={r.status}
                       guestName={formatGuestFullName(r.guest)}
                       arrivalDate={r.arrivalDate}
+                      departureDate={r.departureDate}
                       canUpdate={canUpdate}
                       canCancel={canCancel}
                       onChanged={load}

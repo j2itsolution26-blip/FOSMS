@@ -130,4 +130,108 @@ test.describe("Reservation workflow", () => {
     await expect(page.getByText("Reservation updated.")).toBeVisible({ timeout: 10000 });
     await expect(row.getByText("No Show")).toBeVisible();
   });
+
+  test("cancels a reservation via the confirmation dialog and keeps it visible in the list", async ({ page }) => {
+    // Front Office Staff now has reservations:cancel (granted alongside this test).
+    await login(page, DEMO_USERS.frontOffice);
+
+    const offsetDays = 100 + Math.floor(Math.random() * 3000);
+    const arrival = new Date();
+    arrival.setDate(arrival.getDate() + offsetDays);
+    const departure = new Date();
+    departure.setDate(departure.getDate() + offsetDays + 1);
+    const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
+
+    const roomsRes = await page.request.get(
+      `/api/rooms?arrivalDate=${toInputDate(arrival)}&departureDate=${toInputDate(departure)}`
+    );
+    const rooms = (await roomsRes.json()).data as { id: string; number: string }[];
+    expect(rooms.length).toBeGreaterThan(0);
+
+    const guestsRes = await page.request.get("/api/guests?pageSize=1");
+    const guest = (await guestsRes.json()).data[0];
+    expect(guest).toBeTruthy();
+
+    const createRes = await page.request.post("/api/reservations", {
+      data: {
+        guestId: guest.id,
+        roomId: rooms[0].id,
+        arrivalDate: toInputDate(arrival),
+        departureDate: toInputDate(departure),
+        numGuests: 1,
+        source: "WALK_IN",
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const reservation = (await createRes.json()).data as { id: string; reservationNo: string };
+
+    await page.goto(`/reservations?reservationId=${reservation.id}`);
+    const row = page.locator("table tbody tr").first();
+    await expect(row).toBeVisible();
+
+    // Backing out via "Keep Reservation" must not cancel it.
+    await row.getByRole("button", { name: "Reservation actions" }).click();
+    await page.getByText("Cancel reservation").click();
+    await expect(page.getByText("Cancel Reservation?")).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(reservation.reservationNo)).toBeVisible();
+    await page.getByRole("button", { name: "Keep Reservation" }).click();
+    await expect(row.getByText("Pending")).toBeVisible();
+
+    await row.getByRole("button", { name: "Reservation actions" }).click();
+    await page.getByText("Cancel reservation").click();
+    await page.getByRole("button", { name: "Cancel Reservation" }).click();
+
+    await expect(page.getByText("Reservation updated.")).toBeVisible({ timeout: 10000 });
+    await expect(row.getByText("Cancelled")).toBeVisible();
+
+    // Cancelled is a closed state: no further status-change actions remain.
+    await expect(row.getByRole("button", { name: "Reservation actions" })).toHaveCount(0);
+  });
+
+  test("a cancelled reservation cannot be checked in, checked out, confirmed, or marked no-show", async ({ page }) => {
+    await login(page, DEMO_USERS.frontOffice);
+
+    const offsetDays = 100 + Math.floor(Math.random() * 3000);
+    const arrival = new Date();
+    arrival.setDate(arrival.getDate() + offsetDays);
+    const departure = new Date();
+    departure.setDate(departure.getDate() + offsetDays + 1);
+    const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
+
+    const roomsRes = await page.request.get(
+      `/api/rooms?arrivalDate=${toInputDate(arrival)}&departureDate=${toInputDate(departure)}`
+    );
+    const rooms = (await roomsRes.json()).data as { id: string; number: string }[];
+    expect(rooms.length).toBeGreaterThan(0);
+
+    const guestsRes = await page.request.get("/api/guests?pageSize=1");
+    const guest = (await guestsRes.json()).data[0];
+
+    const createRes = await page.request.post("/api/reservations", {
+      data: {
+        guestId: guest.id,
+        roomId: rooms[0].id,
+        arrivalDate: toInputDate(arrival),
+        departureDate: toInputDate(departure),
+        numGuests: 1,
+        source: "WALK_IN",
+      },
+    });
+    const reservation = (await createRes.json()).data as { id: string };
+
+    const cancelRes = await page.request.patch(`/api/reservations/${reservation.id}/status`, {
+      data: { status: "CANCELLED" },
+    });
+    expect(cancelRes.status()).toBe(200);
+
+    for (const status of ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "NO_SHOW"]) {
+      const res = await page.request.patch(`/api/reservations/${reservation.id}/status`, { data: { status } });
+      expect(res.status()).toBe(409);
+    }
+
+    const checkInRes = await page.request.post("/api/front-office/check-in", {
+      data: { reservationId: reservation.id, earlyCheckIn: false },
+    });
+    expect(checkInRes.status()).toBe(409);
+  });
 });
