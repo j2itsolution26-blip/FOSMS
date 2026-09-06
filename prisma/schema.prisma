@@ -9,6 +9,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Connection URLs live in prisma.config.ts (this Prisma version rejects
+  // `url`/`directUrl` set here directly — see that file for why).
 }
 
 // ---------- Enums ----------
