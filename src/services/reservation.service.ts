@@ -46,6 +46,12 @@ function formatDateRange(arrivalDate: Date, departureDate: Date): string {
   return `${from}–${to}, ${year}`;
 }
 
+function endOfDay(d: Date) {
+  const copy = new Date(d);
+  copy.setHours(23, 59, 59, 999);
+  return copy;
+}
+
 export async function nextReservationNumber(tx: Prisma.TransactionClient): Promise<string> {
   const year = new Date().getFullYear();
   const seq = await tx.reservationSequence.upsert({
@@ -368,7 +374,23 @@ export async function updateReservation(id: string, input: UpdateReservationInpu
   return updated;
 }
 
+// Statuses this generic endpoint may set directly. CHECKED_IN/CHECKED_OUT are
+// deliberately excluded — those only ever happen through checkIn()/checkOut()
+// in front-office.service.ts, which also create the CheckIn/CheckOut record,
+// verify the room and balance, and update room status. Allowing them here
+// would let a reservation (including a NO_SHOW one) be "checked out" or
+// "checked in" with none of that — a fake stay with no real check-in/checkout.
+const MANUALLY_SETTABLE_STATUSES: ReservationStatus[] = ["PENDING", "CONFIRMED", "CANCELLED", "NO_SHOW"];
+
 export async function setReservationStatus(id: string, status: ReservationStatus, actor: ActorContext) {
+  if (!MANUALLY_SETTABLE_STATUSES.includes(status)) {
+    throw new AppError(
+      "This status can only be set through its dedicated check-in/check-out workflow.",
+      "INVALID_RESERVATION_STATE",
+      409
+    );
+  }
+
   const existing = await prisma.reservation.findUnique({ where: { id } });
   if (!existing) throw new NotFoundError("Reservation not found.");
 
@@ -378,6 +400,26 @@ export async function setReservationStatus(id: string, status: ReservationStatus
       "RESERVATION_LOCKED",
       409
     );
+  }
+
+  // No Show means the guest never arrived and was never checked in — never a
+  // reinterpretation of a completed or in-progress stay, and never before the
+  // reservation was actually due to arrive.
+  if (status === "NO_SHOW") {
+    if (existing.status !== "PENDING" && existing.status !== "CONFIRMED") {
+      throw new AppError(
+        "Only a reservation that hasn't been checked in can be marked as No Show.",
+        "INVALID_RESERVATION_STATE",
+        409
+      );
+    }
+    if (existing.arrivalDate.getTime() > endOfDay(new Date()).getTime()) {
+      throw new AppError(
+        "A reservation can only be marked No Show on or after its arrival date.",
+        "INVALID_RESERVATION_STATE",
+        409
+      );
+    }
   }
 
   const updated = await prisma.reservation.update({

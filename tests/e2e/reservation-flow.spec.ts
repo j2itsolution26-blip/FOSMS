@@ -80,4 +80,54 @@ test.describe("Reservation workflow", () => {
     const body = await createRes.json();
     expect(body.code).toBe("RESERVATION_CONFLICT");
   });
+
+  test("marks a due reservation as No Show via the confirmation dialog", async ({ page }) => {
+    await login(page, DEMO_USERS.frontOffice);
+
+    const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Arrival date is today, on purpose — "Mark as no-show" only appears once
+    // arrival is reached. listRooms's date filters return only rooms with no
+    // overlapping active reservation for this exact range (room.service.ts).
+    const roomsRes = await page.request.get(
+      `/api/rooms?arrivalDate=${toInputDate(today)}&departureDate=${toInputDate(tomorrow)}`
+    );
+    const rooms = (await roomsRes.json()).data as { id: string; number: string }[];
+    expect(rooms.length).toBeGreaterThan(0);
+
+    const guestsRes = await page.request.get("/api/guests?pageSize=1");
+    const guest = (await guestsRes.json()).data[0];
+    expect(guest).toBeTruthy();
+
+    const createRes = await page.request.post("/api/reservations", {
+      data: {
+        guestId: guest.id,
+        roomId: rooms[0].id,
+        arrivalDate: toInputDate(today),
+        departureDate: toInputDate(tomorrow),
+        numGuests: 1,
+        source: "WALK_IN",
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const reservationId = (await createRes.json()).data.id as string;
+
+    await page.goto(`/reservations?reservationId=${reservationId}`);
+    const row = page.locator("table tbody tr").first();
+    await expect(row).toBeVisible();
+
+    await row.getByRole("button", { name: "Reservation actions" }).click();
+    await page.getByText("Mark as no-show").click();
+
+    await expect(page.getByText("Mark this reservation as No Show?")).toBeVisible();
+    await expect(page.getByText("This will record that the guest did not arrive and was not checked in.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Mark No Show" }).click();
+
+    await expect(page.getByText("Reservation updated.")).toBeVisible({ timeout: 10000 });
+    await expect(row.getByText("No Show")).toBeVisible();
+  });
 });

@@ -42,6 +42,7 @@ const STATUS_TABS = [
   { value: "CHECKED_IN", label: "Checked-in" },
   { value: "CHECKED_OUT", label: "Checked-out" },
   { value: "CANCELLED", label: "Cancelled" },
+  { value: "NO_SHOW", label: "No Show" },
 ];
 
 export function ReservationsTable({
@@ -201,6 +202,8 @@ export function ReservationsTable({
                     <ReservationStatusMenu
                       reservationId={r.id}
                       status={r.status}
+                      guestName={formatGuestFullName(r.guest)}
+                      arrivalDate={r.arrivalDate}
                       canUpdate={canUpdate}
                       canCancel={canCancel}
                       onChanged={load}

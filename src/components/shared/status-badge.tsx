@@ -10,7 +10,7 @@ const RESERVATION_STATUS_STYLES: Record<string, string> = {
   CHECKED_IN: "bg-emerald-100 text-emerald-800 border-emerald-200",
   CHECKED_OUT: "bg-slate-100 text-slate-700 border-slate-200",
   CANCELLED: "bg-red-100 text-red-800 border-red-200",
-  NO_SHOW: "bg-red-100 text-red-800 border-red-200",
+  NO_SHOW: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
 const NIGHT_AUDIT_STATUS_STYLES: Record<string, string> = {
