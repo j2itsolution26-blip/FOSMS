@@ -329,7 +329,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           </div>
         </div>
 
-        <div ref={tableWrapperRef} className="guest-table-scroll">
+        <div ref={tableWrapperRef} className="sticky-hscroll-source">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-sm">
             <TableRow className="hover:bg-transparent">

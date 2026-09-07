@@ -44,6 +44,7 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   activityTitle,
   activityItems,
   secondarySection,
+  stickyHorizontalScroll,
 }: {
   title: string;
   description: string;
@@ -66,6 +67,8 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   activityItems: ModuleActivityItem[];
   /** Optional extra block rendered between quick actions and the search/table — unused by every existing module page. */
   secondarySection?: React.ReactNode;
+  /** Opt-in sticky horizontal scrollbar for a wide table — see ModuleDataTable. */
+  stickyHorizontalScroll?: boolean;
 }) {
   const hasActiveFilters = !!search.value || filters.some((f) => !!f.value);
 
@@ -105,6 +108,7 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
           meta={meta}
           onPageChange={onPageChange}
           emptyState={emptyState}
+          stickyHorizontalScroll={stickyHorizontalScroll}
         />
       </div>
 

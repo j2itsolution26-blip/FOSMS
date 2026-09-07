@@ -177,25 +177,29 @@
   }
 }
 
-/* The Guests table's REAL horizontal scroll container (the shared Table
+/* A wide table's REAL horizontal scroll container (the shared Table
    component's internal overflow-x-auto div, targeted by its data-slot since
    that component doesn't accept a className for it) stays scrollable — the
-   sticky bar below only mirrors its scrollLeft, it never replaces it — but
-   its own native scrollbar is hidden so the sticky bar is the only
-   horizontal scrollbar the user ever sees (see guests-table.tsx). Scoped to
-   .guest-table-scroll so no other table in the app is affected. */
-.guest-table-scroll [data-slot="table-container"] {
+   sticky bar next to it only mirrors its scrollLeft, it never replaces it —
+   but its own native scrollbar is hidden so the sticky bar is the only
+   horizontal scrollbar the user ever sees. Scoped to .sticky-hscroll-source
+   (applied to the wrapper around <Table>) so every other table in the app —
+   any page that doesn't opt in — is unaffected. Shared by the Guests table
+   (guests-table.tsx) and any module table with stickyHorizontalScroll
+   enabled (module-data-table.tsx, e.g. Cashiering). */
+.sticky-hscroll-source [data-slot="table-container"] {
   scrollbar-width: none;
 }
-.guest-table-scroll [data-slot="table-container"]::-webkit-scrollbar {
+.sticky-hscroll-source [data-slot="table-container"]::-webkit-scrollbar {
   display: none;
 }
 
 /* Modern horizontal-scrollbar look (rounded track/thumb, subtle colors, hover
-   state) for the Guests table's sticky scrollbar — see .modern-hscroll in
-   guests-table.tsx. This is the ONLY horizontal scrollbar rendered visibly;
-   its container already carries a subtle background/border/rounded corners
-   (see the className there) — this styles the scrollbar itself. */
+   state) for a sticky scrollbar mirroring one of the sources above — see
+   .modern-hscroll in guests-table.tsx / module-data-table.tsx. This is the
+   ONLY horizontal scrollbar rendered visibly; its container already carries
+   a subtle background/border/rounded corners (see the className where it's
+   used) — this styles the scrollbar itself. */
 .modern-hscroll {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;

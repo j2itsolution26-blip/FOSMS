@@ -279,6 +279,7 @@ export function CashieringClient({
         loading={loading}
         meta={null}
         onPageChange={() => {}}
+        stickyHorizontalScroll
         emptyState={
           <ModuleEmptyState
             icon={Receipt}
