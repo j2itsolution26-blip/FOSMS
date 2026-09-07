@@ -112,8 +112,6 @@ export function GuestFormDialog({
   // Payment/Front Desk Officer, independent of the room's — the membership
   // fee is paid immediately as its own transaction, unlike the room charge.
   const [registerMembership, setRegisterMembership] = useState(false);
-  const [membershipPaymentMethod, setMembershipPaymentMethod] = useState("CASH");
-  const [membershipOtherPaymentMethod, setMembershipOtherPaymentMethod] = useState("");
 
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
@@ -145,13 +143,6 @@ export function GuestFormDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomPaymentMethod]);
-
-  // Same for the Club Membership fee's own Mode of Payment.
-  useEffect(() => {
-    if (membershipPaymentMethod !== "OTHER") {
-      setMembershipOtherPaymentMethod("");
-    }
-  }, [membershipPaymentMethod]);
 
   // Same for Discount Type's "Other" — the custom label/rate only apply then.
   useEffect(() => {
@@ -198,8 +189,6 @@ export function GuestFormDialog({
       setExistingGuestId("");
       setMembershipStatus(null);
       setRegisterMembership(false);
-      setMembershipPaymentMethod("CASH");
-      setMembershipOtherPaymentMethod("");
       roomForm.reset({
         roomTypeId: "",
         roomId: "",
@@ -311,9 +300,17 @@ export function GuestFormDialog({
     }
 
     if (registerMembership) {
-      if (membershipPaymentMethod === "OTHER" && !membershipOtherPaymentMethod.trim()) {
-        toast.error("Please specify the membership fee's payment method.");
-        return;
+      // The membership fee always uses the SAME Mode of Payment as the rest
+      // of this Guest Folio — never a second payment-method field. When a
+      // room is also being assigned, roomForm.trigger() above already
+      // validated it; when it's membership-only (no room), it's only
+      // rendered (see below) once membership registration is turned on, so
+      // it must be validated here too.
+      if (!assignRoom) {
+        const paymentFields: Array<"paymentMethod" | "otherPaymentMethod"> =
+          roomForm.getValues("paymentMethod") === "OTHER" ? ["paymentMethod", "otherPaymentMethod"] : ["paymentMethod"];
+        const paymentValid = await roomForm.trigger(paymentFields);
+        if (!paymentValid) return;
       }
       // The membership fee is processed by the SAME Front Desk Officer as the
       // rest of this Guest Folio — never a second staff field. For a new
@@ -353,8 +350,10 @@ export function GuestFormDialog({
         clubMembership: registerMembership
           ? {
               register: true,
-              paymentMethod: membershipPaymentMethod,
-              otherPaymentMethod: membershipPaymentMethod === "OTHER" ? membershipOtherPaymentMethod : undefined,
+              // The one and only Mode of Payment for this whole folio — see
+              // the comment above the roomForm.trigger(paymentFields) call.
+              paymentMethod: room.paymentMethod,
+              otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
               // The one and only Front Desk Officer for this whole folio —
               // see the comment above the form.trigger("processedBy") call.
               processedBy: form.getValues("processedBy"),
@@ -531,23 +530,66 @@ export function GuestFormDialog({
                         <span className="font-semibold text-[#0b1c3f]">{currency(CLUB_MEMBERSHIP_FEE)}</span>
                       </div>
 
-                      <div>
-                        <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                          Mode of Payment <span className="text-red-500">*</span>
-                        </p>
-                        <Select value={membershipPaymentMethod} onValueChange={setMembershipPaymentMethod}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {/* No separate "Mode of Payment" field — the membership
+                          fee always uses the SAME payment method as the rest
+                          of this Guest Folio (see the
+                          roomForm.trigger(paymentFields) validation above).
+                          When a room is also being assigned, that field is
+                          already shown (and required) below in "Assign a Room
+                          Now" — rendering it here too would show it twice for
+                          the exact same value. It's only shown here for a
+                          membership-only folio (no room), which otherwise
+                          never renders that field at all. */}
+                      {!assignRoom ? (
+                        <FormField
+                          control={roomForm.control}
+                          name="paymentMethod"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Mode of Payment <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      ) : null}
+
+                      {!assignRoom && roomPaymentMethod === "OTHER" ? (
+                        <FormField
+                          control={roomForm.control}
+                          name="otherPaymentMethod"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Other Payment Method <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Enter payment method"
+                                  className="h-10 rounded-md border-slate-200 bg-white text-sm"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage className="text-xs text-red-600" />
+                            </FormItem>
+                          )}
+                        />
+                      ) : null}
 
                       {/* No separate "Membership Processed By" field — the
                           membership fee is processed by the same Front Desk
@@ -576,20 +618,6 @@ export function GuestFormDialog({
                             </FormItem>
                           )}
                         />
-                      ) : null}
-
-                      {membershipPaymentMethod === "OTHER" ? (
-                        <div>
-                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                            Other Payment Method <span className="text-red-500">*</span>
-                          </p>
-                          <Input
-                            placeholder="Enter payment method"
-                            className="h-10 rounded-md border-slate-200 bg-white text-sm"
-                            value={membershipOtherPaymentMethod}
-                            onChange={(e) => setMembershipOtherPaymentMethod(e.target.value)}
-                          />
-                        </div>
                       ) : null}
 
                       <p className="rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">

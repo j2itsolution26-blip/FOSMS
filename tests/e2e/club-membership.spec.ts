@@ -22,6 +22,11 @@ test.describe("Guest Folio — Club Membership registration", () => {
     await page.getByText("Register as Club Member").click();
     await expect(page.getByText("₱1,000.00")).toBeVisible();
 
+    // Exactly one Mode of Payment field for the whole folio — since no room
+    // is being assigned in this test, this is the membership-only rendering
+    // of it (defaults to Cash, which is submitted below without changing it).
+    await expect(page.getByText("Mode of Payment")).toHaveCount(1);
+
     // No separate "Membership Processed By" field to fill anymore — the
     // membership fee is processed by the same Front Desk Officer entered
     // above ("QA Front Desk"), asserted below via the guest details dialog.
@@ -49,6 +54,11 @@ test.describe("Guest Folio — Club Membership registration", () => {
     // Officer entered once at the top of the form — never a second,
     // separately-collected name.
     await expect(detailsDialog.getByText("QA Front Desk")).toHaveCount(2);
+
+    // The membership fee's own Mode of Payment reused the folio's single
+    // payment-method field (left at its "Cash" default — never changed,
+    // never asked for separately).
+    await expect(detailsDialog.getByText("Cash")).toBeVisible();
   });
 
   test("enforces the first-check-in rule server-side across a full member lifecycle", async ({ page }) => {
