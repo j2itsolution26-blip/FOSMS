@@ -530,66 +530,15 @@ export function GuestFormDialog({
                         <span className="font-semibold text-[#0b1c3f]">{currency(CLUB_MEMBERSHIP_FEE)}</span>
                       </div>
 
-                      {/* No separate "Mode of Payment" field — the membership
-                          fee always uses the SAME payment method as the rest
-                          of this Guest Folio (see the
+                      {/* No Mode of Payment field here — the membership fee
+                          always uses the ONE Mode of Payment field for this
+                          whole Guest Folio (see the
                           roomForm.trigger(paymentFields) validation above).
-                          When a room is also being assigned, that field is
-                          already shown (and required) below in "Assign a Room
-                          Now" — rendering it here too would show it twice for
-                          the exact same value. It's only shown here for a
-                          membership-only folio (no room), which otherwise
-                          never renders that field at all. */}
-                      {!assignRoom ? (
-                        <FormField
-                          control={roomForm.control}
-                          name="paymentMethod"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Mode of Payment <span className="text-red-500">*</span>
-                              </FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <FormControl>
-                                  <SelectTrigger className="w-full">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
-                                    <SelectItem key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      ) : null}
-
-                      {!assignRoom && roomPaymentMethod === "OTHER" ? (
-                        <FormField
-                          control={roomForm.control}
-                          name="otherPaymentMethod"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Other Payment Method <span className="text-red-500">*</span>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter payment method"
-                                  className="h-10 rounded-md border-slate-200 bg-white text-sm"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage className="text-xs text-red-600" />
-                            </FormItem>
-                          )}
-                        />
-                      ) : null}
+                          That field lives outside this Club Membership
+                          section entirely: inside "Assign a Room Now" when a
+                          room is being assigned, or in the standalone block
+                          just below this section when it isn't — never both,
+                          and never a second copy in here. */}
 
                       {/* No separate "Membership Processed By" field — the
                           membership fee is processed by the same Front Desk
@@ -625,6 +574,66 @@ export function GuestFormDialog({
                         this visit. It will be available starting on the next check-in.
                       </p>
                     </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* The Guest Folio's ONE Mode of Payment field, for the case
+                  where it's paying for the Club Membership fee alone (no
+                  room being assigned — "Assign a Room Now" below renders its
+                  own copy of this same field instead, and never both at
+                  once). Rendered as its own block, outside the Club
+                  Membership card above, so it reads as belonging to the
+                  Guest Folio as a whole rather than to the membership. */}
+              {registerMembership && !assignRoom ? (
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                  <FormField
+                    control={roomForm.control}
+                    name="paymentMethod"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                          Mode of Payment <span className="text-red-500">*</span>
+                        </FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {roomPaymentMethod === "OTHER" ? (
+                    <FormField
+                      control={roomForm.control}
+                      name="otherPaymentMethod"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                            Other Payment Method <span className="text-red-500">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Enter payment method"
+                              className="h-10 rounded-md border-slate-200 bg-white text-sm"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage className="text-xs text-red-600" />
+                        </FormItem>
+                      )}
+                    />
                   ) : null}
                 </div>
               ) : null}
