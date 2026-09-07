@@ -37,11 +37,12 @@ import {
   FOLIO_PAYMENT_METHOD_OPTIONS,
   FOLIO_DISCOUNT_TYPE_OPTIONS,
 } from "@/validators/folio-room-assignment.schema";
+import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
 import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
 type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
-type MembershipStatus = { isActiveMember: boolean; membershipNo: string | null };
+type MembershipStatus = { isActiveMember: boolean; eligibleForDiscount: boolean; membershipNo: string | null };
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -104,6 +105,17 @@ export function GuestFormDialog({
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
 
+  // Club Membership registration — offered whenever the selected/entered
+  // guest is NOT already an active member (a brand-new guest never is; an
+  // existing one might be, in which case membershipStatus already covers
+  // that — see the "✓ Active Club Member" branch below). Its own Mode of
+  // Payment/Front Desk Officer, independent of the room's — the membership
+  // fee is paid immediately as its own transaction, unlike the room charge.
+  const [registerMembership, setRegisterMembership] = useState(false);
+  const [membershipPaymentMethod, setMembershipPaymentMethod] = useState("CASH");
+  const [membershipOtherPaymentMethod, setMembershipOtherPaymentMethod] = useState("");
+  const [membershipProcessedBy, setMembershipProcessedBy] = useState("");
+
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
     defaultValues: {
@@ -134,6 +146,13 @@ export function GuestFormDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomPaymentMethod]);
+
+  // Same for the Club Membership fee's own Mode of Payment.
+  useEffect(() => {
+    if (membershipPaymentMethod !== "OTHER") {
+      setMembershipOtherPaymentMethod("");
+    }
+  }, [membershipPaymentMethod]);
 
   // Same for Discount Type's "Other" — the custom label/rate only apply then.
   useEffect(() => {
@@ -179,6 +198,10 @@ export function GuestFormDialog({
       setUseExistingGuest(false);
       setExistingGuestId("");
       setMembershipStatus(null);
+      setRegisterMembership(false);
+      setMembershipPaymentMethod("CASH");
+      setMembershipOtherPaymentMethod("");
+      setMembershipProcessedBy("");
       roomForm.reset({
         roomTypeId: "",
         roomId: "",
@@ -241,16 +264,24 @@ export function GuestFormDialog({
     setCheckingMembership(true);
     apiFetch<MembershipStatus>(`/api/guests/${existingGuestId}/club-membership`)
       .then((res) => {
-        setMembershipStatus(res.success ? res.data : { isActiveMember: false, membershipNo: null });
+        setMembershipStatus(
+          res.success ? res.data : { isActiveMember: false, eligibleForDiscount: false, membershipNo: null }
+        );
       })
       .finally(() => setCheckingMembership(false));
+    // Switching guests clears a stale "register this person" selection —
+    // the checkbox re-appears/disappears based on the newly-selected
+    // person's own membership status, never carrying over from the last one.
+    setRegisterMembership(false);
   }, [useExistingGuest, existingGuestId]);
 
   // Selecting a non-eligible guest (or switching away from "existing")
   // clears a stale Club Member selection instead of silently submitting a
-  // discount the currently-selected person no longer qualifies for.
+  // discount the currently-selected person no longer qualifies for. Gated on
+  // eligibleForDiscount (not just isActiveMember) — an active member whose
+  // first check-in hasn't happened yet is still not discount-eligible.
   useEffect(() => {
-    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.isActiveMember)) {
+    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.eligibleForDiscount)) {
       roomForm.setValue("discountType", undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -281,6 +312,17 @@ export function GuestFormDialog({
       }
     }
 
+    if (registerMembership) {
+      if (membershipPaymentMethod === "OTHER" && !membershipOtherPaymentMethod.trim()) {
+        toast.error("Please specify the membership fee's payment method.");
+        return;
+      }
+      if (!membershipProcessedBy.trim()) {
+        toast.error("Front Desk Officer is required for the membership fee.");
+        return;
+      }
+    }
+
     const room = roomForm.getValues();
 
     // Guest + Reservation + initial Cashiering charge are created together in
@@ -288,7 +330,8 @@ export function GuestFormDialog({
     // instead of three separate calls — so a Reservation can never end up
     // without the charge that makes it reachable in Cashiering, and a
     // mid-flow failure rolls back the whole Guest Folio instead of leaving a
-    // partially-saved record.
+    // partially-saved record. Club Membership registration rides along in
+    // the same atomic request for the same reason.
     const result = await apiFetch("/api/guests/folio", {
       method: "POST",
       body: JSON.stringify({
@@ -306,6 +349,14 @@ export function GuestFormDialog({
               otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
             }
           : undefined,
+        clubMembership: registerMembership
+          ? {
+              register: true,
+              paymentMethod: membershipPaymentMethod,
+              otherPaymentMethod: membershipPaymentMethod === "OTHER" ? membershipOtherPaymentMethod : undefined,
+              processedBy: membershipProcessedBy,
+            }
+          : undefined,
       }),
     });
 
@@ -313,14 +364,23 @@ export function GuestFormDialog({
       // The save is atomic server-side — nothing was written, so the guest
       // must never be reported as saved here.
       toast.error(
-        assignRoom
+        assignRoom || registerMembership
           ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
           : result.message
       );
       return;
     }
 
-    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
+    if (registerMembership) {
+      // The very first check-in a membership is registered on never carries
+      // the 2% discount itself — see getClubMemberDiscountEligibility().
+      toast.success(
+        "Club Membership registered. The 2% member discount will be available starting on your next check-in.",
+        { duration: 8000 }
+      );
+    } else {
+      toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
+    }
     onOpenChange(false);
     onSaved();
   }
@@ -425,12 +485,98 @@ export function GuestFormDialog({
                       ) : membershipStatus?.isActiveMember ? (
                         <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
                           ✓ Active Club Member
-                          {membershipStatus.membershipNo ? ` (${membershipStatus.membershipNo})` : ""} — 2% Club Member
-                          Discount Eligible
+                          {membershipStatus.membershipNo ? ` (Member ID: ${membershipStatus.membershipNo})` : ""}
+                          {membershipStatus.eligibleForDiscount
+                            ? " — 2% Club Member Discount Eligible"
+                            : " — 2% discount available starting on the next check-in"}
                         </p>
                       ) : (
                         <p className="mt-1 text-xs text-muted-foreground">Not a Club Member.</p>
                       )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* Club Membership registration — only offered when the selected/entered
+                  guest is NOT already an active member (an active member's status is
+                  already shown above instead). A brand-new guest is never already a
+                  member, so this is always available in that branch. */}
+              {isCreate && !(useExistingGuest && (checkingMembership || membershipStatus?.isActiveMember)) ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50">
+                  <label className="flex cursor-pointer items-start gap-2.5 px-4 py-3">
+                    <Checkbox
+                      checked={registerMembership}
+                      onCheckedChange={(v) => setRegisterMembership(v === true)}
+                      disabled={useExistingGuest && !existingGuestId}
+                    />
+                    <span>
+                      <span className="block text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                        Register as Club Member
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground normal-case">
+                        Pay the one-time ₱1,000 membership fee and become a Club Member.
+                      </span>
+                    </span>
+                  </label>
+
+                  {registerMembership ? (
+                    <div className="space-y-4 border-t border-slate-200 px-4 py-4">
+                      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white p-3 text-sm">
+                        <span className="font-medium text-slate-700">Club Membership</span>
+                        <span className="text-slate-500">One-Time Membership Fee</span>
+                        <span className="font-semibold text-[#0b1c3f]">{currency(CLUB_MEMBERSHIP_FEE)}</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                            Mode of Payment <span className="text-red-500">*</span>
+                          </p>
+                          <Select value={membershipPaymentMethod} onValueChange={setMembershipPaymentMethod}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                            Membership Processed By <span className="text-red-500">*</span>
+                          </p>
+                          <Input
+                            placeholder="Enter name of staff processing the membership fee"
+                            className="h-10 rounded-md border-slate-200 bg-white text-sm"
+                            value={membershipProcessedBy}
+                            onChange={(e) => setMembershipProcessedBy(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {membershipPaymentMethod === "OTHER" ? (
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                            Other Payment Method <span className="text-red-500">*</span>
+                          </p>
+                          <Input
+                            placeholder="Enter payment method"
+                            className="h-10 rounded-md border-slate-200 bg-white text-sm"
+                            value={membershipOtherPaymentMethod}
+                            onChange={(e) => setMembershipOtherPaymentMethod(e.target.value)}
+                          />
+                        </div>
+                      ) : null}
+
+                      <p className="rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">
+                        This is a first-time membership registration — the 2% Club Member discount is not applied on
+                        this visit. It will be available starting on the next check-in.
+                      </p>
                     </div>
                   ) : null}
                 </div>
@@ -736,13 +882,14 @@ export function GuestFormDialog({
                                 </FormControl>
                                 <SelectContent>
                                   <SelectItem value="none">None</SelectItem>
-                                  {/* Club Member only offered when the selected EXISTING guest is a
-                                      verified active member (checked automatically above) — a
-                                      brand-new person can never already have a membership, and the
-                                      server enforces this too (isActiveClubMember() in
-                                      cashiering.service.ts) regardless of what this dropdown shows. */}
+                                  {/* Club Member only offered when the selected EXISTING guest is
+                                      verified discount-eligible (checked automatically above) — an
+                                      active member whose first check-in hasn't happened yet is NOT
+                                      eligible (see getClubMemberDiscountEligibility()), and a
+                                      brand-new person can never already have a membership. The
+                                      server enforces this too regardless of what this dropdown shows. */}
                                   {FOLIO_DISCOUNT_TYPE_OPTIONS.filter(
-                                    (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.isActiveMember)
+                                    (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.eligibleForDiscount)
                                   ).map((opt) => (
                                     <SelectItem key={opt.value} value={opt.value}>
                                       {opt.label}

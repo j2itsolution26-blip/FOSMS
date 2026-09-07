@@ -75,6 +75,47 @@ export const guestFolioRoomSchema = z
   });
 
 /**
+ * The Guest Folio's optional "Register as Club Member" section — the one-time
+ * ₱1,000 fee's own Mode of Payment and Front Desk Officer, independent of the
+ * guest's own `processedBy` and of the room charge's Mode of Payment (the
+ * membership fee is its own CashierTransaction, paid immediately, unlike the
+ * room charge which is money owed and settled later — see
+ * createClubMembershipPayment/createInitialReservationCharge). Only
+ * meaningful (and validated) when `register` is true.
+ */
+export const guestFolioClubMembershipSchema = z
+  .object({
+    register: z.boolean().default(false),
+    paymentMethod: paymentMethodEnum.optional(),
+    otherPaymentMethod: z.string().trim().max(150).optional().or(z.literal("")),
+    processedBy: z.string().trim().max(150).optional().or(z.literal("")),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.register) return;
+    if (!data.paymentMethod) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select a payment method for the membership fee.",
+        path: ["paymentMethod"],
+      });
+    }
+    if (data.paymentMethod === "OTHER" && !data.otherPaymentMethod?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please specify the payment method.",
+        path: ["otherPaymentMethod"],
+      });
+    }
+    if (!data.processedBy?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Front Desk Officer is required for the membership fee.",
+        path: ["processedBy"],
+      });
+    }
+  });
+
+/**
  * Either an existing Guest (guestId — the real identity link, so an already-
  * registered person, e.g. an existing Club Member, is reused instead of
  * being duplicated) or a brand-new person's full details. Mirrors the exact
@@ -85,6 +126,7 @@ export const createGuestFolioSchema = z
     guestId: z.string().min(1).optional(),
     guest: guestSchema.optional(),
     room: guestFolioRoomSchema.optional(),
+    clubMembership: guestFolioClubMembershipSchema.optional(),
   })
   .refine((data) => !!data.guestId || !!data.guest, {
     message: "Select an existing guest or enter a new guest's details.",

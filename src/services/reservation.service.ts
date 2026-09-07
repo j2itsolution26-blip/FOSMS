@@ -8,9 +8,10 @@ import { isRestrictedStatus } from "@/config/room-status";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
 import {
   createInitialReservationCharge,
-  isActiveClubMember,
+  getClubMemberDiscountEligibility,
   promoteGuestToRegular,
   CLUB_MEMBER_DISCOUNT_ERROR,
+  CLUB_MEMBER_FIRST_CHECK_IN_ERROR,
 } from "@/services/cashiering.service";
 import type { CreateReservationInput, UpdateReservationInput } from "@/validators/reservation.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -203,9 +204,15 @@ export async function resolveInitialReservationCharge(
   // option in a form is never the only thing enforcing this (see
   // isActiveClubMember() for what "ACTIVE" means with no status column).
   if (pricing.discountType === "CLUB_MEMBER") {
-    const eligible = pricing.guestId ? await isActiveClubMember(pricing.guestId) : false;
+    const { isActiveMember, eligible } = pricing.guestId
+      ? await getClubMemberDiscountEligibility(pricing.guestId)
+      : { isActiveMember: false, eligible: false };
     if (!eligible) {
-      throw new AppError(CLUB_MEMBER_DISCOUNT_ERROR, "NOT_A_CLUB_MEMBER", 403);
+      throw new AppError(
+        isActiveMember ? CLUB_MEMBER_FIRST_CHECK_IN_ERROR : CLUB_MEMBER_DISCOUNT_ERROR,
+        "NOT_A_CLUB_MEMBER",
+        403
+      );
     }
   }
 

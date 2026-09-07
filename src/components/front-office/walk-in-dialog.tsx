@@ -42,7 +42,7 @@ import type { FolioCharge } from "@/lib/folio-pricing";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
 type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
-type MembershipStatus = { isActiveMember: boolean; membershipNo: string | null };
+type MembershipStatus = { isActiveMember: boolean; eligibleForDiscount: boolean; membershipNo: string | null };
 
 type Registered = {
   guestName: string;
@@ -187,16 +187,20 @@ export function WalkInDialog({
     setCheckingMembership(true);
     apiFetch<MembershipStatus>(`/api/guests/${existingGuestId}/club-membership`)
       .then((res) => {
-        setMembershipStatus(res.success ? res.data : { isActiveMember: false, membershipNo: null });
+        setMembershipStatus(
+          res.success ? res.data : { isActiveMember: false, eligibleForDiscount: false, membershipNo: null }
+        );
       })
       .finally(() => setCheckingMembership(false));
   }, [useExistingGuest, existingGuestId]);
 
   // Selecting a non-eligible guest (or switching away from "existing")
   // clears a stale Club Member selection instead of silently submitting a
-  // discount the currently-selected person no longer qualifies for.
+  // discount the currently-selected person no longer qualifies for. Gated on
+  // eligibleForDiscount (not just isActiveMember) — an active member whose
+  // first check-in hasn't happened yet is still not discount-eligible.
   useEffect(() => {
-    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.isActiveMember)) {
+    if (discountType === "CLUB_MEMBER" && !(useExistingGuest && membershipStatus?.eligibleForDiscount)) {
       roomForm.setValue("discountType", undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,8 +534,10 @@ export function WalkInDialog({
                         ) : membershipStatus?.isActiveMember ? (
                           <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
                             ✓ Active Club Member
-                            {membershipStatus.membershipNo ? ` (${membershipStatus.membershipNo})` : ""} — 2% Club Member
-                            Discount Eligible
+                            {membershipStatus.membershipNo ? ` (Member ID: ${membershipStatus.membershipNo})` : ""}
+                            {membershipStatus.eligibleForDiscount
+                              ? " — 2% Club Member Discount Eligible"
+                              : " — 2% discount available starting on the next check-in"}
                           </p>
                         ) : (
                           <p className="mt-1 text-xs text-muted-foreground">Not a Club Member.</p>
@@ -832,13 +838,14 @@ export function WalkInDialog({
                               </FormControl>
                               <SelectContent>
                                 <SelectItem value="none">None</SelectItem>
-                                {/* Club Member only offered when the selected EXISTING guest is a
-                                    verified active member (checked automatically above) — a
-                                    brand-new person can never already have a membership, and the
-                                    server enforces this too (isActiveClubMember() in
-                                    cashiering.service.ts) regardless of what this dropdown shows. */}
+                                {/* Club Member only offered when the selected EXISTING guest is
+                                    verified discount-eligible (checked automatically above) — an
+                                    active member whose first check-in hasn't happened yet is NOT
+                                    eligible (see getClubMemberDiscountEligibility()), and a
+                                    brand-new person can never already have a membership. The
+                                    server enforces this too regardless of what this dropdown shows. */}
                                 {FOLIO_DISCOUNT_TYPE_OPTIONS.filter(
-                                  (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.isActiveMember)
+                                  (opt) => opt.value !== "CLUB_MEMBER" || (useExistingGuest && membershipStatus?.eligibleForDiscount)
                                 ).map((opt) => (
                                   <SelectItem key={opt.value} value={opt.value}>
                                     {opt.label}

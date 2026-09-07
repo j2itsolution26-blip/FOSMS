@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, Pencil, Eye, Users, CalendarDays, UserRound } from "lucide-react";
 
@@ -24,6 +24,7 @@ import { GuestDetailsDialog } from "@/components/guests/guest-details-dialog";
 import { apiFetch, type PaginationMeta } from "@/lib/api-client";
 import { formatDiscountType, formatGuestFullName, formatPaymentMethod, guestTypeLabel } from "@/lib/formatters";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { cn } from "@/lib/utils";
 import type { GuestInput } from "@/validators/guest.schema";
 
 type RoomTypeOption = { id: string; name: string };
@@ -123,6 +124,64 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
 
   const debouncedSearch = useDebouncedValue(search);
 
+  // Sticky synced horizontal scrollbar — the table itself already scrolls
+  // horizontally (its own overflow-x-auto container, from the shared Table
+  // component), but that native scrollbar sits at the bottom of the actual
+  // table content, which can be far below the fold once there are many
+  // rows. This mirrors it in a `position: sticky` bar pinned to the bottom
+  // of the viewport instead, kept in lock-step with the real scroll
+  // position in both directions — no separate/duplicate scroll state, just
+  // two elements whose scrollLeft is mirrored onto each other.
+  const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const stickyScrollRef = useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const [needsHScroll, setNeedsHScroll] = useState(false);
+
+  useEffect(() => {
+    const tableScroll = tableWrapperRef.current?.querySelector<HTMLDivElement>('[data-slot="table-container"]');
+    const stickyScroll = stickyScrollRef.current;
+    if (!tableScroll || !stickyScroll) return;
+
+    function measure() {
+      setTableScrollWidth(tableScroll!.scrollWidth);
+      setNeedsHScroll(tableScroll!.scrollWidth > tableScroll!.clientWidth + 1);
+    }
+    measure();
+
+    // A ResizeObserver on the table (not just its container) catches every
+    // reason its natural width can change — new/loaded rows, filtering,
+    // window resize, sidebar collapse — without re-deriving from render deps.
+    const tableEl = tableScroll.querySelector("table");
+    const observer = new ResizeObserver(measure);
+    observer.observe(tableScroll);
+    if (tableEl) observer.observe(tableEl);
+
+    // Mirrors scrollLeft one way at a time — setting scrollLeft to the value
+    // it's already at doesn't re-fire a browser `scroll` event, so this
+    // can't loop between the two listeners.
+    let syncing = false;
+    function onTableScroll() {
+      if (syncing) return;
+      syncing = true;
+      stickyScroll!.scrollLeft = tableScroll!.scrollLeft;
+      syncing = false;
+    }
+    function onStickyScroll() {
+      if (syncing) return;
+      syncing = true;
+      tableScroll!.scrollLeft = stickyScroll!.scrollLeft;
+      syncing = false;
+    }
+    tableScroll.addEventListener("scroll", onTableScroll);
+    stickyScroll.addEventListener("scroll", onStickyScroll);
+
+    return () => {
+      observer.disconnect();
+      tableScroll.removeEventListener("scroll", onTableScroll);
+      stickyScroll.removeEventListener("scroll", onStickyScroll);
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: "10" });
@@ -195,7 +254,15 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {/* No overflow set on this outer card — position:sticky (the scrollbar
+          below) sticks relative to the nearest ancestor with a scrolling
+          box, which must stay the page/viewport itself. An overflow-hidden
+          wrapper here would silently make sticky positioning inert. Rounded
+          corners are instead applied to the two pieces directly: the inner
+          wrapper clips the top (toolbar + table), the sticky bar clips its
+          own bottom corners. */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-t-2xl">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm sm:flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -262,6 +329,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           </div>
         </div>
 
+        <div ref={tableWrapperRef} className="guest-table-scroll">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-sm">
             <TableRow className="hover:bg-transparent">
@@ -423,6 +491,23 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
             )}
           </TableBody>
         </Table>
+        </div>
+        </div>
+
+        {/* Sticky synced scrollbar — only rendered functionally once the
+            table is actually wider than its container (see the effect
+            above); otherwise it stays 0-width/invisible instead of showing
+            an empty bar with nothing to scroll. */}
+        <div
+          ref={stickyScrollRef}
+          className={cn(
+            "modern-hscroll sticky bottom-0 z-10 overflow-x-auto overflow-y-hidden rounded-b-2xl border-t border-slate-200 bg-slate-50/60",
+            needsHScroll ? "block" : "hidden"
+          )}
+          aria-hidden="true"
+        >
+          <div style={{ width: tableScrollWidth, height: 1 }} />
+        </div>
       </div>
 
       {meta ? <PaginationBar meta={meta} onPageChange={setPage} /> : null}

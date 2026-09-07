@@ -176,3 +176,35 @@
     padding: 0;
   }
 }
+
+/* Modern horizontal-scrollbar look (rounded track/thumb, subtle colors, hover
+   state) for the Guests table's sticky scrollbar and its real scroll
+   container — see guests-table.tsx. Scoped to .modern-hscroll (applied
+   directly) and .guest-table-scroll's own table-container (the shared Table
+   component's internal overflow-x-auto div, targeted by its data-slot since
+   that component doesn't accept a className for it) so it never restyles
+   scrollbars on any other table in the app. */
+.modern-hscroll,
+.guest-table-scroll [data-slot="table-container"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.modern-hscroll::-webkit-scrollbar,
+.guest-table-scroll [data-slot="table-container"]::-webkit-scrollbar {
+  height: 10px;
+}
+.modern-hscroll::-webkit-scrollbar-track,
+.guest-table-scroll [data-slot="table-container"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modern-hscroll::-webkit-scrollbar-thumb,
+.guest-table-scroll [data-slot="table-container"]::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.modern-hscroll:hover::-webkit-scrollbar-thumb,
+.guest-table-scroll [data-slot="table-container"]:hover::-webkit-scrollbar-thumb {
+  background-color: oklch(0.708 0 0);
+}

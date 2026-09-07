@@ -34,12 +34,20 @@ export async function POST(req: NextRequest) {
     if (!hasPermission(auth.user, PERMISSIONS.CASHIERING_MANAGE)) return apiForbidden();
   }
 
+  // Registering a Club Membership inline needs the same permissions the
+  // standalone /api/club-membership registration endpoint requires.
+  if (parsed.data.clubMembership?.register) {
+    if (!hasPermission(auth.user, PERMISSIONS.CLUB_RECEPTION_MANAGE)) return apiForbidden();
+    if (!hasPermission(auth.user, PERMISSIONS.CASHIERING_MANAGE)) return apiForbidden();
+  }
+
   const meta = getRequestMeta(req);
 
   try {
     const result = await createGuestFolioWithReservationAndCharge(
       { guestId: parsed.data.guestId, guest: parsed.data.guest },
       parsed.data.room ?? null,
+      parsed.data.clubMembership ?? null,
       {
         userId: auth.user.id,
         role: auth.user.roles[0] ?? null,

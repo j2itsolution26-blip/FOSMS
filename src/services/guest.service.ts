@@ -1,11 +1,12 @@
 import "server-only";
-import type { Prisma } from "@prisma/client";
+import type { PaymentMethod, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
 import { promoteGuestToRegular } from "@/services/cashiering.service";
+import { registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -120,6 +121,19 @@ export async function getGuestById(id: string) {
   const guest = await prisma.guest.findUnique({
     where: { id, deletedAt: null },
     include: {
+      clubMembership: {
+        select: {
+          membershipNo: true,
+          feeAmount: true,
+          createdAt: true,
+          transactions: {
+            where: { type: "PAYMENT" },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { paymentMethod: true, otherPaymentMethod: true, processedBy: true, reversedById: true, createdAt: true },
+          },
+        },
+      },
       reservations: {
         orderBy: { createdAt: "desc" },
         take: 20,
@@ -223,9 +237,11 @@ export async function createGuest(input: GuestInput, actor: ActorContext) {
 }
 
 type GuestFolioRoomInput = NonNullable<CreateGuestFolioInput["room"]>;
+type GuestFolioClubMembershipInput = NonNullable<CreateGuestFolioInput["clubMembership"]>;
 
 /**
- * Atomic Guest Folio save — creates the Guest and, when a room is assigned,
+ * Atomic Guest Folio save — creates the Guest, optionally registers them as a
+ * Club Member (its own one-time ₱1,000 fee), and, when a room is assigned,
  * its Reservation and initial Cashiering charge, all inside ONE database
  * transaction. Replaces the old flow where the Guest Folio dialog drove
  * Guest -> Reservation -> Charge as three independent client requests: any
@@ -238,12 +254,15 @@ type GuestFolioRoomInput = NonNullable<CreateGuestFolioInput["room"]>;
  * Room pricing/availability is resolved (resolveInitialReservationCharge)
  * BEFORE any row is written, so a pricing failure never leaves a bare Guest
  * behind; every write then happens inside one $transaction, so a mid-flow
- * failure (e.g. the room got booked out from under this request) rolls back
- * the Guest along with it instead of leaving a partially-saved folio.
+ * failure (e.g. the room got booked out from under this request, or the guest
+ * turns out to already be a member) rolls back the Guest (and any membership
+ * already written this transaction) along with it instead of leaving a
+ * partially-saved folio.
  */
 export async function createGuestFolioWithReservationAndCharge(
   person: PersonInput,
   room: GuestFolioRoomInput | null,
+  clubMembership: GuestFolioClubMembershipInput | null,
   actor: ActorContext
 ) {
   const resolved = room
@@ -264,8 +283,24 @@ export async function createGuestFolioWithReservationAndCharge(
     const guest = await resolveOrCreateGuestInTx(tx, person);
     const isNewGuest = !person.guestId;
 
+    // Registering happens against the SAME resolved guest — never a second,
+    // separately-created Guest row — so a person can never end up duplicated
+    // just because they joined the Club Member on this same visit.
+    const membership = clubMembership?.register
+      ? await registerClubMembershipForGuestInTx(
+          tx,
+          guest.id,
+          {
+            paymentMethod: clubMembership.paymentMethod as PaymentMethod,
+            otherPaymentMethod: clubMembership.otherPaymentMethod,
+            processedBy: clubMembership.processedBy!,
+          },
+          actor.userId
+        )
+      : null;
+
     if (!room || !resolved) {
-      return { guest, isNewGuest, reservation: null, transaction: null };
+      return { guest, isNewGuest, reservation: null, transaction: null, membership };
     }
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
@@ -288,7 +323,7 @@ export async function createGuestFolioWithReservationAndCharge(
       { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod }
     );
 
-    return { guest, isNewGuest, reservation, transaction };
+    return { guest, isNewGuest, reservation, transaction, membership };
   });
 
   // Only a genuinely new person gets a "guest created" audit entry — reusing
@@ -337,6 +372,37 @@ export async function createGuestFolioWithReservationAndCharge(
         transactionNo: result.transaction.transactionNo,
         type: result.transaction.type,
         amount: result.transaction.amount,
+      },
+    });
+  }
+
+  if (result.membership) {
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "CLUB_REGISTRATION",
+      module: "club-reception",
+      recordId: result.membership.membership.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: {
+        guestName: `${result.guest.firstName} ${result.guest.lastName}`,
+        membershipNo: result.membership.membership.membershipNo,
+        feeAmount: Number(result.membership.membership.feeAmount),
+      },
+    });
+    await recordAudit({
+      userId: actor.userId,
+      role: actor.role,
+      action: "PAYMENT_RECEIVED",
+      module: "cashiering",
+      recordId: result.membership.transaction.id,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      newValue: {
+        transactionNo: result.membership.transaction.transactionNo,
+        type: result.membership.transaction.type,
+        amount: result.membership.transaction.amount,
       },
     });
   }

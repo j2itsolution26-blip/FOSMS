@@ -43,6 +43,39 @@ export async function isActiveClubMember(guestId: string): Promise<boolean> {
 }
 
 export const CLUB_MEMBER_DISCOUNT_ERROR = "Club Member discount is only available to active Club Members.";
+export const CLUB_MEMBER_FIRST_CHECK_IN_ERROR = "Club Member discount is available starting from the second check-in.";
+
+/**
+ * The ACTUAL 2% discount gate — stricter than isActiveClubMember() above.
+ * Registering (or already having) an active membership is not enough on its
+ * own: the membership registration event itself (a guest's first stay as a
+ * member) must never also carry the 2% discount, or the discount would
+ * effectively apply from day one every time, defeating "starts on the next
+ * check-in." Eligibility therefore also requires at least one completed
+ * CheckIn — from any of the guest's OTHER reservations — that happened after
+ * the membership was registered. A membership registered standalone (Club
+ * Reception, no reservation attached) and one registered inline from the
+ * Guest Folio are indistinguishable here on purpose: either way, the very
+ * first check-in that follows registration is the one that doesn't get the
+ * discount.
+ */
+export async function getClubMemberDiscountEligibility(
+  guestId: string
+): Promise<{ isActiveMember: boolean; eligible: boolean }> {
+  const membership = await prisma.clubMembership.findUnique({
+    where: { guestId },
+    select: { createdAt: true, transactions: { select: { reversedById: true }, where: { type: "PAYMENT" } } },
+  });
+  if (!membership) return { isActiveMember: false, eligible: false };
+
+  const isActiveMember = membership.transactions.some((t) => !t.reversedById);
+  if (!isActiveMember) return { isActiveMember: false, eligible: false };
+
+  const priorCheckIns = await prisma.checkIn.count({
+    where: { checkedInAt: { gt: membership.createdAt }, reservation: { guestId } },
+  });
+  return { isActiveMember: true, eligible: priorCheckIns > 0 };
+}
 
 /**
  * Flips a Guest created solely for a Club Membership's foreign key
@@ -552,9 +585,15 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
       where: { id: input.reservationId },
       select: { guestId: true },
     });
-    const eligible = reservationForEligibility ? await isActiveClubMember(reservationForEligibility.guestId) : false;
+    const { isActiveMember, eligible } = reservationForEligibility
+      ? await getClubMemberDiscountEligibility(reservationForEligibility.guestId)
+      : { isActiveMember: false, eligible: false };
     if (!eligible) {
-      throw new AppError(CLUB_MEMBER_DISCOUNT_ERROR, "NOT_A_CLUB_MEMBER", 403);
+      throw new AppError(
+        isActiveMember ? CLUB_MEMBER_FIRST_CHECK_IN_ERROR : CLUB_MEMBER_DISCOUNT_ERROR,
+        "NOT_A_CLUB_MEMBER",
+        403
+      );
     }
   }
 

@@ -52,6 +52,22 @@ type GuestDetails = {
   emergencyContact: string | null;
   notes: string | null;
   processedBy: string | null;
+  // Present only once this guest has registered a Club Membership — its
+  // ₱1,000 fee is its own CashierTransaction (clubMembershipId set,
+  // reservationId null), always shown as its own line here, never merged
+  // into any reservation's room/service charges (see getGuestById()).
+  clubMembership: {
+    membershipNo: string;
+    feeAmount: string;
+    createdAt: string;
+    transactions: Array<{
+      paymentMethod: string | null;
+      otherPaymentMethod: string | null;
+      processedBy: string | null;
+      reversedById: string | null;
+      createdAt: string;
+    }>;
+  } | null;
   reservations: Array<{
     id: string;
     reservationNo: string;
@@ -90,6 +106,13 @@ function currency(value: string | null) {
 
 function fmtDate(d: string | null) {
   return d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+}
+
+// A membership fee is a single one-time payment (see registerClubMembership
+// in club-membership.service.ts) — never partial and never more than one
+// non-reversed row, so this is at most a single transaction.
+function activeMembershipPayment(membership: GuestDetails["clubMembership"]) {
+  return membership?.transactions.find((t) => !t.reversedById) ?? null;
 }
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -205,6 +228,26 @@ export function GuestDetailsDialog({
                 <Field label="Front Desk Officer" value={guest.processedBy || "Not recorded"} />
               </Section>
 
+              {guest.clubMembership ? (
+                <Section title="Club Membership">
+                  <Field label="Member ID" value={guest.clubMembership.membershipNo} />
+                  <Field label="Status" value="Active" />
+                  <Field label="Club Membership Fee" value={currency(guest.clubMembership.feeAmount)} />
+                  <Field
+                    label="Mode of Payment"
+                    value={formatPaymentMethod(
+                      activeMembershipPayment(guest.clubMembership)?.paymentMethod ?? null,
+                      activeMembershipPayment(guest.clubMembership)?.otherPaymentMethod ?? null
+                    )}
+                  />
+                  <Field label="Date Registered" value={fmtDate(guest.clubMembership.createdAt)} />
+                  <Field
+                    label="Processed By"
+                    value={activeMembershipPayment(guest.clubMembership)?.processedBy || "Not recorded"}
+                  />
+                </Section>
+              ) : null}
+
               <Section title="Preferences">
                 <Field label="Guest Preferences" value={guest.preferences} />
                 <Field label="Notes" value={guest.notes} />
@@ -292,6 +335,22 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
         <PrintRow label="Last Name" value={guest.lastName} />
         <PrintRow label="Front Desk Officer" value={guest.processedBy} />
       </PrintSection>
+
+      {guest.clubMembership ? (
+        <PrintSection title="Club Membership">
+          <PrintRow label="Member ID" value={guest.clubMembership.membershipNo} />
+          <PrintRow label="Status" value="Active" />
+          <PrintRow label="Club Membership Fee" value={currency(guest.clubMembership.feeAmount)} />
+          <PrintRow
+            label="Mode of Payment"
+            value={formatPaymentMethod(
+              activeMembershipPayment(guest.clubMembership)?.paymentMethod ?? null,
+              activeMembershipPayment(guest.clubMembership)?.otherPaymentMethod ?? null
+            )}
+          />
+          <PrintRow label="Date Registered" value={fmtDate(guest.clubMembership.createdAt)} />
+        </PrintSection>
+      ) : null}
 
       {guest.preferences || guest.notes ? (
         <PrintSection title="Guest Preferences">

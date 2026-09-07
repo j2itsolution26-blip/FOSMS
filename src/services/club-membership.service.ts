@@ -1,12 +1,12 @@
 import "server-only";
-import type { PaymentMethod } from "@prisma/client";
+import type { PaymentMethod, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
 import { formatGuestFullName } from "@/lib/formatters";
-import { createClubMembershipPayment } from "@/services/cashiering.service";
+import { createClubMembershipPayment, getClubMemberDiscountEligibility } from "@/services/cashiering.service";
 import { CLUB_MEMBERSHIP_FEE, type RegisterClubMembershipInput } from "@/validators/club-membership.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
@@ -17,7 +17,12 @@ import { sameNormalizedName } from "@/lib/guest-identity";
 // here, so reservation.service.ts/cashiering.service.ts can both import the
 // eligibility check without this file and cashiering.service.ts importing
 // each other.
-export { isActiveClubMember, CLUB_MEMBER_DISCOUNT_ERROR } from "@/services/cashiering.service";
+export {
+  isActiveClubMember,
+  getClubMemberDiscountEligibility,
+  CLUB_MEMBER_DISCOUNT_ERROR,
+  CLUB_MEMBER_FIRST_CHECK_IN_ERROR,
+} from "@/services/cashiering.service";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
@@ -28,6 +33,13 @@ type ActorContext = { userId: string; role: string | null; ipAddress?: string | 
  * existing guest is selected. Same ACTIVE definition as isActiveClubMember()
  * — no separate status column exists (see the schema comment on
  * ClubMembership) — just returned as a small summary instead of a bare bool.
+ *
+ * `eligibleForDiscount` is the stricter, separate check
+ * (getClubMemberDiscountEligibility): an active member is not automatically
+ * discount-eligible — the first check-in after registering never gets the
+ * 2% (see that function's comment). Forms must gate the CLUB_MEMBER option on
+ * `eligibleForDiscount`, not `isActiveMember`, or they'd offer a discount the
+ * server will reject.
  */
 export async function getClubMembershipSummary(guestId: string) {
   const membership = await prisma.clubMembership.findUnique({
@@ -39,10 +51,16 @@ export async function getClubMembershipSummary(guestId: string) {
     },
   });
   if (!membership) {
-    return { isActiveMember: false, membershipNo: null, feeAmount: null };
+    return { isActiveMember: false, eligibleForDiscount: false, membershipNo: null, feeAmount: null };
   }
   const isActiveMember = membership.transactions.some((t) => !t.reversedById);
-  return { isActiveMember, membershipNo: membership.membershipNo, feeAmount: Number(membership.feeAmount) };
+  const { eligible } = await getClubMemberDiscountEligibility(guestId);
+  return {
+    isActiveMember,
+    eligibleForDiscount: eligible,
+    membershipNo: membership.membershipNo,
+    feeAmount: Number(membership.feeAmount),
+  };
 }
 
 export type ClubMemberStatusFilter = "ACTIVE" | "UNPAID";
@@ -115,6 +133,48 @@ export async function listClubMembers(pagination: PaginationInput, filters: { st
   const pageRows = filtered.slice(start, start + pageSize);
 
   return { rows: pageRows, meta: paginationMeta(filtered.length, { page, pageSize }) };
+}
+
+/**
+ * The actual "create membership + its one-time fee payment" write, for a
+ * guestId the caller has ALREADY resolved (an existing Guest, or one just
+ * created in the same transaction) — shared by the standalone
+ * registerClubMembership() below and the Guest Folio's inline registration
+ * (createGuestFolioWithReservationAndCharge in guest.service.ts), so there is
+ * exactly one place that creates a ClubMembership row and its rule for
+ * rejecting a duplicate can never drift between the two entry points.
+ */
+export async function registerClubMembershipForGuestInTx(
+  tx: Prisma.TransactionClient,
+  guestId: string,
+  payment: { paymentMethod: PaymentMethod; otherPaymentMethod?: string | null; processedBy: string },
+  registeredByUserId: string
+) {
+  const existing = await tx.clubMembership.findUnique({ where: { guestId } });
+  if (existing) {
+    throw new AppError("Guest is already an Active Club Member.", "MEMBERSHIP_ALREADY_EXISTS", 409);
+  }
+
+  const membershipNo = await nextNumber(tx, "club-membership", "CM");
+  const membership = await tx.clubMembership.create({
+    data: {
+      membershipNo,
+      guestId,
+      feeAmount: CLUB_MEMBERSHIP_FEE,
+      registeredById: registeredByUserId,
+    },
+  });
+
+  const transaction = await createClubMembershipPayment(tx, {
+    clubMembershipId: membership.id,
+    userId: registeredByUserId,
+    amount: CLUB_MEMBERSHIP_FEE,
+    paymentMethod: payment.paymentMethod,
+    otherPaymentMethod: payment.otherPaymentMethod,
+    processedBy: payment.processedBy,
+  });
+
+  return { membership, transaction };
 }
 
 /**
@@ -204,29 +264,16 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
       throw new AppError("Select an existing guest or enter a new member's name.", "GUEST_REQUIRED", 400);
     }
 
-    const existing = await tx.clubMembership.findUnique({ where: { guestId } });
-    if (existing) {
-      throw new AppError("Guest is already an Active Club Member.", "MEMBERSHIP_ALREADY_EXISTS", 409);
-    }
-
-    const membershipNo = await nextNumber(tx, "club-membership", "CM");
-    const membership = await tx.clubMembership.create({
-      data: {
-        membershipNo,
-        guestId,
-        feeAmount: CLUB_MEMBERSHIP_FEE,
-        registeredById: actor.userId,
+    const { membership, transaction } = await registerClubMembershipForGuestInTx(
+      tx,
+      guestId,
+      {
+        paymentMethod: input.paymentMethod as PaymentMethod,
+        otherPaymentMethod: input.otherPaymentMethod,
+        processedBy: input.processedBy,
       },
-    });
-
-    const transaction = await createClubMembershipPayment(tx, {
-      clubMembershipId: membership.id,
-      userId: actor.userId,
-      amount: CLUB_MEMBERSHIP_FEE,
-      paymentMethod: input.paymentMethod as PaymentMethod,
-      otherPaymentMethod: input.otherPaymentMethod,
-      processedBy: input.processedBy,
-    });
+      actor.userId
+    );
 
     const guest = await tx.guest.findUniqueOrThrow({ where: { id: guestId } });
 
