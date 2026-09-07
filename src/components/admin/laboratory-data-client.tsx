@@ -27,6 +27,7 @@ type LabResetCounts = {
   cashierTransactions: number;
   cashierSessions: number;
   serviceRequests: number;
+  clubMemberships: number;
 };
 
 const EMPTY_COUNTS: LabResetCounts = {
@@ -37,6 +38,7 @@ const EMPTY_COUNTS: LabResetCounts = {
   cashierTransactions: 0,
   cashierSessions: 0,
   serviceRequests: 0,
+  clubMemberships: 0,
 };
 
 function CountRow({ label, value }: { label: string; value: number }) {
@@ -57,6 +59,9 @@ function CountSummary({ counts }: { counts: LabResetCounts }) {
       <CountRow label="Check-Outs to delete" value={counts.checkOuts} />
       <CountRow label="Cashiering transactions to delete" value={counts.cashierTransactions} />
       <CountRow label="Cashier sessions to delete" value={counts.cashierSessions} />
+      {counts.clubMemberships > 0 ? (
+        <CountRow label="Club Memberships to delete" value={counts.clubMemberships} />
+      ) : null}
       {counts.serviceRequests > 0 ? (
         <CountRow label="Other guest-linked records to delete" value={counts.serviceRequests} />
       ) : null}
@@ -100,7 +105,8 @@ export function LaboratoryDataClient() {
     counts.checkOuts +
     counts.cashierTransactions +
     counts.cashierSessions +
-    counts.serviceRequests;
+    counts.serviceRequests +
+    counts.clubMemberships;
 
   function openDialog() {
     setStep("form");
@@ -142,14 +148,17 @@ export function LaboratoryDataClient() {
       result.data.checkOuts +
       result.data.cashierTransactions +
       result.data.cashierSessions +
-      result.data.serviceRequests;
-    toast.success("Laboratory data reset successfully.", {
-      description:
-        resetTotal > 0
-          ? `Deleted ${result.data.guests.toLocaleString("en-US")} guest folios, ${result.data.reservations.toLocaleString("en-US")} reservations, and ${result.data.cashierTransactions.toLocaleString("en-US")} cashiering transactions (plus related check-in/check-out and session records).`
-          : "There was no laboratory data to remove.",
-      duration: 8000,
-    });
+      result.data.serviceRequests +
+      result.data.clubMemberships;
+
+    if (resetTotal > 0) {
+      toast.success("Laboratory data reset successfully.", {
+        description: `Deleted ${result.data.guests.toLocaleString("en-US")} guest folios, ${result.data.reservations.toLocaleString("en-US")} reservations, and ${result.data.cashierTransactions.toLocaleString("en-US")} cashiering transactions (plus related check-in/check-out, session, and membership records).`,
+        duration: 8000,
+      });
+    } else {
+      toast.success("No laboratory data found.", { duration: 8000 });
+    }
 
     // Re-confirm against the server rather than trusting the just-applied
     // result — cheap, and guarantees this page always reflects real state.

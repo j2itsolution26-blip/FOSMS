@@ -28,9 +28,15 @@ export async function POST(req: NextRequest) {
     return apiSuccess(counts);
   } catch (err) {
     // Prisma's $transaction already rolled back everything on any failure —
-    // nothing was partially deleted. Never surface the raw DB error to the
-    // client (per spec: "Do not expose database errors to normal users").
+    // nothing was partially deleted, so this is never "some rows deleted,
+    // some not." The actual cause (foreign key constraint, connection error,
+    // etc.) is logged here for diagnosis; never surfaced to the client raw
+    // (per spec: "Do not expose database errors to normal users").
     console.error("[admin/laboratory-data/reset]", err);
-    return apiError("Reset failed. No data was deleted.", "LAB_RESET_FAILED", 500);
+    return apiError(
+      "Reset failed because some records could not be deleted. No changes were made — check the server log for details.",
+      "LAB_RESET_FAILED",
+      500
+    );
   }
 }
