@@ -114,7 +114,6 @@ export function GuestFormDialog({
   const [registerMembership, setRegisterMembership] = useState(false);
   const [membershipPaymentMethod, setMembershipPaymentMethod] = useState("CASH");
   const [membershipOtherPaymentMethod, setMembershipOtherPaymentMethod] = useState("");
-  const [membershipProcessedBy, setMembershipProcessedBy] = useState("");
 
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
@@ -201,7 +200,6 @@ export function GuestFormDialog({
       setRegisterMembership(false);
       setMembershipPaymentMethod("CASH");
       setMembershipOtherPaymentMethod("");
-      setMembershipProcessedBy("");
       roomForm.reset({
         roomTypeId: "",
         roomId: "",
@@ -317,10 +315,13 @@ export function GuestFormDialog({
         toast.error("Please specify the membership fee's payment method.");
         return;
       }
-      if (!membershipProcessedBy.trim()) {
-        toast.error("Front Desk Officer is required for the membership fee.");
-        return;
-      }
+      // The membership fee is processed by the SAME Front Desk Officer as the
+      // rest of this Guest Folio — never a second staff field. For a new
+      // guest that field already lives further down this same form; for an
+      // existing guest it's only rendered (see below) once membership
+      // registration is turned on, so it must be validated here too.
+      const officerValid = await form.trigger("processedBy");
+      if (!officerValid) return;
     }
 
     const room = roomForm.getValues();
@@ -354,7 +355,9 @@ export function GuestFormDialog({
               register: true,
               paymentMethod: membershipPaymentMethod,
               otherPaymentMethod: membershipPaymentMethod === "OTHER" ? membershipOtherPaymentMethod : undefined,
-              processedBy: membershipProcessedBy,
+              // The one and only Front Desk Officer for this whole folio —
+              // see the comment above the form.trigger("processedBy") call.
+              processedBy: form.getValues("processedBy"),
             }
           : undefined,
       }),
@@ -528,36 +531,52 @@ export function GuestFormDialog({
                         <span className="font-semibold text-[#0b1c3f]">{currency(CLUB_MEMBERSHIP_FEE)}</span>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div>
-                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                            Mode of Payment <span className="text-red-500">*</span>
-                          </p>
-                          <Select value={membershipPaymentMethod} onValueChange={setMembershipPaymentMethod}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                            Membership Processed By <span className="text-red-500">*</span>
-                          </p>
-                          <Input
-                            placeholder="Enter name of staff processing the membership fee"
-                            className="h-10 rounded-md border-slate-200 bg-white text-sm"
-                            value={membershipProcessedBy}
-                            onChange={(e) => setMembershipProcessedBy(e.target.value)}
-                          />
-                        </div>
+                      <div>
+                        <p className="mb-1.5 text-xs font-semibold tracking-wider text-slate-700 uppercase">
+                          Mode of Payment <span className="text-red-500">*</span>
+                        </p>
+                        <Select value={membershipPaymentMethod} onValueChange={setMembershipPaymentMethod}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
+
+                      {/* No separate "Membership Processed By" field — the
+                          membership fee is processed by the same Front Desk
+                          Officer as the rest of this Guest Folio (see the
+                          form.trigger("processedBy") validation above). A new
+                          guest already has this field further down this same
+                          form; an existing guest has no other Front Desk
+                          Officer field at all, so it's rendered here instead. */}
+                      {useExistingGuest ? (
+                        <FormField
+                          control={form.control}
+                          name="processedBy"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                Front Desk Officer <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Enter name of Front Desk Officer"
+                                  className="h-10 rounded-md border-slate-200 bg-white text-sm"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage className="text-xs text-red-600" />
+                            </FormItem>
+                          )}
+                        />
+                      ) : null}
 
                       {membershipPaymentMethod === "OTHER" ? (
                         <div>

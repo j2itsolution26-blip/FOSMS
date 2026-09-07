@@ -22,7 +22,10 @@ test.describe("Guest Folio — Club Membership registration", () => {
     await page.getByText("Register as Club Member").click();
     await expect(page.getByText("₱1,000.00")).toBeVisible();
 
-    await page.getByPlaceholder("Enter name of staff processing the membership fee").fill("QA Cashier");
+    // No separate "Membership Processed By" field to fill anymore — the
+    // membership fee is processed by the same Front Desk Officer entered
+    // above ("QA Front Desk"), asserted below via the guest details dialog.
+    await expect(page.getByPlaceholder("Enter name of staff processing the membership fee")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Save Guest Folio" }).click();
 
@@ -41,6 +44,11 @@ test.describe("Guest Folio — Club Membership registration", () => {
     await expect(detailsDialog.getByRole("heading", { name: "Club Membership" })).toBeVisible();
     await expect(detailsDialog.getByText(/^CM-/)).toBeVisible();
     await expect(detailsDialog.getByText("Club Membership Fee")).toBeVisible();
+
+    // The membership fee's own "Processed By" reused the SAME Front Desk
+    // Officer entered once at the top of the form — never a second,
+    // separately-collected name.
+    await expect(detailsDialog.getByText("QA Front Desk")).toHaveCount(2);
   });
 
   test("enforces the first-check-in rule server-side across a full member lifecycle", async ({ page }) => {
