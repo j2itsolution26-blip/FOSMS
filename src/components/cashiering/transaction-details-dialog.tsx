@@ -47,6 +47,10 @@ export type TransactionDetailsRow = {
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
+  /** A one-time Club Membership fee folded into THIS charge's own VAT/total
+   * (see the schema comment on membershipFeeIncluded) — never the separate
+   * membership fee PAYMENT itself (that's `clubMembership` below). */
+  membershipFeeIncluded: string | null;
   /** The Cashiering transaction's own manually-typed processor — independent
    * of `user` (the logged-in account) and of the Guest Folio's processedBy. */
   processedBy: string | null;
@@ -304,6 +308,18 @@ export function TransactionDetailsDialog({
               <p className="text-2xl font-bold text-slate-900">{currency(Number(transaction.amount))}</p>
             </div>
           </div>
+
+          {transaction.membershipFeeIncluded ? (
+            <div className="space-y-3 border-t pt-4">
+              <SectionHeading>Club Membership</SectionHeading>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-emerald-900">Club Membership Registration</span>
+                  <span className="font-semibold text-emerald-900">{currency(Number(transaction.membershipFeeIncluded))}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-3 border-t pt-4">
             <SectionHeading>Discount &amp; Tax</SectionHeading>

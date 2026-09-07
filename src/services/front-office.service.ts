@@ -97,6 +97,7 @@ export type FrontOfficeActivityTransaction = {
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
+  membershipFeeIncluded: string | null;
   processedBy: string | null;
   reference: string | null;
   additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | null;
@@ -181,6 +182,7 @@ function toTransactionShape(t: NonNullable<Awaited<ReturnType<typeof listTodayTr
     discountAmount: t.discountAmount?.toString() ?? null,
     subtotal: t.subtotal?.toString() ?? null,
     vatAmount: t.vatAmount?.toString() ?? null,
+    membershipFeeIncluded: t.membershipFeeIncluded?.toString() ?? null,
     processedBy: t.processedBy,
     reference: t.reference,
     additionalChargeType: t.additionalChargeType,

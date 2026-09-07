@@ -313,6 +313,7 @@ export async function getGuestsAwaitingPayment() {
           otherDiscountType: true,
           otherDiscountRate: true,
           vatAmount: true,
+          membershipFeeIncluded: true,
           processedBy: true,
           roomType: { select: { name: true } },
           user: { select: { firstName: true, lastName: true } },
@@ -389,6 +390,7 @@ export async function getGuestsAwaitingPayment() {
               roomType: targetCharge.roomType,
               discountType: targetCharge.discountType,
               vatAmount: targetCharge.vatAmount?.toString() ?? null,
+              membershipFeeIncluded: targetCharge.membershipFeeIncluded?.toString() ?? null,
               processedBy: targetCharge.processedBy,
             }
           : null,

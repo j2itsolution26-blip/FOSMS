@@ -48,6 +48,13 @@ export function TransactionSettleDialog({
 
   const originalAmount = transaction ? Number(transaction.amount) : 0;
   const remaining = transaction ? Math.max(0, Math.round((originalAmount - transaction.paidAmount) * 100) / 100) : 0;
+  // A one-time Club Membership fee this charge folded into its OWN VAT/total
+  // (see the schema comment on membershipFeeIncluded) — already reflected in
+  // `originalAmount`/`remaining` above (computed server-side, see
+  // computeFolioCharge's membershipFee input), this is purely the line that
+  // explains WHY. Never a second ₱1,000 charge — just this same one amount,
+  // shown through.
+  const membershipFeeIncluded = transaction?.membershipFeeIncluded ? Number(transaction.membershipFeeIncluded) : 0;
 
   useEffect(() => {
     if (open && transaction) {
@@ -124,6 +131,15 @@ export function TransactionSettleDialog({
                   : ""}
               </p>
             </div>
+            {membershipFeeIncluded > 0 ? (
+              <div className="col-span-2 rounded-md border border-emerald-200 bg-emerald-50 p-2.5">
+                <p className="text-xs font-semibold tracking-wide text-emerald-800 uppercase">Club Membership</p>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-sm text-emerald-900">Club Membership Registration</span>
+                  <span className="font-semibold text-emerald-900">{currency(membershipFeeIncluded)}</span>
+                </div>
+              </div>
+            ) : null}
             <div>
               <p className="text-xs text-muted-foreground">Discount Type</p>
               <p className="font-medium text-slate-900">
