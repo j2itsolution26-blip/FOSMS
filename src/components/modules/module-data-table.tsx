@@ -24,6 +24,7 @@ export function ModuleDataTable<T extends { id: string }>({
   onPageChange,
   emptyState,
   stickyHorizontalScroll = false,
+  variant = "default",
 }: {
   columns: ModuleColumn<T>[];
   rows: T[];
@@ -41,7 +42,17 @@ export function ModuleDataTable<T extends { id: string }>({
    * pattern as the Guests table (see guests-table.tsx).
    */
   stickyHorizontalScroll?: boolean;
+  /**
+   * Opt-in "modern admin dashboard" presentation — sticky header with a
+   * tinted background, roomier cell padding, a slightly stronger card
+   * (border/shadow/radius). Purely a `className` swap on the exact same
+   * markup, so it changes nothing but appearance, and defaults to "default"
+   * (today's exact look) everywhere it isn't explicitly requested — see
+   * Cashiering (cashiering-client.tsx), the only current caller of "modern".
+   */
+  variant?: "default" | "modern";
 }) {
+  const modern = variant === "modern";
   const tableWrapperRef = useRef<HTMLDivElement>(null);
   const stickyScrollRef = useRef<HTMLDivElement>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
@@ -102,16 +113,28 @@ export function ModuleDataTable<T extends { id: string }>({
           positioning inert. Rounded corners are instead applied to the two
           pieces directly: the inner wrapper clips the top (the table),
           the sticky bar clips its own bottom corners. */}
-      <div className={cn("rounded-lg border bg-white", !stickyHorizontalScroll && "overflow-x-auto")}>
+      <div
+        className={cn(
+          "rounded-lg border bg-white",
+          modern && "rounded-xl border-slate-200 shadow-sm",
+          !stickyHorizontalScroll && "overflow-x-auto"
+        )}
+      >
         <div
           ref={tableWrapperRef}
-          className={stickyHorizontalScroll ? "sticky-hscroll-source overflow-hidden rounded-t-lg" : undefined}
+          className={cn(
+            stickyHorizontalScroll && "sticky-hscroll-source overflow-hidden",
+            stickyHorizontalScroll && (modern ? "rounded-t-xl" : "rounded-t-lg")
+          )}
         >
           <Table>
-            <TableHeader>
-              <TableRow>
+            <TableHeader className={modern ? "sticky top-0 z-10 bg-slate-50/90 backdrop-blur-sm" : undefined}>
+              <TableRow className={modern ? "hover:bg-transparent" : undefined}>
                 {columns.map((col) => (
-                  <TableHead key={col.key} className={col.className}>
+                  <TableHead
+                    key={col.key}
+                    className={cn(modern && "h-11 px-4 py-3 font-semibold text-slate-600", col.className)}
+                  >
                     {col.header}
                   </TableHead>
                 ))}
@@ -122,23 +145,26 @@ export function ModuleDataTable<T extends { id: string }>({
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
                     {columns.map((col) => (
-                      <TableCell key={col.key}>
+                      <TableCell key={col.key} className={modern ? "px-4 py-3.5" : undefined}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : rows.length === 0 ? (
-                <TableRow>
+                <TableRow className={modern ? "hover:bg-transparent" : undefined}>
                   <TableCell colSpan={columns.length} className="p-0">
                     {emptyState}
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} className={modern ? "align-middle" : undefined}>
                     {columns.map((col) => (
-                      <TableCell key={col.key} className={col.className}>
+                      <TableCell
+                        key={col.key}
+                        className={cn(modern && "px-4 py-3.5 align-middle text-slate-700", col.className)}
+                      >
                         {col.render(row)}
                       </TableCell>
                     ))}
@@ -157,7 +183,8 @@ export function ModuleDataTable<T extends { id: string }>({
           <div
             ref={stickyScrollRef}
             className={cn(
-              "modern-hscroll sticky bottom-0 z-10 overflow-x-auto overflow-y-hidden rounded-b-lg border-t border-slate-200 bg-slate-50/60 px-2 py-1.5",
+              "modern-hscroll sticky bottom-0 z-10 overflow-x-auto overflow-y-hidden border-t border-slate-200 bg-slate-50/60 px-2 py-1.5",
+              modern ? "rounded-b-xl" : "rounded-b-lg",
               needsHScroll ? "block" : "hidden"
             )}
             aria-hidden="true"

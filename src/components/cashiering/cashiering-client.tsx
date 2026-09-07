@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, Wallet, ReceiptText, Undo2 } from "lucide-react";
+import { Receipt, Wallet, ReceiptText, Undo2, CheckCircle2, Clock3, UserRound, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatDiscountType, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
@@ -43,6 +43,44 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// The single source of truth for a row's effective status (reversed voids
+// win, then a CHARGE fully settled via "Transact" reads as Paid) — used by
+// both the Status column's badge and the summary strip's counts, so they can
+// never disagree about what "Paid"/"Pending" means for a given row.
+function resolveStatusMeta(r: TransactionRow) {
+  return r.reversedById ? STATUS_META.VOIDED : isChargeFullyPaid(r) ? STATUS_META.PAYMENT : STATUS_META[r.type];
+}
+
+/** Compact, informational-only counts derived from the transactions already
+ * loaded/filtered below the heading — additive to (never a replacement for)
+ * the existing KPI cards and table rows. */
+function TransactionSummaryStrip({ rows, totalCollected }: { rows: TransactionRow[]; totalCollected: number }) {
+  const paid = rows.filter((r) => resolveStatusMeta(r).label === "Paid").length;
+  const pending = rows.filter((r) => resolveStatusMeta(r).label === "Unpaid").length;
+
+  const stats: { label: string; value: string; icon: typeof Receipt }[] = [
+    { label: "Total Transactions", value: String(rows.length), icon: Receipt },
+    { label: "Paid", value: String(paid), icon: CheckCircle2 },
+    { label: "Pending", value: String(pending), icon: Clock3 },
+    { label: "Total Collected", value: currency(totalCollected), icon: Wallet },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {stats.map((s) => (
+        <div
+          key={s.label}
+          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-1.5"
+        >
+          <s.icon className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+          <span className="text-xs font-medium text-slate-500">{s.label}</span>
+          <span className="text-sm font-semibold tabular-nums text-slate-900">{s.value}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function CashieringClient({
@@ -117,7 +155,7 @@ export function CashieringClient({
       render: (r) => (
         <button
           type="button"
-          className="font-medium text-blue-600 hover:underline"
+          className="font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
           onClick={() => setDetailsTxn(r)}
         >
           {r.transactionNo}
@@ -180,11 +218,33 @@ export function CashieringClient({
     {
       key: "type",
       header: "Type",
-      render: (r) => `${TRANSACTION_TYPE_LABELS[r.type]}${r.clubMembership ? " — Membership" : ""}`,
+      render: (r) => (
+        <span className="flex items-center gap-1.5">
+          {TRANSACTION_TYPE_LABELS[r.type]}
+          {r.clubMembership ? (
+            <Badge variant="outline" className="gap-1 border-violet-200 bg-violet-50 text-violet-700">
+              <Users className="h-3 w-3" aria-hidden /> Membership
+            </Badge>
+          ) : null}
+        </span>
+      ),
     },
     { key: "amount", header: "Amount", className: "text-right tabular-nums", render: (r) => currency(Number(r.amount)) },
     { key: "method", header: "Payment Method", render: (r) => formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "Not recorded" },
-    { key: "discount", header: "Discount Type", render: (r) => formatDiscountType(r.discountType, r.otherDiscountType) ?? "—" },
+    {
+      key: "discount",
+      header: "Discount Type",
+      render: (r) => {
+        const label = formatDiscountType(r.discountType, r.otherDiscountType);
+        return label ? (
+          <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+            {label}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
     {
       key: "discountAmount",
       header: "Discount Amount",
@@ -192,15 +252,24 @@ export function CashieringClient({
       render: (r) => (r.discountAmount ? currency(Number(r.discountAmount)) : "—"),
     },
     { key: "vat", header: "VAT", className: "text-right tabular-nums", render: (r) => (r.vatAmount ? currency(Number(r.vatAmount)) : "—") },
-    { key: "cashier", header: "Front Desk Officer", render: (r) => r.processedBy || "Not recorded" },
+    {
+      key: "cashier",
+      header: "Front Desk Officer",
+      render: (r) => (
+        <span className="flex items-center gap-1.5">
+          <UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+          {r.processedBy || "Not recorded"}
+        </span>
+      ),
+    },
     {
       key: "status",
       header: "Status",
       render: (r) => {
-        const meta = r.reversedById ? STATUS_META.VOIDED : isChargeFullyPaid(r) ? STATUS_META.PAYMENT : STATUS_META[r.type];
+        const meta = resolveStatusMeta(r);
         return (
           <button type="button" onClick={() => setDetailsTxn(r)} aria-label={`${meta.label} — view transaction details`}>
-            <Badge variant="outline" className={`${meta.className} cursor-pointer hover:opacity-80`}>
+            <Badge variant="outline" className={`${meta.className} cursor-pointer px-2.5 py-0.5 font-medium hover:opacity-80`}>
               {meta.label}
             </Badge>
           </button>
@@ -274,6 +343,10 @@ export function CashieringClient({
         ]}
         onClearFilters={() => setTypeFilter("")}
         tableTitle="Today's Transactions"
+        tableTitleExtra={
+          summary ? <TransactionSummaryStrip rows={rows} totalCollected={summary.kpis.todaysRevenue} /> : null
+        }
+        tableVariant="modern"
         columns={columns}
         rows={rows}
         loading={loading}

@@ -61,7 +61,7 @@ export function TransactionActionsMenu({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
               aria-label="Transaction actions"
               onClick={(e) => e.stopPropagation()}
             >

@@ -6,6 +6,7 @@ import { ModuleQuickActions } from "@/components/modules/module-quick-actions";
 import { ModuleFilterBar } from "@/components/modules/module-filter-bar";
 import { ModuleDataTable } from "@/components/modules/module-data-table";
 import { ModuleActivityTimeline } from "@/components/modules/module-activity-timeline";
+import { cn } from "@/lib/utils";
 import type { PaginationMeta } from "@/lib/api-client";
 import type {
   ModuleActivityItem,
@@ -45,6 +46,8 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   activityItems,
   secondarySection,
   stickyHorizontalScroll,
+  tableVariant = "default",
+  tableTitleExtra,
 }: {
   title: string;
   description: string;
@@ -69,8 +72,17 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
   secondarySection?: React.ReactNode;
   /** Opt-in sticky horizontal scrollbar for a wide table — see ModuleDataTable. */
   stickyHorizontalScroll?: boolean;
+  /** Opt-in "modern admin dashboard" presentation for the table title, filter
+   * bar, and table — see ModuleDataTable's identical prop. Defaults to
+   * "default" (today's exact look) for every module page except Cashiering. */
+  tableVariant?: "default" | "modern";
+  /** Optional content rendered next to the table title (e.g. Cashiering's
+   * compact Total/Paid/Pending/Collected summary strip) — purely additional
+   * information, never a replacement for the title or anything below it. */
+  tableTitleExtra?: React.ReactNode;
 }) {
   const hasActiveFilters = !!search.value || filters.some((f) => !!f.value);
+  const modernTable = tableVariant === "modern";
 
   return (
     <div className="space-y-6">
@@ -89,7 +101,12 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
       {secondarySection}
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">{tableTitle}</h2>
+        <div className={cn("flex flex-col gap-3", modernTable && "sm:flex-row sm:items-end sm:justify-between")}>
+          <h2 className={cn("text-lg font-semibold text-slate-900", modernTable && "text-xl font-bold tracking-tight")}>
+            {tableTitle}
+          </h2>
+          {tableTitleExtra}
+        </div>
         <ModuleFilterBar
           searchValue={search.value}
           onSearchChange={search.onChange}
@@ -100,6 +117,7 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
             onClearFilters();
           }}
           hasActiveFilters={hasActiveFilters}
+          variant={tableVariant}
         />
         <ModuleDataTable
           columns={columns}
@@ -109,6 +127,7 @@ export function FrontOfficeModuleLayout<T extends { id: string }>({
           onPageChange={onPageChange}
           emptyState={emptyState}
           stickyHorizontalScroll={stickyHorizontalScroll}
+          variant={tableVariant}
         />
       </div>
 
