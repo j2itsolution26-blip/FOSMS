@@ -501,7 +501,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
         <div
           ref={stickyScrollRef}
           className={cn(
-            "modern-hscroll sticky bottom-0 z-10 overflow-x-auto overflow-y-hidden rounded-b-2xl border-t border-slate-200 bg-slate-50/60",
+            "modern-hscroll sticky bottom-0 z-10 overflow-x-auto overflow-y-hidden rounded-b-2xl border-t border-slate-200 bg-slate-50/60 px-2 py-1.5",
             needsHScroll ? "block" : "hidden"
           )}
           aria-hidden="true"
