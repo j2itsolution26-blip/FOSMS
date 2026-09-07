@@ -220,13 +220,17 @@ export function GuestFormDialog({
         bedCount,
         discountType,
         otherDiscountRate: discountType === "OTHER" && otherDiscountRate ? Number(otherDiscountRate) : undefined,
+        // Folds the one-time membership fee into this preview's own VAT/total
+        // whenever a NEW membership is also being registered on this folio —
+        // see the identical comment in createGuestFolioWithReservationAndCharge.
+        membershipFee: registerMembership ? CLUB_MEMBERSHIP_FEE : undefined,
       }),
     })
       .then((res) => {
         if (res.success) setCharge(res.data);
       })
       .finally(() => setQuoting(false));
-  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate]);
+  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate, registerMembership]);
 
   useEffect(() => {
     if (!open || !isCreate) return;
@@ -1069,9 +1073,15 @@ export function GuestFormDialog({
                               <span>{currency(charge.bedCharge)}</span>
                             </div>
                           ) : null}
+                          {charge.membershipFee > 0 ? (
+                            <div className="flex justify-between text-slate-600">
+                              <span>Club Membership Registration</span>
+                              <span>{currency(charge.membershipFee)}</span>
+                            </div>
+                          ) : null}
                           <div className="flex justify-between border-t pt-1 font-medium text-slate-800">
                             <span>Subtotal</span>
-                            <span>{currency(charge.subtotal)}</span>
+                            <span>{currency(charge.subtotal + charge.membershipFee)}</span>
                           </div>
                           {charge.discountAmount > 0 ? (
                             <div className="flex justify-between text-emerald-700">

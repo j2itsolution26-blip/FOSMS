@@ -191,6 +191,10 @@ export async function resolveInitialReservationCharge(
     // guest exists, so they never have one to pass, which is exactly why
     // CLUB_MEMBER can never be eligible there (see the check below).
     guestId?: string | null;
+    // Only ever passed by the Guest Folio when a NEW Club Membership is also
+    // being registered alongside this room — see computeFolioCharge's own
+    // membershipFee comment.
+    membershipFee?: number;
   }
 ) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
@@ -222,6 +226,7 @@ export async function resolveInitialReservationCharge(
     discountType: pricing.discountType ?? null,
     otherDiscountType: pricing.otherDiscountType,
     otherDiscountRate: pricing.otherDiscountRate,
+    membershipFee: pricing.membershipFee,
   });
 
   return { room, charge };

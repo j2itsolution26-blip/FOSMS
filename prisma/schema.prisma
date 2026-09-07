@@ -944,6 +944,17 @@ model CashierTransaction {
   subtotal          Decimal?      @db.Decimal(10, 2)
   vatAmount         Decimal?      @db.Decimal(10, 2)
 
+  // Set only on a Guest Folio's room CHARGE when it was created together with
+  // a NEW Club Membership registration ("Register as Club Member" checked
+  // alongside a room) — the flat one-time fee folded into THIS charge's own
+  // taxable base/VAT/total (see computeFolioCharge's membershipFee input),
+  // so the guest and staff can see why this charge's VAT is higher than the
+  // room price alone implies. This is purely a display/breakdown value —
+  // completely separate from, and never confused with, the membership's own
+  // fee PAYMENT transaction below (clubMembershipId set there instead),
+  // which is what actually marks a membership ACTIVE.
+  membershipFeeIncluded Decimal? @db.Decimal(10, 2)
+
   // Set only on a CHARGE posted from Check-Out's "Add Additional Charge" for
   // guest damage/loss/extra services — null for the auto room CHARGE and for
   // ordinary manual charges. otherChargeType holds the free-text label when

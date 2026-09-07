@@ -7,6 +7,7 @@ import { AppError, NotFoundError } from "@/lib/errors";
 import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
 import { promoteGuestToRegular } from "@/services/cashiering.service";
 import { registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
+import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -156,6 +157,7 @@ export async function getGuestById(id: string) {
               discountAmount: true,
               subtotal: true,
               vatAmount: true,
+              membershipFeeIncluded: true,
               bedCount: true,
               processedBy: true,
               reversedById: true,
@@ -276,6 +278,13 @@ export async function createGuestFolioWithReservationAndCharge(
         // an active member yet, so this stays undefined for them and the
         // Club Member discount is correctly rejected server-side.
         guestId: person.guestId,
+        // A NEW Club Membership being registered alongside this room folds
+        // its one-time fee into the room charge's own VAT/total (see the
+        // Guest Folio Club Membership charges-summary spec) — the fee itself
+        // is still charged/paid separately via registerClubMembershipForGuestInTx
+        // below, so it must never ALSO be added here when reusing an
+        // existing, already-active member (no new fee to fold in then).
+        membershipFee: clubMembership?.register ? CLUB_MEMBERSHIP_FEE : undefined,
       })
     : null;
 

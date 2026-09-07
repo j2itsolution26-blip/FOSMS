@@ -42,6 +42,10 @@ export type ReceiptDetailData = {
   otherDiscountRate: string | null;
   discountAmount: string | null;
   vatAmount: string | null;
+  // A one-time Club Membership fee folded into THIS charge's own VAT/total
+  // (see the schema comment on membershipFeeIncluded) — never the separate
+  // membership fee PAYMENT itself (that's `membership` above).
+  membershipFeeIncluded: string | null;
 };
 
 const STATUS_META: Record<ReceiptDetailData["status"], { label: string; className: string }> = {
@@ -89,10 +93,13 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
   const roomPrice = hasFolioBreakdown ? Number(receipt.subtotal) - bedCharge : 0;
   const vatAmount = Number(receipt.vatAmount ?? 0);
   const discountAmount = receipt.discountAmount ? Number(receipt.discountAmount) : 0;
+  const membershipFeeIncluded = receipt.membershipFeeIncluded ? Number(receipt.membershipFeeIncluded) : 0;
   // The itemized total reflects the full folio charge, independent of how
   // much of it this particular payment covers — a partial payment shows its
   // own "Amount Paid" plus a remaining balance below, not a shrunken total.
-  const folioTotal = hasFolioBreakdown ? Number(receipt.subtotal) - discountAmount + vatAmount : amountPaid;
+  const folioTotal = hasFolioBreakdown
+    ? Number(receipt.subtotal) + membershipFeeIncluded - discountAmount + vatAmount
+    : amountPaid;
   const balance = hasFolioBreakdown ? Math.max(0, Math.round((folioTotal - amountPaid) * 100) / 100) : 0;
 
   return (
@@ -175,8 +182,11 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
             <div className="space-y-1.5 rounded-lg border bg-slate-50/60 p-4">
               <LineItem label="ROOM" value={currency(roomPrice)} />
               {receipt.bedCount ? <LineItem label={`BED (${receipt.bedCount})`} value={currency(bedCharge)} /> : null}
+              {membershipFeeIncluded > 0 ? (
+                <LineItem label="CLUB MEMBERSHIP REGISTRATION" value={currency(membershipFeeIncluded)} />
+              ) : null}
               <div className="my-1.5 border-t border-dashed" />
-              <LineItem label="SUBTOTAL" value={currency(Number(receipt.subtotal))} />
+              <LineItem label="SUBTOTAL" value={currency(Number(receipt.subtotal) + membershipFeeIncluded)} />
               {receipt.discountType && discountAmount > 0 ? (
                 <>
                   <LineItem label="DISCOUNT TYPE" value={formatDiscountType(receipt.discountType, receipt.otherDiscountType) ?? "—"} muted />

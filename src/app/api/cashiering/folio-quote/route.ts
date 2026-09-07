@@ -16,6 +16,9 @@ const folioQuoteSchema = z.object({
   // ₱0 discount until a rate is typed rather than rejecting the request.
   otherDiscountType: z.string().trim().max(150).optional().or(z.literal("")),
   otherDiscountRate: z.coerce.number().min(0).max(100).optional(),
+  // Only sent by the Guest Folio's live preview when "Register as Club
+  // Member" is checked alongside a room — see computeFolioCharge.
+  membershipFee: z.coerce.number().min(0).optional(),
 });
 
 /** Live price preview for the Guest Folio's Room Assignment section — read-only,

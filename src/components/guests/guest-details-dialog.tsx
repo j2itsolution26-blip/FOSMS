@@ -30,6 +30,9 @@ type GuestTransaction = {
   discountAmount: string | null;
   subtotal: string | null;
   vatAmount: string | null;
+  // A one-time Club Membership fee folded into THIS charge's own VAT/total —
+  // see the schema comment on membershipFeeIncluded.
+  membershipFeeIncluded: string | null;
   bedCount: number | null;
   processedBy: string | null;
   reversedById: string | null;
@@ -391,6 +394,7 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
 
                 <PrintSection title="Financial Summary">
                   <PrintRow label="Room / Service Charges" value={currency(tx.subtotal)} />
+                  <PrintRow label="Club Membership Registration" value={currency(tx.membershipFeeIncluded)} />
                   <PrintRow label="Discount" value={currency(tx.discountAmount)} />
                   <PrintRow label="VAT" value={currency(tx.vatAmount)} />
                   <PrintRow label="Total" value={currency(tx.amount)} />

@@ -327,8 +327,14 @@ export async function getGuestFinancialHistory(guestId: string) {
 
   // The membership's own (non-reversed) PAYMENT — a membership only ever has
   // the one fee transaction, but guard against a reversed/refunded edge case
-  // the same way the rest of Cashiering does (isCompletedPayment).
-  const membershipTransaction = membership?.transactions.find((t) => !t.reversedById) ?? null;
+  // the same way the rest of Cashiering does (isCompletedPayment). Explicitly
+  // type-filtered as a defensive guarantee: a Guest Folio room CHARGE can
+  // fold this membership's fee into its OWN VAT/total for display purposes
+  // (membershipFeeIncluded — see the schema comment), but that CHARGE is
+  // never linked via clubMembershipId (only membershipFeeIncluded is set),
+  // so it can never actually reach `membership.transactions` here — this
+  // filter just keeps that guarantee explicit rather than implicit.
+  const membershipTransaction = membership?.transactions.find((t) => t.type === "PAYMENT" && !t.reversedById) ?? null;
   const membershipFee = membership ? Number(membership.feeAmount) : 0;
   const membershipPaid = membershipTransaction ? Number(membershipTransaction.amount) : 0;
 

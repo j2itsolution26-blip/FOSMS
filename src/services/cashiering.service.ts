@@ -451,6 +451,7 @@ export async function createInitialReservationCharge(
       discountAmount: params.charge.discountAmount,
       subtotal: params.charge.subtotal,
       vatAmount: params.charge.vatAmount,
+      membershipFeeIncluded: params.charge.membershipFee > 0 ? params.charge.membershipFee : null,
     },
   });
 }
@@ -921,6 +922,10 @@ function toReceiptRow(t: ReceiptTransaction) {
     otherDiscountRate: t.otherDiscountRate,
     discountAmount: t.discountAmount,
     vatAmount: t.vatAmount,
+    // A one-time Club Membership fee folded into THIS charge's own VAT/total
+    // (see the schema comment on membershipFeeIncluded) — never confused
+    // with `membership` above, which is the SEPARATE fee PAYMENT itself.
+    membershipFeeIncluded: t.membershipFeeIncluded,
   };
 }
 
@@ -1066,6 +1071,7 @@ export async function getReceiptById(id: string) {
         otherDiscountRate: chargeRow.otherDiscountRate,
         discountAmount: chargeRow.discountAmount,
         vatAmount: chargeRow.vatAmount,
+        membershipFeeIncluded: chargeRow.membershipFeeIncluded,
       });
     }
   }

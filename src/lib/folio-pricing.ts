@@ -13,6 +13,12 @@ export type FolioCharge = {
   otherDiscountType: string | null;
   otherDiscountRate: number | null;
   discountAmount: number;
+  // One-time Club Membership registration fee folded into this charge's
+  // taxable base — always present (0 when not applicable) so every consumer
+  // can read it uniformly. Never added to `subtotal` itself (that stays
+  // room+bed only, preserving every existing discount-rate/subtotal display
+  // elsewhere) — see the comment on the `membershipFee` input below.
+  membershipFee: number;
   vatRate: number;
   vatAmount: number;
   total: number;
@@ -42,6 +48,13 @@ export async function computeFolioCharge(input: {
   // so the cashier/front desk types the percentage directly.
   otherDiscountType?: string | null;
   otherDiscountRate?: number | null;
+  // Only ever passed by the Guest Folio when "Register as Club Member" is
+  // checked alongside a room — the one-time ₱1,000 fee is folded into the
+  // taxable base (after discount, before VAT) so this charge's own VAT/Total
+  // reflect the combined amount, per the Guest Folio's Club Membership
+  // charges-summary/receipt spec. Never discounted (a membership fee is not
+  // a discountable line item) and never added to `subtotal` itself.
+  membershipFee?: number;
 }): Promise<FolioCharge> {
   const roomType = await prisma.roomType.findUnique({ where: { id: input.roomTypeId } });
   if (!roomType) throw new NotFoundError("Room type not found.");
@@ -66,11 +79,13 @@ export async function computeFolioCharge(input: {
     vatExempt = config.vatExempt;
   }
 
+  const membershipFee = round2(input.membershipFee ?? 0);
+
   const vatRate = await getVatRate();
-  const vatableAmount = vatExempt ? 0 : subtotal - discountAmount;
+  const vatableAmount = vatExempt ? 0 : subtotal - discountAmount + membershipFee;
   const vatAmount = round2(vatableAmount * vatRate);
 
-  const total = round2(subtotal - discountAmount + vatAmount);
+  const total = round2(subtotal - discountAmount + membershipFee + vatAmount);
 
   return {
     roomPrice,
@@ -81,6 +96,7 @@ export async function computeFolioCharge(input: {
     otherDiscountType: input.discountType === "OTHER" ? input.otherDiscountType?.trim() || null : null,
     otherDiscountRate: input.discountType === "OTHER" ? input.otherDiscountRate ?? null : null,
     discountAmount,
+    membershipFee,
     vatRate,
     vatAmount,
     total,
