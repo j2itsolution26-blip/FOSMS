@@ -33,6 +33,11 @@ type Summary = {
   activity: { id: string; time: string; action: string; label: string }[];
 };
 
+/** A KPI is a real count or it is zero — never a blank card, "NaN", or "undefined". */
+function kpiValue(value: number | null | undefined) {
+  return Number.isFinite(value) ? (value as number) : 0;
+}
+
 function CheckOutButton({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   async function handleClick() {
@@ -117,10 +122,10 @@ export function ClubReceptionClient({ canManage }: { canManage: boolean }) {
         kpis={
           summary
             ? [
-                { label: "Today's Visitors", value: summary.kpis.todaysVisitors, unit: "Visitors", icon: Sparkles, tone: "blue" },
+                { label: "Today's Visitors", value: kpiValue(summary.kpis.todaysVisitors), unit: "Visitors", icon: Sparkles, tone: "blue" },
                 { label: "Active Members", value: summary.kpis.activeMembers, unit: "Currently in club", icon: UserCheck, tone: "green" },
-                { label: "Pending Requests", value: summary.kpis.pendingRequests, unit: "Awaiting action", icon: ClipboardList, tone: "amber" },
-                { label: "Today's Activities", value: summary.kpis.todaysActivities, unit: "Reception entries", icon: ListChecks, tone: "purple" },
+                { label: "Pending Requests", value: kpiValue(summary.kpis.pendingRequests), unit: "Awaiting action", icon: ClipboardList, tone: "amber" },
+                { label: "Today's Activities", value: kpiValue(summary.kpis.todaysActivities), unit: "Logged today", icon: ListChecks, tone: "purple" },
               ]
             : []
         }

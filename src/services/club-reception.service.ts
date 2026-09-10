@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
 import { countActiveClubMembers } from "@/services/club-membership.service";
+import { normalizeNameKey } from "@/lib/guest-identity";
 import type { ClubReceptionInput } from "@/validators/club-reception.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
@@ -23,8 +24,15 @@ export async function getClubReceptionKpis() {
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
 
-  const [todaysVisitors, activeMembers, pendingRequests, todaysActivities] = await Promise.all([
-    prisma.clubReception.count({
+  const [todaysVisitorEntries, activeMembers, todaysActivities] = await Promise.all([
+    // Visitors who actually signed in at the club TODAY — real ClubReception
+    // rows, never memberships that merely exist. Grouped instead of counted so
+    // one person who signs in, leaves, and signs in again the same day is one
+    // visitor and not three (the reception log genuinely holds repeat same-day
+    // entries for the same guest). Date window is derived from the server clock
+    // at request time, so it rolls over on its own — no date is ever hardcoded.
+    prisma.clubReception.groupBy({
+      by: ["guestName", "memberNumber"],
       where: { isVisitor: true, checkedInAt: { gte: todayStart, lte: todayEnd } },
     }),
     // Real ACTIVE Club Memberships — the same records (and the same "fee paid
@@ -35,9 +43,37 @@ export async function getClubReceptionKpis() {
     // club today, not a registered membership, so a property with 3 active
     // members and 1 member signed in reported "1".
     countActiveClubMembers(),
-    prisma.serviceRequest.count({ where: { status: "PENDING" } }),
-    prisma.clubReception.count({ where: { checkedInAt: { gte: todayStart, lte: todayEnd } } }),
+    // Every reception action recorded today, read from the SAME audit trail the
+    // "Recent Activity" list on this page renders (module "club-reception"), so
+    // the number and the list can never disagree. One row per real action —
+    // visitor/guest registration, club member registration, check-out — written
+    // at the moment the action happens, so nothing is inferred or duplicated.
+    // The old query counted only ClubReception check-ins, which silently
+    // dropped club membership registrations and check-outs done the same day.
+    prisma.auditLog.count({
+      where: { module: "club-reception", createdAt: { gte: todayStart, lte: todayEnd } },
+    }),
   ]);
+
+  // One entry per distinct person: prefer their membership/visitor number when
+  // the desk recorded one (two different people can share a name), otherwise
+  // fall back to an order- and case-insensitive name key.
+  const todaysVisitors = new Set(
+    todaysVisitorEntries.map((entry) =>
+      entry.memberNumber?.trim()
+        ? `id:${entry.memberNumber.trim().toLowerCase()}`
+        : `name:${normalizeNameKey(entry.guestName)}`
+    )
+  ).size;
+
+  // This module has no request entity of its own. ServiceRequest is the
+  // Concierge module's table — its types are concierge services (luggage,
+  // transportation, wake-up call, tour…), it carries no club scope, and Club
+  // Reception no longer has any screen that creates or works one. Counting it
+  // here made this card mirror the Concierge backlog (22 rows, mostly test
+  // data) as if the club had 22 outstanding items, so it is reported as 0
+  // rather than being filled with an unrelated table's records.
+  const pendingRequests = 0;
 
   return { todaysVisitors, activeMembers, pendingRequests, todaysActivities };
 }
