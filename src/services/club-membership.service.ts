@@ -53,7 +53,7 @@ export async function getClubMembershipSummary(guestId: string) {
   if (!membership) {
     return { isActiveMember: false, eligibleForDiscount: false, membershipNo: null, feeAmount: null };
   }
-  const isActiveMember = membership.transactions.some((t) => !t.reversedById);
+  const isActiveMember = hasActiveMembershipPayment(membership.transactions);
   const { eligible } = await getClubMemberDiscountEligibility(guestId);
   return {
     isActiveMember,
@@ -64,6 +64,39 @@ export async function getClubMembershipSummary(guestId: string) {
 }
 
 export type ClubMemberStatusFilter = "ACTIVE" | "UNPAID";
+
+/**
+ * The ONE definition of an ACTIVE Club Membership, in the two shapes the app
+ * needs it in: a Prisma where-fragment for counting at the query level, and a
+ * predicate for a membership row already fetched with its PAYMENT
+ * transactions. ClubMembership has no status/expiry column (see its schema
+ * comment) — "Active" is exactly "the one-time fee was paid and that payment
+ * was never reversed", which is also what isActiveClubMember() applies
+ * per-guest in cashiering.service.ts.
+ *
+ * Both the Club Members table (listClubMembers below) and the Club Reception
+ * "Active Members" KPI (countActiveClubMembers below) derive their status
+ * from these, so the card can never disagree with the rows in the table —
+ * the exact bug this pair was introduced to fix, back when that KPI counted
+ * unrelated ClubReception sign-in rows instead of memberships.
+ */
+export const ACTIVE_CLUB_MEMBERSHIP_WHERE = {
+  transactions: { some: { type: "PAYMENT", reversedById: null } },
+} satisfies Prisma.ClubMembershipWhereInput;
+
+export function hasActiveMembershipPayment(payments: Array<{ reversedById: string | null }>): boolean {
+  return payments.some((t) => !t.reversedById);
+}
+
+/**
+ * How many Club Members are ACTIVE right now — the whole roster, never
+ * narrowed by the Club Members table's own search/status filter or its
+ * pagination, since this backs a total-count KPI rather than a view of the
+ * current page.
+ */
+export async function countActiveClubMembers(): Promise<number> {
+  return prisma.clubMembership.count({ where: ACTIVE_CLUB_MEMBERSHIP_WHERE });
+}
 
 /**
  * The dedicated Club Members list — separate from the Guests page and from
@@ -107,7 +140,9 @@ export async function listClubMembers(pagination: PaginationInput, filters: { st
 
   const mapped = all.map((m) => {
     const payment = m.transactions.find((t) => !t.reversedById) ?? null;
-    const isActiveMember = !!payment;
+    // Same rule the "Active Members" KPI counts by — see
+    // hasActiveMembershipPayment / ACTIVE_CLUB_MEMBERSHIP_WHERE above.
+    const isActiveMember = hasActiveMembershipPayment(m.transactions);
     return {
       id: m.id,
       membershipNo: m.membershipNo,

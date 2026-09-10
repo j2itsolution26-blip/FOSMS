@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
+import { countActiveClubMembers } from "@/services/club-membership.service";
 import type { ClubReceptionInput } from "@/validators/club-reception.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
@@ -26,7 +27,14 @@ export async function getClubReceptionKpis() {
     prisma.clubReception.count({
       where: { isVisitor: true, checkedInAt: { gte: todayStart, lte: todayEnd } },
     }),
-    prisma.clubReception.count({ where: { isVisitor: false, checkedOutAt: null } }),
+    // Real ACTIVE Club Memberships — the same records (and the same "fee paid
+    // and never reversed" rule) the Club Members table lists, so this card can
+    // never disagree with it. This used to count ClubReception sign-in rows
+    // marked "not a visitor" and not yet checked out, which is a completely
+    // different dataset: a reception log entry is a person physically in the
+    // club today, not a registered membership, so a property with 3 active
+    // members and 1 member signed in reported "1".
+    countActiveClubMembers(),
     prisma.serviceRequest.count({ where: { status: "PENDING" } }),
     prisma.clubReception.count({ where: { checkedInAt: { gte: todayStart, lte: todayEnd } } }),
   ]);

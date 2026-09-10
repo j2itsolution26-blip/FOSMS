@@ -59,9 +59,11 @@ function CountSummary({ counts }: { counts: LabResetCounts }) {
       <CountRow label="Check-Outs to delete" value={counts.checkOuts} />
       <CountRow label="Cashiering transactions to delete" value={counts.cashierTransactions} />
       <CountRow label="Cashier sessions to delete" value={counts.cashierSessions} />
-      {counts.clubMemberships > 0 ? (
-        <CountRow label="Club Memberships to delete" value={counts.clubMemberships} />
-      ) : null}
+      {/* Always rendered, exactly like the six counts above it — a Club Member
+          row that disappears at zero is indistinguishable from one the reset
+          doesn't cover, and "0" after a reset is precisely the confirmation
+          the Supervisor is looking for. */}
+      <CountRow label="Club Members to delete" value={counts.clubMemberships} />
       {counts.serviceRequests > 0 ? (
         <CountRow label="Other guest-linked records to delete" value={counts.serviceRequests} />
       ) : null}
@@ -217,7 +219,8 @@ export function LaboratoryDataClient() {
                 </DialogTitle>
                 <DialogDescription>
                   This will permanently delete all laboratory/test operational data, including guests, reservations,
-                  cashiering transactions, guest folios, payments, and related check-in/check-out records.
+                  check-ins, check-outs, cashiering transactions, cashier sessions, and Club Members (with their
+                  membership fee payments).
                 </DialogDescription>
               </DialogHeader>
 

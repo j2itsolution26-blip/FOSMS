@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 
 import { apiSuccess, apiError, apiValidationError } from "@/lib/api-response";
 import { authorize } from "@/lib/auth/guard";
@@ -29,12 +30,23 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     // Prisma's $transaction already rolled back everything on any failure —
     // nothing was partially deleted, so this is never "some rows deleted,
-    // some not." The actual cause (foreign key constraint, connection error,
-    // etc.) is logged here for diagnosis; never surfaced to the client raw
-    // (per spec: "Do not expose database errors to normal users").
+    // some not." Full error (SQL and all) goes to the server log.
     console.error("[admin/laboratory-data/reset]", err);
+
+    // The Supervisor running a reset needs to know WHY it failed, not just
+    // that it did — a bare "reset failed" is what made the earlier
+    // ClubMembership foreign-key failure look like "nothing to delete". Only
+    // the bounded, non-sensitive part of the error is surfaced (Prisma's
+    // error code plus the model it tripped on, e.g. "P2003 on ClubMembership"),
+    // never raw SQL or row values, and only on this LAB_DATA_RESET-gated
+    // maintenance endpoint.
+    const detail =
+      err instanceof Prisma.PrismaClientKnownRequestError
+        ? ` (${err.code}${typeof err.meta?.modelName === "string" ? ` on ${err.meta.modelName}` : ""})`
+        : "";
+
     return apiError(
-      "Reset failed because some records could not be deleted. No changes were made — check the server log for details.",
+      `Reset failed${detail} — no changes were made. Every record was rolled back; see the server log for the full error.`,
       "LAB_RESET_FAILED",
       500
     );
