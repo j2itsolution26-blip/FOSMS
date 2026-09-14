@@ -22,6 +22,7 @@ import {
   FolderOpen,
   AlertTriangle,
   FlaskConical,
+  KeyRound,
 } from "lucide-react";
 
 import { PERMISSIONS, type PermissionKey } from "@/config/permissions";
@@ -75,6 +76,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Administration",
     items: [
       { label: "Users", href: "/admin/users", icon: UserCog, permission: PERMISSIONS.USERS_MANAGE },
+      { label: "Account & Password", href: "/admin/account", icon: KeyRound, permission: PERMISSIONS.USERS_MANAGE },
       { label: "Roles & Permissions", href: "/admin/roles", icon: ShieldCheck, permission: PERMISSIONS.ROLES_MANAGE },
       { label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW },
       { label: "System Settings", href: "/admin/settings", icon: Settings, permission: PERMISSIONS.SETTINGS_MANAGE },
@@ -145,6 +147,7 @@ export const SUPERVISOR_NAV_SECTIONS: NavSection[] = [
     label: "Administration",
     items: [
       { label: "Activity Log", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW },
+      { label: "Account & Password", href: "/admin/account", icon: KeyRound, permission: PERMISSIONS.USERS_MANAGE },
       { label: "Laboratory Data", href: "/admin/laboratory-data", icon: FlaskConical, permission: PERMISSIONS.LAB_DATA_RESET },
     ],
   },

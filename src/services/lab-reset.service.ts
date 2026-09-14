@@ -1,7 +1,11 @@
 import "server-only";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, RoomStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+
+/** The vacant status every room is returned to by a reset — see the detailed
+ * note in resetLaboratoryData() for why this is VC and not V. */
+const LAB_RESET_ROOM_STATUS: RoomStatus = "VC";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
@@ -58,9 +62,13 @@ export async function getLabResetPreview(): Promise<LabResetCounts> {
 /**
  * Wipes every guest/reservation/cashiering operational record in one
  * all-or-nothing transaction, so the next lab section starts from a
- * genuinely clean slate. Never touches User/Role/Permission, Room/RoomType,
- * SystemSetting, or any other configuration/reference data — see the
- * deletion order comment below for exactly why each step is safe.
+ * genuinely clean slate. Never DELETES anything outside that operational
+ * set — User/Role/Permission, Room/RoomType, SystemSetting and every other
+ * configuration/reference row survives untouched. The single exception is
+ * Room.status, which is *updated* (never deleted, and no other room column
+ * is written) back to vacant at the end, because that column is the one
+ * piece of deleted-stay state that lives outside the deleted tables — see
+ * the step after the deletion order below.
  *
  * Deletion order (children before parents, per the real FK graph in
  * schema.prisma — none of these relations cascade at the DB level, so this
@@ -106,7 +114,7 @@ export async function getLabResetPreview(): Promise<LabResetCounts> {
  * this operation — including the very entry this function writes about itself.
  */
 export async function resetLaboratoryData(actor: ActorContext): Promise<LabResetCounts> {
-  const counts = await prisma.$transaction(async (tx) => {
+  const { counts, roomsReset } = await prisma.$transaction(async (tx) => {
     const before = await countLabData(tx);
 
     await tx.serviceRequest.deleteMany({ where: { guestId: { not: null } } });
@@ -118,7 +126,25 @@ export async function resetLaboratoryData(actor: ActorContext): Promise<LabReset
     await tx.clubMembership.deleteMany({});
     await tx.guest.deleteMany({});
 
-    return before;
+    // Rooms themselves are never deleted — only the one operational column
+    // that the deleted stay data left behind. Without this, every room a lab
+    // section checked into stays OC/OD/VD forever: the reservations that
+    // explained those statuses are gone, but the rooms still read "occupied",
+    // so the next section opens to a property with no clean rooms.
+    //
+    // LAB_RESET_ROOM_STATUS is VC, not V: `V` is literally labelled "Vacant",
+    // but only VC/VR/VCI are in ASSIGNABLE_ROOM_STATUSES (config/room-status.ts),
+    // so a room parked on `V` is invisible to every room picker and refused by
+    // checkIn() — a "clean slate" nothing could actually be booked into. VC
+    // ("Vacant and Cleaned") is also exactly what Room.status defaults to for a
+    // newly created room (schema.prisma), which is the state this restores.
+    // Scoped to rooms not already VC purely so the count reflects real changes.
+    const { count } = await tx.room.updateMany({
+      where: { status: { not: LAB_RESET_ROOM_STATUS } },
+      data: { status: LAB_RESET_ROOM_STATUS },
+    });
+
+    return { counts: before, roomsReset: count };
   });
 
   // Best-effort, outside the transaction — same convention as every other
@@ -132,7 +158,10 @@ export async function resetLaboratoryData(actor: ActorContext): Promise<LabReset
     module: "administration",
     ipAddress: actor.ipAddress,
     userAgent: actor.userAgent,
-    newValue: { ...counts },
+    // roomsReset is audited but deliberately kept out of the returned
+    // LabResetCounts: that type drives the page's "to delete" list, and no
+    // room is ever deleted — surfacing it there would read as one.
+    newValue: { ...counts, roomsReset },
   });
 
   return counts;

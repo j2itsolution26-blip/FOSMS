@@ -78,7 +78,7 @@ function CountRow({
   return (
     <div
       className={`flex items-center justify-between gap-3 px-4 transition-colors hover:bg-slate-50/80 ${
-        compact ? "py-2" : "py-2.5"
+        compact ? "py-1.5" : "py-2"
       }`}
     >
       <span className="flex min-w-0 items-center gap-2.5">
@@ -143,7 +143,7 @@ function CountSummarySkeleton() {
   return (
     <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
       {Array.from({ length: 7 }).map((_, i) => (
-        <div key={i} className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <div key={i} className="flex items-center justify-between gap-3 px-4 py-2">
           <span className="flex min-w-0 items-center gap-2.5">
             <Skeleton className="h-7 w-7 shrink-0 rounded-lg" />
             <Skeleton className="h-3.5 w-48 max-w-[55vw]" />
@@ -155,13 +155,17 @@ function CountSummarySkeleton() {
   );
 }
 
-/** Positive-confirmation banner: what the reset will leave alone. */
+/** Positive-confirmation banner: what the reset will leave alone. The room
+ * sentence is a promise the backend actually keeps — resetLaboratoryData()
+ * updates Room.status (and only that column) back to vacant in the same
+ * transaction, so keep the two in step if either ever changes. */
 function SafetyBanner() {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+    <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
       <p className="text-[13px] leading-snug text-emerald-800">
-        Users, rooms, room types, settings, and system configuration will NOT be deleted.
+        Users, rooms, room types, settings, and system configuration will NOT be deleted. Room statuses will be reset
+        to Vacant for the next laboratory section.
       </p>
     </div>
   );
@@ -170,7 +174,7 @@ function SafetyBanner() {
 /** The one irreversible fact about this page, never softened. */
 function IrreversibleBanner() {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
+    <div className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
       <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" aria-hidden />
       <p className="text-[13px] font-semibold leading-snug text-red-700">This action cannot be undone.</p>
     </div>
@@ -264,11 +268,15 @@ export function LaboratoryDataClient() {
 
     if (resetTotal > 0) {
       toast.success("Laboratory data reset successfully.", {
-        description: `Deleted ${result.data.guests.toLocaleString("en-US")} guest folios, ${result.data.reservations.toLocaleString("en-US")} reservations, and ${result.data.cashierTransactions.toLocaleString("en-US")} cashiering transactions (plus related check-in/check-out, session, and membership records).`,
+        description: `Deleted ${result.data.guests.toLocaleString("en-US")} guest folios, ${result.data.reservations.toLocaleString("en-US")} reservations, and ${result.data.cashierTransactions.toLocaleString("en-US")} cashiering transactions (plus related check-in/check-out, session, and membership records). Room statuses were reset to Vacant.`,
         duration: 8000,
       });
     } else {
-      toast.success("No laboratory data found.", { duration: 8000 });
+      // Room statuses are reset on every run, so this is never a pure no-op.
+      toast.success("No laboratory data found.", {
+        description: "Room statuses were reset to Vacant.",
+        duration: 8000,
+      });
     }
 
     // Re-confirm against the server rather than trusting the just-applied
@@ -294,7 +302,7 @@ export function LaboratoryDataClient() {
           <p className="text-[13px] leading-snug text-slate-500">
             Supervisor-only. Clears guest, reservation, and cashiering test data so the next laboratory section can
             start with a clean system — user accounts, rooms, room types, rates, and system settings are never
-            affected.
+            deleted.
           </p>
         </div>
       </header>
@@ -315,15 +323,16 @@ export function LaboratoryDataClient() {
           </div>
         </div>
 
-        <div className="space-y-3 px-5 py-4">
+        <div className="space-y-2.5 px-5 py-3.5">
           {loadingCounts ? <CountSummarySkeleton /> : <CountSummary counts={counts} />}
 
+          {/* Side by side once there's room for both; stacked below that. */}
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <SafetyBanner />
             <IrreversibleBanner />
           </div>
 
-          <div className="flex flex-col gap-2.5 border-t border-slate-100 pt-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2.5 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
             {!loadingCounts && totalRecords === 0 ? (
               <p className="text-xs text-slate-500">There is currently no laboratory data to reset.</p>
             ) : null}
