@@ -17,7 +17,13 @@ export default async function AccountManagementPage() {
 
   return (
     <AccountManagementClient
-      currentUser={{ name: `${user.firstName} ${user.lastName}`, email: user.email }}
+      currentUser={{
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        // Drives only the role LABEL shown on the page (via ROLE_DISPLAY) —
+        // the role itself, and every permission attached to it, is untouched.
+        role: user.roles[0] ?? "SUPERVISOR",
+      }}
     />
   );
 }

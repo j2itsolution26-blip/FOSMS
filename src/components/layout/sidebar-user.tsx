@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ROLE_DISPLAY } from "@/config/role-display";
 
 function roleLabel(role: string) {
   return role
@@ -22,16 +23,9 @@ function roleLabel(role: string) {
 
 // Role-based identity: the workstation is shared by students practicing Front
 // Office operations, so the sidebar identifies the authenticated *role*
-// rather than a (fictional) personal name.
-const ROLE_DISPLAY: Record<string, { avatar: string; name: string; subtitle: string }> = {
-  TRAINEE: { avatar: "TR", name: "Trainee / Candidate", subtitle: "Front Office Trainee" },
-  SUPERVISOR: { avatar: "TRR", name: "Trainer / Assessor", subtitle: "Supervisor" },
-  FRONT_OFFICE_STAFF: { avatar: "TR", name: "Trainee / Candidate", subtitle: "Front Office Trainee" },
-  INSTRUCTOR: { avatar: "IN", name: "Instructor", subtitle: "Training Staff" },
-  ASSESSOR: { avatar: "AS", name: "Assessor", subtitle: "Training Staff" },
-  ADMINISTRATOR: { avatar: "AD", name: "Administrator", subtitle: "System Admin" },
-  SUPER_ADMIN: { avatar: "SA", name: "Super Admin", subtitle: "System Admin" },
-};
+// rather than a (fictional) personal name. Shared with the account/password
+// screen (see src/config/role-display.ts) so the two can never disagree about
+// what an account is called — the labels and the rendering here are unchanged.
 
 export function SidebarUser({
   role,

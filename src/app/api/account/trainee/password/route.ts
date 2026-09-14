@@ -6,35 +6,32 @@ import { PERMISSIONS } from "@/config/permissions";
 import { getRequestMeta } from "@/lib/request-meta";
 import { handleServiceError } from "@/lib/handle-service-error";
 import { resetAccountPasswordSchema } from "@/validators/account.schema";
-import { resetAccountPassword } from "@/services/account.service";
-
-type RouteContext = { params: Promise<{ id: string }> };
+import { resetTraineeAccountPassword } from "@/services/account.service";
 
 /**
- * Supervisor-issued password reset for a trainee account. USERS_MANAGE is
- * required here, and resetAccountPassword independently re-verifies that the
- * target is a trainee account and not the caller — so neither the permission
- * check nor the role check is the only thing standing between this endpoint
- * and someone else's credential.
+ * Supervisor-issued password reset for the Trainee / Candidate account.
+ *
+ * There is deliberately no `[id]` segment: the account is resolved
+ * server-side from its role, so this endpoint cannot be aimed at a different
+ * user by editing the URL, and adding a second trainee login would not
+ * silently become supported here.
  */
-export async function POST(req: NextRequest, { params }: RouteContext) {
+export async function POST(req: NextRequest) {
   const auth = await authorize(PERMISSIONS.USERS_MANAGE);
   if (auth.error) return auth.error;
-
-  const { id } = await params;
 
   const json = await req.json().catch(() => null);
   const parsed = resetAccountPasswordSchema.safeParse(json);
   if (!parsed.success) return apiValidationError(parsed.error);
 
   try {
-    const account = await resetAccountPassword(id, parsed.data, {
+    const account = await resetTraineeAccountPassword(parsed.data, {
       userId: auth.user.id,
       role: auth.user.roles[0] ?? null,
       ...getRequestMeta(req),
     });
     return apiSuccess(account);
   } catch (err) {
-    return handleServiceError(err, "account/managed-accounts/password");
+    return handleServiceError(err, "account/trainee/password");
   }
 }

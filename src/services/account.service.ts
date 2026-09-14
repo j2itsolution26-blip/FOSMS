@@ -6,15 +6,23 @@ import { AppError, NotFoundError } from "@/lib/errors";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { revokeAllUserSessions } from "@/lib/auth/session";
 import { invalidateResetTokensForUser } from "@/lib/auth/password-reset-store";
+import type { RoleName } from "@prisma/client";
+import {
+  TRAINEE_CANDIDATE_DISPLAY_NAME,
+  TRAINEE_CANDIDATE_ROLE_SUBTITLE,
+  TRAINEE_CANDIDATE_ROLES,
+} from "@/config/role-display";
 import type { ChangeOwnPasswordInput, ResetAccountPasswordInput } from "@/validators/account.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
-/** The role whose passwords this feature is allowed to reset. Trainee logins
- * are the only accounts a Supervisor manages here — never another
- * Supervisor's, an Administrator's, or their own (that goes through
- * changeOwnPassword, which requires the current password). */
-const MANAGEABLE_ROLE = "TRAINEE" as const;
+/** The roles whose sign-in the system presents as "Trainee / Candidate" —
+ * the only account a Supervisor manages here, never another Supervisor's, an
+ * Administrator's, or their own (that goes through changeOwnPassword, which
+ * requires the current password). Read from the same ROLE_DISPLAY map the
+ * sidebar labels accounts with, so this can never drift from what the trainee
+ * actually sees themselves signed in as. */
+const TRAINEE_ACCOUNT_ROLES = TRAINEE_CANDIDATE_ROLES as RoleName[];
 
 /**
  * Everything a password replacement must do besides writing the new hash,
@@ -80,78 +88,95 @@ export async function changeOwnPassword(userId: string, input: ChangeOwnPassword
 }
 
 /**
- * The trainee logins a Supervisor may issue a new password for. Returns only
- * identity and status columns — no password material of any kind, hashed or
- * otherwise, ever leaves this function.
+ * Resolves THE Trainee / Candidate login — the single non-Supervisor account
+ * this training system signs students in with. Deliberately returns one
+ * account and not a list: there is exactly one trainee login, and an id
+ * parameter a caller could substitute is the thing that would turn this into
+ * multi-account password management.
+ *
+ * Only active, non-deleted accounts are considered: a deactivated seed login
+ * is not a credential anybody can sign in with, so it is not something to
+ * offer a reset for. If the system ever ends up with more than one, this
+ * refuses rather than guessing which person's credential to overwrite.
+ *
+ * Returns identity and status columns only — no password material of any
+ * kind, hashed or otherwise, ever leaves this function.
  */
-export async function listManagedAccounts() {
-  const users = await prisma.user.findMany({
-    where: { deletedAt: null, roles: { some: { role: { name: MANAGEABLE_ROLE } } } },
-    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+async function resolveTraineeAccount() {
+  const accounts = await prisma.user.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      roles: { some: { role: { name: { in: TRAINEE_ACCOUNT_ROLES } } } },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 2,
     select: {
       id: true,
-      firstName: true,
-      lastName: true,
       email: true,
       isActive: true,
       lastLoginAt: true,
       passwordResetAt: true,
       lockedUntil: true,
-      trainee: { select: { studentNumber: true } },
     },
   });
 
-  return users.map((u) => ({
-    id: u.id,
-    firstName: u.firstName,
-    lastName: u.lastName,
-    email: u.email,
-    isActive: u.isActive,
-    lastLoginAt: u.lastLoginAt,
-    passwordResetAt: u.passwordResetAt,
-    studentNumber: u.trainee?.studentNumber ?? null,
-  }));
-}
-
-/**
- * A Supervisor issues a new temporary password for a trainee account.
- *
- * Defence in depth: the route already requires USERS_MANAGE, and this
- * re-checks server-side that the target really is a trainee account and not
- * the caller themselves — so this endpoint can never be pointed at a
- * Supervisor/Administrator account, and can never be used to skip the
- * current-password check that changeOwnPassword enforces. Nothing but the
- * password columns is written: role, permissions, email, name and isActive
- * are all left exactly as they were.
- */
-export async function resetAccountPassword(
-  targetUserId: string,
-  input: ResetAccountPasswordInput,
-  actor: ActorContext
-) {
-  const target = await prisma.user.findUnique({
-    where: { id: targetUserId, deletedAt: null },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      roles: { select: { role: { select: { name: true } } } },
-    },
-  });
-  if (!target) throw new NotFoundError("Account not found.");
-
-  if (target.id === actor.userId) {
+  if (accounts.length === 0) {
+    throw new NotFoundError("The Trainee / Candidate account could not be found.");
+  }
+  if (accounts.length > 1) {
     throw new AppError(
-      "Use Change My Password to update your own account — it requires your current password.",
-      "CANNOT_RESET_OWN_ACCOUNT",
-      400
+      "More than one active Trainee / Candidate account exists, so this reset cannot tell which one to change.",
+      "TRAINEE_ACCOUNT_AMBIGUOUS",
+      409
     );
   }
 
-  const isManageable = target.roles.some((r) => r.role.name === MANAGEABLE_ROLE);
-  if (!isManageable) {
-    throw new AppError("Only trainee account passwords can be reset here.", "ACCOUNT_NOT_MANAGEABLE", 403);
+  return accounts[0];
+}
+
+/**
+ * The Trainee / Candidate account as the Supervisor's account screen shows
+ * it: labelled exactly the way the sidebar labels it for the trainee, with
+ * the status columns that make a reset decision informed (locked out? never
+ * signed in?). No password material is included.
+ */
+export async function getTraineeAccount() {
+  const account = await resolveTraineeAccount();
+
+  return {
+    accountName: TRAINEE_CANDIDATE_DISPLAY_NAME,
+    roleLabel: TRAINEE_CANDIDATE_ROLE_SUBTITLE,
+    email: account.email,
+    isActive: account.isActive,
+    lastLoginAt: account.lastLoginAt,
+    passwordResetAt: account.passwordResetAt,
+    isLocked: !!account.lockedUntil && account.lockedUntil > new Date(),
+  };
+}
+
+/**
+ * A Supervisor issues a new password for the Trainee / Candidate account.
+ *
+ * The target is resolved server-side from the role — there is no id
+ * parameter, so this endpoint structurally cannot be pointed at a
+ * Supervisor's or an Administrator's credential, and cannot be used to skip
+ * the current-password check that changeOwnPassword enforces. The caller
+ * being the target is impossible for the same reason: a Supervisor is not a
+ * Trainee / Candidate account.
+ *
+ * Nothing but the password columns is written: role, permissions, email,
+ * name and isActive are all left exactly as they were.
+ */
+export async function resetTraineeAccountPassword(input: ResetAccountPasswordInput, actor: ActorContext) {
+  const target = await resolveTraineeAccount();
+
+  if (target.id === actor.userId) {
+    throw new AppError(
+      "Use Change Password to update your own account — it requires your current password.",
+      "CANNOT_RESET_OWN_ACCOUNT",
+      400
+    );
   }
 
   await applyNewPassword(target.id, input.newPassword);
@@ -167,5 +192,5 @@ export async function resetAccountPassword(
     newValue: { event: "PASSWORD_RESET_BY_SUPERVISOR", targetEmail: target.email },
   });
 
-  return { id: target.id, firstName: target.firstName, lastName: target.lastName, email: target.email };
+  return { accountName: TRAINEE_CANDIDATE_DISPLAY_NAME, roleLabel: TRAINEE_CANDIDATE_ROLE_SUBTITLE };
 }
