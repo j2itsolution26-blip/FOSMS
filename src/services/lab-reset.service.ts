@@ -118,6 +118,8 @@ export async function resetLaboratoryData(actor: ActorContext): Promise<LabReset
     const before = await countLabData(tx);
 
     await tx.serviceRequest.deleteMany({ where: { guestId: { not: null } } });
+    // Special Requests reference both Reservation and CashierTransaction.
+    await tx.specialRequest.deleteMany({});
     await tx.cashierTransaction.deleteMany({});
     await tx.checkIn.deleteMany({});
     await tx.checkOut.deleteMany({});

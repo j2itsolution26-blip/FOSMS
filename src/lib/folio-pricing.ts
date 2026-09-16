@@ -5,6 +5,11 @@ import { NotFoundError } from "@/lib/errors";
 import type { DiscountType } from "@prisma/client";
 
 export type FolioCharge = {
+  // The selected room type's configured nightly rate, unchanged.
+  roomRate: number;
+  // Departure − Arrival in whole days (see calculateNights).
+  nights: number;
+  // Room line total for the whole stay: roomRate × nights.
   roomPrice: number;
   bedCount: number;
   bedCharge: number;
@@ -41,6 +46,10 @@ function round2(n: number): number {
  */
 export async function computeFolioCharge(input: {
   roomTypeId: string;
+  // Length of the stay (see calculateNights) — the nightly rate is charged
+  // once per night. Required so no caller can silently fall back to a
+  // one-night price.
+  nights: number;
   bedCount?: number;
   discountType?: DiscountType | null;
   // Only meaningful (and required by the validators) when discountType is
@@ -59,7 +68,9 @@ export async function computeFolioCharge(input: {
   const roomType = await prisma.roomType.findUnique({ where: { id: input.roomTypeId } });
   if (!roomType) throw new NotFoundError("Room type not found.");
 
-  const roomPrice = Number(roomType.baseRate);
+  const nights = Math.max(0, Math.trunc(input.nights));
+  const roomRate = Number(roomType.baseRate);
+  const roomPrice = round2(roomRate * nights);
   const bedCount = input.bedCount ?? 0;
   const bedRate = bedCount > 0 ? await getBedRate() : 0;
   const bedCharge = round2(bedRate * bedCount);
@@ -88,6 +99,8 @@ export async function computeFolioCharge(input: {
   const total = round2(subtotal - discountAmount + membershipFee + vatAmount);
 
   return {
+    roomRate,
+    nights,
     roomPrice,
     bedCount,
     bedCharge,
@@ -101,4 +114,50 @@ export async function computeFolioCharge(input: {
     vatAmount,
     total,
   };
+}
+
+export type MembershipFeeCharge = {
+  membershipFee: number;
+  vatRate: number;
+  vatAmount: number;
+  total: number;
+};
+
+/**
+ * VAT for a flat, never-discounted amount billed on its own CHARGE after the
+ * stay's room charge exists (a Check-Out Club Membership fee, a chargeable
+ * Special Request). Same VAT rule computeFolioCharge() applies: VAT-exempt
+ * only when the stay's own discount makes the whole transaction VAT-exempt
+ * (Senior Citizen/PWD). `discountType` is that stay's room-charge discount.
+ */
+export async function computeVatOnlyCharge(input: {
+  amount: number;
+  discountType?: DiscountType | null;
+}): Promise<{ amount: number; vatRate: number; vatAmount: number; total: number }> {
+  const amount = round2(input.amount);
+
+  let vatExempt = false;
+  if (input.discountType && input.discountType !== "OTHER") {
+    vatExempt = (await getDiscountConfig(input.discountType)).vatExempt;
+  }
+
+  const vatRate = await getVatRate();
+  const vatAmount = vatExempt ? 0 : round2(amount * vatRate);
+
+  return { amount, vatRate, vatAmount, total: round2(amount + vatAmount) };
+}
+
+/**
+ * The one-time Club Membership fee billed on its own at Check-Out ("Register
+ * as Club Member") — see computeVatOnlyCharge.
+ */
+export async function computeMembershipFeeCharge(input: {
+  membershipFee: number;
+  discountType?: DiscountType | null;
+}): Promise<MembershipFeeCharge> {
+  const { amount, vatRate, vatAmount, total } = await computeVatOnlyCharge({
+    amount: input.membershipFee,
+    discountType: input.discountType,
+  });
+  return { membershipFee: amount, vatRate, vatAmount, total };
 }

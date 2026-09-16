@@ -7,7 +7,10 @@ import { AppError, NotFoundError } from "@/lib/errors";
 import { createReservationAndChargeInTx, resolveInitialReservationCharge } from "@/services/reservation.service";
 import { promoteGuestToRegular } from "@/services/cashiering.service";
 import { registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
+import { auditCreatedSpecialRequests, createSpecialRequestsInTx } from "@/services/special-request.service";
+import { formatGuestFullName } from "@/lib/formatters";
 import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
+import type { SpecialRequestItemInput } from "@/validators/special-request.schema";
 import type { GuestInput } from "@/validators/guest.schema";
 import type { CreateGuestFolioInput } from "@/validators/guest-folio.schema";
 import type { PaginationInput } from "@/validators/pagination.schema";
@@ -265,10 +268,11 @@ export async function createGuestFolioWithReservationAndCharge(
   person: PersonInput,
   room: GuestFolioRoomInput | null,
   clubMembership: GuestFolioClubMembershipInput | null,
-  actor: ActorContext
+  actor: ActorContext,
+  specialRequests: SpecialRequestItemInput[] = []
 ) {
   const resolved = room
-    ? await resolveInitialReservationCharge(room.roomId, {
+    ? await resolveInitialReservationCharge(room.roomId, room, {
         bedCount: room.bedCount,
         discountType: room.discountType,
         otherDiscountType: room.otherDiscountType,
@@ -287,6 +291,10 @@ export async function createGuestFolioWithReservationAndCharge(
         membershipFee: clubMembership?.register ? CLUB_MEMBERSHIP_FEE : undefined,
       })
     : null;
+
+  if (specialRequests.length > 0 && !room) {
+    throw new AppError("Assign a room before adding special requests.", "ROOM_REQUIRED", 400);
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const guest = await resolveOrCreateGuestInTx(tx, person);
@@ -309,7 +317,7 @@ export async function createGuestFolioWithReservationAndCharge(
       : null;
 
     if (!room || !resolved) {
-      return { guest, isNewGuest, reservation: null, transaction: null, membership };
+      return { guest, isNewGuest, reservation: null, transaction: null, membership, specialRequests: [] };
     }
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
@@ -332,8 +340,15 @@ export async function createGuestFolioWithReservationAndCharge(
       { paymentMethod: room.paymentMethod, otherPaymentMethod: room.otherPaymentMethod }
     );
 
-    return { guest, isNewGuest, reservation, transaction, membership };
-  });
+    // Billed to this same new stay, after its room charge exists.
+    const savedRequests = await createSpecialRequestsInTx(tx, {
+      reservationId: reservation.id,
+      items: specialRequests,
+      userId: actor.userId,
+    });
+
+    return { guest, isNewGuest, reservation, transaction, membership, specialRequests: savedRequests };
+  }, { timeout: 20_000 });
 
   // Only a genuinely new person gets a "guest created" audit entry — reusing
   // an existing guest (e.g. an already-registered Club Member) isn't a
@@ -383,6 +398,14 @@ export async function createGuestFolioWithReservationAndCharge(
         amount: result.transaction.amount,
       },
     });
+  }
+
+  if (result.reservation) {
+    await auditCreatedSpecialRequests(
+      result.specialRequests,
+      { reservationNo: result.reservation.reservationNo, guestName: formatGuestFullName(result.guest) },
+      actor
+    );
   }
 
   if (result.membership) {
@@ -436,8 +459,13 @@ export async function createGuestFolioWithReservationAndCharge(
  * that same gate (instead of bypassing it, as this used to) is what
  * enforces "no payment, no check-in" without duplicating that rule anywhere.
  */
-export async function createWalkInGuestFolio(person: PersonInput, room: GuestFolioRoomInput, actor: ActorContext) {
-  const resolved = await resolveInitialReservationCharge(room.roomId, {
+export async function createWalkInGuestFolio(
+  person: PersonInput,
+  room: GuestFolioRoomInput,
+  actor: ActorContext,
+  specialRequests: SpecialRequestItemInput[] = []
+) {
+  const resolved = await resolveInitialReservationCharge(room.roomId, room, {
     bedCount: room.bedCount,
     discountType: room.discountType,
     otherDiscountType: room.otherDiscountType,
@@ -473,8 +501,16 @@ export async function createWalkInGuestFolio(person: PersonInput, room: GuestFol
       { guestType: "WALK_IN" }
     );
 
-    return { guest, isNewGuest, reservation, transaction };
-  });
+    // Incidentals billed to the stay — settled at check-out, so they never
+    // block the walk-in's own check-in (see checkInBalanceOf).
+    const savedRequests = await createSpecialRequestsInTx(tx, {
+      reservationId: reservation.id,
+      items: specialRequests,
+      userId: actor.userId,
+    });
+
+    return { guest, isNewGuest, reservation, transaction, specialRequests: savedRequests };
+  }, { timeout: 20_000 });
 
   // Only a genuinely new person gets a "guest created" audit entry — see the
   // identical comment in createGuestFolioWithReservationAndCharge above.
@@ -490,6 +526,12 @@ export async function createWalkInGuestFolio(person: PersonInput, room: GuestFol
       newValue: { firstName: result.guest.firstName, middleName: result.guest.middleName, lastName: result.guest.lastName },
     });
   }
+
+  await auditCreatedSpecialRequests(
+    result.specialRequests,
+    { reservationNo: result.reservation.reservationNo, guestName: formatGuestFullName(result.guest) },
+    actor
+  );
 
   await recordAudit({
     userId: actor.userId,

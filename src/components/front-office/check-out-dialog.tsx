@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, AlertTriangle, Search, DoorOpen, ReceiptText } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, Search, DoorOpen, ReceiptText, BadgeCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -20,6 +21,7 @@ import { apiFetch } from "@/lib/api-client";
 import { guestTypeLabel } from "@/lib/formatters";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { AdditionalChargeDialog } from "@/components/cashiering/additional-charge-dialog";
+import { SpecialRequestsPanel } from "@/components/front-office/special-requests";
 
 type Candidate = {
   id: string;
@@ -36,16 +38,31 @@ type FolioSummary = Candidate & {
   folio: {
     roomCharges: number;
     additionalCharges: number;
+    specialRequests: number;
+    membership: number;
     discount: number;
     vat: number;
     total: number;
     paid: number;
     balance: number;
   };
+  // Itemized from the stay's own ledger (see buildFolioStatement).
+  specialRequestItems: Array<{ id: string; itemName: string; quantity: number; unitPrice: number; total: number }>;
+  clubMembership: {
+    status: "MEMBER" | "INACTIVE" | "NOT_MEMBER";
+    membershipNo: string | null;
+    // Server-priced fee + VAT for a guest who isn't a member yet — the exact
+    // amounts the registration endpoint charges.
+    registrationPreview: { membershipFee: number; vatAmount: number; total: number } | null;
+  };
 };
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
 }
 
 function formatDate(d: string) {
@@ -75,6 +92,7 @@ export function CheckOutDialog({
   const [submitting, setSubmitting] = useState(false);
   const [settleOpen, setSettleOpen] = useState(false);
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [registerMembership, setRegisterMembership] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -82,6 +100,7 @@ export function CheckOutDialog({
     setNotes("");
     setSettleOpen(false);
     setChargeOpen(false);
+    setRegisterMembership(false);
     setLoadingCandidates(true);
     apiFetch<Candidate[]>("/api/front-office/check-out/candidates")
       .then((res) => {
@@ -111,6 +130,7 @@ export function CheckOutDialog({
 
   async function selectGuest(reservationId: string) {
     setSelectedId(reservationId);
+    setRegisterMembership(false);
     setStep("review");
     setLoadingSummary(true);
     const result = await apiFetch<FolioSummary>(`/api/front-office/check-out/${reservationId}`);
@@ -127,7 +147,12 @@ export function CheckOutDialog({
   async function refreshSummary() {
     if (!selectedId) return;
     const result = await apiFetch<FolioSummary>(`/api/front-office/check-out/${selectedId}`);
-    if (result.success) setSummary(result.data);
+    if (result.success) {
+      setSummary(result.data);
+      // Once registered (paid), the fee is on the folio itself — the
+      // checkbox's projected amounts must not be added on top again.
+      if (result.data.clubMembership.status !== "NOT_MEMBER") setRegisterMembership(false);
+    }
   }
 
   async function confirmCheckOut() {
@@ -147,7 +172,21 @@ export function CheckOutDialog({
     onDone();
   }
 
-  const balance = summary?.folio.balance ?? 0;
+  // "Register as Club Member" is projected onto the summary until it's paid;
+  // the payment step then records it for real (see TransactionDialog).
+  const preview =
+    registerMembership && summary?.clubMembership.status === "NOT_MEMBER"
+      ? summary.clubMembership.registrationPreview
+      : null;
+  const folio = summary
+    ? {
+        ...summary.folio,
+        membership: round2(summary.folio.membership + (preview?.membershipFee ?? 0)),
+        vat: round2(summary.folio.vat + (preview?.vatAmount ?? 0)),
+        total: round2(summary.folio.total + (preview?.total ?? 0)),
+      }
+    : null;
+  const balance = round2((summary?.folio.balance ?? 0) + (preview?.total ?? 0));
   const ready = balance <= 0;
 
   return (
@@ -210,7 +249,7 @@ export function CheckOutDialog({
                   )}
                 </div>
               </>
-            ) : loadingSummary || !summary ? (
+            ) : loadingSummary || !summary || !folio ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading folio…</p>
             ) : step === "review" ? (
               <>
@@ -259,17 +298,39 @@ export function CheckOutDialog({
                       <span className="font-mono">{currency(summary.folio.additionalCharges)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
+                      <span>Special Requests / Additional Charges</span>
+                      <span className="font-mono">{currency(summary.folio.specialRequests)}</span>
+                    </div>
+                    {summary.specialRequestItems.length > 0 ? (
+                      <ul className="space-y-0.5 border-l-2 border-slate-200 pl-3 text-xs text-slate-500">
+                        {summary.specialRequestItems.map((item) => (
+                          <li key={item.id} className="flex justify-between gap-3">
+                            <span className="min-w-0 break-words">
+                              {item.itemName} · {item.quantity} × {currency(item.unitPrice)}
+                            </span>
+                            <span className="shrink-0 font-mono">{currency(item.total)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <div className="flex justify-between text-slate-600">
                       <span>Discount</span>
                       <span className="font-mono">-{currency(summary.folio.discount)}</span>
                     </div>
+                    {folio.membership > 0 ? (
+                      <div className="flex justify-between text-slate-600">
+                        <span>Club Membership</span>
+                        <span className="font-mono">{currency(folio.membership)}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between text-slate-600">
                       <span>VAT</span>
-                      <span className="font-mono">{currency(summary.folio.vat)}</span>
+                      <span className="font-mono">{currency(folio.vat)}</span>
                     </div>
                     <div className="my-1.5 border-t" />
                     <div className="flex justify-between font-semibold text-slate-900">
                       <span>TOTAL</span>
-                      <span className="font-mono">{currency(summary.folio.total)}</span>
+                      <span className="font-mono">{currency(folio.total)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
                       <span>Paid</span>
@@ -299,11 +360,53 @@ export function CheckOutDialog({
                   </div>
                 )}
 
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+                  <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-[#0b1c3f]">Club Membership</h3>
+                  {summary.clubMembership.status === "MEMBER" ? (
+                    <div className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+                      <BadgeCheck className="h-4 w-4 shrink-0" />
+                      Already a Club Member
+                      {summary.clubMembership.membershipNo ? (
+                        <span className="font-normal text-emerald-700/80">· {summary.clubMembership.membershipNo}</span>
+                      ) : null}
+                    </div>
+                  ) : summary.clubMembership.status === "INACTIVE" ? (
+                    <p className="text-sm text-slate-600">
+                      A Club Membership record ({summary.clubMembership.membershipNo}) already exists for this guest, but
+                      its fee is no longer active. A new membership cannot be registered here.
+                    </p>
+                  ) : (
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <Checkbox
+                        checked={registerMembership}
+                        onCheckedChange={(v) => setRegisterMembership(v === true)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-bold uppercase tracking-wide text-slate-900">
+                          Register as Club Member
+                        </span>
+                        <span className="block text-xs text-slate-600">
+                          One-time membership fee:{" "}
+                          {currency(summary.clubMembership.registrationPreview?.membershipFee ?? 0)}
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          The 2% Club Member discount starts on the guest&apos;s next check-in.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+                </div>
+
                 {/* Damage, lost item, or any other guest-caused charge discovered during
                     checkout — links to this same reservation and enters the balance above. */}
                 <Button type="button" variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
                   <ReceiptText className="h-4 w-4" /> Add Additional / Damage Charge
                 </Button>
+
+                {/* Adding or removing a request here re-pulls the folio above, so
+                    the balance always reflects the saved charges. */}
+                <SpecialRequestsPanel reservationId={summary.id} onChanged={refreshSummary} />
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
@@ -392,6 +495,7 @@ export function CheckOutDialog({
         onOpenChange={setSettleOpen}
         defaultType="PAYMENT"
         initialReservationId={selectedId ?? undefined}
+        clubMembership={preview ? { fee: preview.membershipFee, vat: preview.vatAmount, total: preview.total } : null}
         onDone={() => {
           setSettleOpen(false);
           refreshSummary();

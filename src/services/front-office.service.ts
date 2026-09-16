@@ -1,15 +1,22 @@
 import "server-only";
+import type { DiscountType, PaymentMethod } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
+import { nextNumber } from "@/lib/number-sequence";
+import { computeMembershipFeeCharge } from "@/lib/folio-pricing";
 import { formatGuestFullName, guestTypeLabel } from "@/lib/formatters";
+import { buildFolioStatement, checkInBalanceOf, folioLedgerSelect } from "@/lib/folio-statement";
 import { assertRoomAvailable } from "@/services/reservation.service";
-import { reservationBalance, listTodayTransactions } from "@/services/cashiering.service";
+import { reservationBalance, listTodayTransactions, getOrCreateCashierSession } from "@/services/cashiering.service";
+import { hasActiveMembershipPayment, registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
 import { resolveDateRange, type DateRange } from "@/services/report.service";
 import { paginationMeta } from "@/validators/pagination.schema";
+import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
 import { ASSIGNABLE_ROOM_STATUSES } from "@/config/room-status";
 import type {
   CheckInInput,
+  CheckOutClubMembershipPaymentInput,
   CheckOutInput,
   GuestVerificationInput,
   RoomTransferInput,
@@ -100,7 +107,7 @@ export type FrontOfficeActivityTransaction = {
   membershipFeeIncluded: string | null;
   processedBy: string | null;
   reference: string | null;
-  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | null;
+  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | "SPECIAL_REQUEST" | null;
   otherChargeType: string | null;
   clubMembership: {
     membershipNo: string;
@@ -438,9 +445,11 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
     // here (not just in the Check-In dialog) so it can't be bypassed by
     // calling this API directly. Mode of Payment is never treated as proof of
     // payment — only an actual PAYMENT/DISCOUNT/REFUND row reduces this.
+    // Chargeable Special Requests are the one exception: incidentals billed
+    // to the room and settled at check-out (see checkInBalanceOf).
     const transactions = await tx.cashierTransaction.findMany({ where: { reservationId: reservation.id } });
-    const balance = reservationBalance(transactions);
-    if (balance > 0) {
+    const balance = checkInBalanceOf(transactions);
+    if (balance > 0.005) {
       throw new AppError(
         `Guest cannot be checked in because there is an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking in.`,
         "OUTSTANDING_BALANCE",
@@ -507,7 +516,9 @@ export async function listCheckInEligibleReservations() {
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, roomType: { select: { name: true } } } },
-      transactions: { select: { type: true, amount: true } },
+      transactions: {
+        select: { id: true, type: true, amount: true, additionalChargeType: true, settlesTransactionId: true },
+      },
     },
   });
 
@@ -520,9 +531,9 @@ export async function listCheckInEligibleReservations() {
     arrivalDate: r.arrivalDate,
     departureDate: r.departureDate,
     status: r.status,
-    // Same reservationBalance() math the checkIn() gate and Cashiering use —
-    // never a separate "is this paid" flag that could drift from the ledger.
-    balance: reservationBalance(r.transactions),
+    // Same checkInBalanceOf() math the checkIn() gate uses — never a separate
+    // "is this paid" flag that could drift from the ledger.
+    balance: Math.round(checkInBalanceOf(r.transactions) * 100) / 100,
   }));
 }
 
@@ -614,9 +625,7 @@ export async function getCheckoutFolioSummary(reservationId: string) {
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, roomType: { select: { name: true } } } },
-      transactions: {
-        select: { type: true, amount: true, subtotal: true, bedCharge: true, discountAmount: true, vatAmount: true },
-      },
+      transactions: { orderBy: { createdAt: "desc" }, select: folioLedgerSelect },
     },
   });
   if (!reservation) throw new NotFoundError("Reservation not found.");
@@ -624,23 +633,28 @@ export async function getCheckoutFolioSummary(reservationId: string) {
     throw new AppError("This guest is not currently checked in.", "INVALID_RESERVATION_STATE", 409);
   }
 
+  // Every line is itemized from the stay's persisted ledger (see
+  // buildFolioStatement) — special requests added after check-in, damage
+  // charges, and a Check-Out membership fee all show up here automatically.
+  const statement = buildFolioStatement(reservation.transactions);
   const charges = reservation.transactions.filter((t) => t.type === "CHARGE");
-  const roomCharges = charges.reduce(
-    (sum, t) => sum + (t.subtotal != null ? Number(t.subtotal) - Number(t.bedCharge ?? 0) : 0),
-    0
-  );
-  const bedCharges = charges.reduce((sum, t) => sum + (t.subtotal != null ? Number(t.bedCharge ?? 0) : 0), 0);
-  const plainCharges = charges.reduce((sum, t) => sum + (t.subtotal == null ? Number(t.amount) : 0), 0);
-  const additionalCharges = bedCharges + plainCharges;
-  const folioDiscount = charges.reduce((sum, t) => sum + Number(t.discountAmount ?? 0), 0);
-  const adHocDiscount = reservation.transactions
-    .filter((t) => t.type === "DISCOUNT")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  const discount = folioDiscount + adHocDiscount;
-  const vat = charges.reduce((sum, t) => sum + Number(t.vatAmount ?? 0), 0);
-  const total = roomCharges + additionalCharges - discount + vat;
-  const balance = reservationBalance(reservation.transactions);
-  const paid = total - balance;
+  const roomCharges = statement.roomCharges;
+  // Bed + plain (damage/lost item/manual) charges, as before.
+  const additionalCharges = Math.round((statement.bedCharges + statement.otherChargeTotal) * 100) / 100;
+  const specialRequests = statement.specialRequestTotal;
+  const membership = statement.membershipFee;
+  const { discount, vat, total, paid, balance } = statement;
+
+  const existingMembership = await prisma.clubMembership.findUnique({
+    where: { guestId: reservation.guestId },
+    select: { membershipNo: true, transactions: { where: { type: "PAYMENT" }, select: { reversedById: true } } },
+  });
+  // Priced (never persisted) with the same helper registerClubMembershipAtCheckOut
+  // uses, so the preview the modal adds when the box is ticked is exactly what
+  // gets charged.
+  const registrationPreview = existingMembership
+    ? null
+    : await computeMembershipFeeCharge({ membershipFee: CLUB_MEMBERSHIP_FEE, discountType: stayDiscountType(charges) });
 
   return {
     id: reservation.id,
@@ -651,8 +665,193 @@ export async function getCheckoutFolioSummary(reservationId: string) {
     roomType: reservation.room.roomType.name,
     arrivalDate: reservation.arrivalDate,
     departureDate: reservation.departureDate,
-    folio: { roomCharges, additionalCharges, discount, vat, total, paid, balance },
+    folio: { roomCharges, additionalCharges, specialRequests, membership, discount, vat, total, paid, balance },
+    specialRequestItems: statement.specialRequests,
+    otherChargeItems: statement.otherCharges,
+    bedCharges: statement.bedCharges,
+    clubMembership: existingMembership
+      ? {
+          // Any existing record blocks a second registration (guestId is
+          // unique) — ACTIVE vs. a record whose fee was refunded is only
+          // distinguished for the message the modal shows.
+          status: hasActiveMembershipPayment(existingMembership.transactions) ? ("MEMBER" as const) : ("INACTIVE" as const),
+          membershipNo: existingMembership.membershipNo,
+          registrationPreview: null,
+        }
+      : { status: "NOT_MEMBER" as const, membershipNo: null, registrationPreview },
   };
+}
+
+// The stay's own discount (from its most recent discounted charge) decides
+// whether a membership fee billed on it is VAT-exempt — see
+// computeMembershipFeeCharge. `charges` must be ordered newest first.
+function stayDiscountType(charges: Array<{ discountType: DiscountType | null }>) {
+  return charges.find((c) => c.discountType)?.discountType ?? null;
+}
+
+/**
+ * Check-Out's "Register as Club Member": takes the guest's payment (the same
+ * amount/Mode of Payment/Front Desk Officer fields as the modal's existing
+ * Process Payment) and registers the membership in ONE database transaction,
+ * so a membership can never exist unpaid and the fee is never charged twice.
+ *
+ * Ledger shape — each peso recorded exactly once:
+ *  - a CHARGE on this stay for the ₱1,000 fee + its VAT (membershipFeeIncluded
+ *    set, so receipts/Cashiering itemize "Club Membership Registration");
+ *  - the membership's own ₱1,000 fee PAYMENT (clubMembershipId set — what
+ *    makes it ACTIVE), settling that charge in place;
+ *  - a second settling PAYMENT for the fee's VAT, when there is any;
+ *  - any amount above the membership total goes toward the stay's remaining
+ *    balance as an ordinary payment, same as Process Payment posts it.
+ *
+ * The 2% Club Member discount is never applied to this stay: eligibility
+ * requires a check-in AFTER registration (getClubMemberDiscountEligibility),
+ * and this stay's check-in already happened.
+ */
+export async function registerClubMembershipAtCheckOut(
+  reservationId: string,
+  input: CheckOutClubMembershipPaymentInput,
+  actor: ActorContext
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM reservations WHERE id = ${reservationId} FOR UPDATE`;
+    const reservation = await tx.reservation.findUnique({
+      where: { id: reservationId },
+      include: {
+        guest: true,
+        transactions: { orderBy: { createdAt: "desc" }, select: { type: true, amount: true, discountType: true } },
+      },
+    });
+    if (!reservation) throw new NotFoundError("Reservation not found.");
+    if (reservation.status !== "CHECKED_IN") {
+      throw new AppError("Only a checked-in guest can register as a Club Member at check-out.", "INVALID_RESERVATION_STATE", 409);
+    }
+
+    const existing = await tx.clubMembership.findUnique({ where: { guestId: reservation.guestId } });
+    if (existing) {
+      throw new AppError("Already a Club Member.", "MEMBERSHIP_ALREADY_EXISTS", 409);
+    }
+
+    const fee = await computeMembershipFeeCharge({
+      membershipFee: CLUB_MEMBERSHIP_FEE,
+      discountType: stayDiscountType(reservation.transactions.filter((t) => t.type === "CHARGE")),
+    });
+    const amountDue = Math.round((Math.max(0, reservationBalance(reservation.transactions)) + fee.total) * 100) / 100;
+    const amount = Math.round(input.amount * 100) / 100;
+    if (amount < fee.total) {
+      throw new AppError(
+        `The one-time Club Membership fee of ₱${fee.total.toFixed(2)} must be paid in full to register.`,
+        "MEMBERSHIP_FEE_UNPAID",
+        400
+      );
+    }
+    if (amount > amountDue) {
+      throw new AppError(`Payment exceeds the amount due of ₱${amountDue.toFixed(2)}.`, "EXCEEDS_BALANCE", 400);
+    }
+
+    const paymentMethod = input.paymentMethod as PaymentMethod;
+    const otherPaymentMethod = input.paymentMethod === "OTHER" ? input.otherPaymentMethod || null : null;
+    const reference = input.reference || null;
+
+    const sessionId = await getOrCreateCashierSession(tx, actor.userId);
+    const charge = await tx.cashierTransaction.create({
+      data: {
+        transactionNo: await nextNumber(tx, "cashier-transaction", "TXN"),
+        sessionId,
+        reservationId: reservation.id,
+        type: "CHARGE",
+        amount: fee.total,
+        paymentMethod,
+        otherPaymentMethod,
+        reference: "Club Membership Registration",
+        // Paid in full within this same transaction, so its processor is the
+        // officer taking the payment — same as payTransaction() sets it.
+        processedBy: input.processedBy,
+        userId: actor.userId,
+        subtotal: 0,
+        discountAmount: 0,
+        vatAmount: fee.vatAmount,
+        membershipFeeIncluded: fee.membershipFee,
+      },
+    });
+
+    const { membership, transaction: feePayment } = await registerClubMembershipForGuestInTx(
+      tx,
+      reservation.guestId,
+      {
+        paymentMethod,
+        otherPaymentMethod,
+        processedBy: input.processedBy,
+        reference,
+        reservationId: reservation.id,
+        settlesTransactionId: charge.id,
+      },
+      actor.userId
+    );
+
+    const paymentBase = {
+      sessionId,
+      reservationId: reservation.id,
+      type: "PAYMENT" as const,
+      paymentMethod,
+      otherPaymentMethod,
+      reference,
+      processedBy: input.processedBy,
+      userId: actor.userId,
+    };
+    if (fee.vatAmount > 0) {
+      await tx.cashierTransaction.create({
+        data: {
+          ...paymentBase,
+          transactionNo: await nextNumber(tx, "cashier-transaction", "TXN"),
+          amount: fee.vatAmount,
+          settlesTransactionId: charge.id,
+        },
+      });
+    }
+
+    const remainder = Math.round((amount - fee.total) * 100) / 100;
+    if (remainder > 0) {
+      await tx.cashierTransaction.create({
+        data: { ...paymentBase, transactionNo: await nextNumber(tx, "cashier-transaction", "TXN"), amount: remainder },
+      });
+    }
+
+    return { reservation, membership, charge, feePayment, fee, amount };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "CLUB_REGISTRATION",
+    module: "front-office",
+    recordId: result.membership.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      guestName: formatGuestFullName(result.reservation.guest),
+      membershipNo: result.membership.membershipNo,
+      reservationNo: result.reservation.reservationNo,
+      feeAmount: result.fee.membershipFee,
+      vatAmount: result.fee.vatAmount,
+    },
+  });
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: "PAYMENT_RECEIVED",
+    module: "cashiering",
+    recordId: result.charge.id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    newValue: {
+      transactionNo: result.charge.transactionNo,
+      amount: result.amount,
+      guestName: formatGuestFullName(result.reservation.guest),
+    },
+  });
+
+  return { membershipNo: result.membership.membershipNo, chargeId: result.charge.id, amount: result.amount };
 }
 
 export async function transferRoom(input: RoomTransferInput, actor: ActorContext) {

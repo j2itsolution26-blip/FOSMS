@@ -5,60 +5,19 @@ function toInputDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-test.describe("Guest Folio — Club Membership registration", () => {
-  test("registers a new guest as a Club Member from the Guest Folio UI, with no discount yet", async ({ page }) => {
+test.describe("Club Membership registration", () => {
+  test("no longer offers Club Membership registration on the Guest Folio", async ({ page }) => {
+    // Membership registration lives in Club Reception now — the Guest Folio
+    // only collects normal guest-registration fields.
     await login(page, DEMO_USERS.frontOffice);
-
-    const uniqueLastName = `Pacquiao${Date.now()}`;
 
     await page.goto("/guests");
     await page.getByRole("button", { name: "Add Guest" }).click();
     await expect(page.getByRole("heading", { name: "Guest Folio" })).toBeVisible();
 
-    await page.locator('input[name="firstName"]').fill("Manny");
-    await page.locator('input[name="lastName"]').fill(uniqueLastName);
-    await page.locator('input[name="processedBy"]').fill("QA Front Desk");
-
-    await page.getByText("Register as Club Member").click();
-    await expect(page.getByText("₱1,000.00")).toBeVisible();
-
-    // Exactly one Mode of Payment field for the whole folio — since no room
-    // is being assigned in this test, this is the membership-only rendering
-    // of it (defaults to Cash, which is submitted below without changing it).
-    await expect(page.getByText("Mode of Payment")).toHaveCount(1);
-
-    // No separate "Membership Processed By" field to fill anymore — the
-    // membership fee is processed by the same Front Desk Officer entered
-    // above ("QA Front Desk"), asserted below via the guest details dialog.
-    await expect(page.getByPlaceholder("Enter name of staff processing the membership fee")).toHaveCount(0);
-
-    await page.getByRole("button", { name: "Save Guest Folio" }).click();
-
-    await expect(
-      page.getByText("Club Membership registered. The 2% member discount will be available starting on your next check-in.")
-    ).toBeVisible({ timeout: 10000 });
-
-    // Confirm it actually shows up on the Guest Folio / details view, as its
-    // own identifiable line — never merged into another charge.
-    await page.locator('input[placeholder="Search guest name, room, or reservation…"]').fill(uniqueLastName);
-    const row = page.locator("table tbody tr").first();
-    await expect(row.getByText(uniqueLastName)).toBeVisible();
-    await row.getByRole("button", { name: "View guest" }).click();
-
-    const detailsDialog = page.getByRole("dialog");
-    await expect(detailsDialog.getByRole("heading", { name: "Club Membership" })).toBeVisible();
-    await expect(detailsDialog.getByText(/^CM-/)).toBeVisible();
-    await expect(detailsDialog.getByText("Club Membership Fee")).toBeVisible();
-
-    // The membership fee's own "Processed By" reused the SAME Front Desk
-    // Officer entered once at the top of the form — never a second,
-    // separately-collected name.
-    await expect(detailsDialog.getByText("QA Front Desk")).toHaveCount(2);
-
-    // The membership fee's own Mode of Payment reused the folio's single
-    // payment-method field (left at its "Cash" default — never changed,
-    // never asked for separately).
-    await expect(detailsDialog.getByText("Cash")).toBeVisible();
+    await expect(page.getByText("Register as Club Member")).toHaveCount(0);
+    await expect(page.getByText("Pay the one-time ₱1,000 membership fee and become a Club Member.")).toHaveCount(0);
+    await expect(page.locator('input[name="firstName"]')).toBeVisible();
   });
 
   test("enforces the first-check-in rule server-side across a full member lifecycle", async ({ page }) => {

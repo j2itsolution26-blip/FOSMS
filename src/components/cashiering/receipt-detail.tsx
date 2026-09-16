@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDiscountRate, formatDiscountType, formatPaymentMethod } from "@/lib/formatters";
+import type { FolioStatement } from "@/lib/folio-statement";
 
 export type ReceiptDetailData = {
   id: string;
@@ -46,6 +47,9 @@ export type ReceiptDetailData = {
   // (see the schema comment on membershipFeeIncluded) — never the separate
   // membership fee PAYMENT itself (that's `membership` above).
   membershipFeeIncluded: string | null;
+  // The stay's full itemized folio as of this payment — present on a
+  // reservation payment receipt (never on a Club Membership fee receipt).
+  folio?: FolioStatement | null;
 };
 
 const STATUS_META: Record<ReceiptDetailData["status"], { label: string; className: string }> = {
@@ -67,11 +71,105 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function LineItem({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
+function LineItem({
+  label,
+  value,
+  muted = false,
+  strong = false,
+}: {
+  label: React.ReactNode;
+  value: string;
+  muted?: boolean;
+  strong?: boolean;
+}) {
   return (
-    <div className={`flex items-baseline justify-between text-sm ${muted ? "text-muted-foreground" : "text-slate-800"}`}>
-      <span>{label}</span>
-      <span className="font-mono">{value}</span>
+    <div
+      className={`flex items-baseline justify-between gap-4 text-sm ${muted ? "text-muted-foreground" : "text-slate-800"} ${
+        strong ? "font-semibold text-slate-900" : ""
+      }`}
+    >
+      <span className="min-w-0 break-words">{label}</span>
+      <span className="shrink-0 font-mono">{value}</span>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="pt-1 text-xs font-semibold tracking-wider text-slate-500 uppercase">{children}</p>;
+}
+
+/**
+ * The stay's whole folio, itemized by source: room charges, each special
+ * request by name, other additional charges, and a Club Membership
+ * registration fee — never folded into one another.
+ */
+function FolioBreakdown({ folio, roomTypeName }: { folio: FolioStatement; roomTypeName: string | null }) {
+  const discountRate = formatDiscountRate(folio.discount, folio.discountBase, folio.otherDiscountRate);
+  return (
+    <div className="space-y-1.5 rounded-lg border bg-slate-50/60 p-4">
+      {folio.roomLines.length > 0 || folio.bedCharges > 0 ? (
+        <>
+          <SectionLabel>Room Charges</SectionLabel>
+          {folio.roomLines.map((line) => (
+            <LineItem key={line.id} label={line.label || roomTypeName || "Room"} value={currency(line.amount)} />
+          ))}
+          {folio.bedCharges > 0 ? (
+            <LineItem label={`Additional Bed${folio.bedCount ? ` (${folio.bedCount})` : ""}`} value={currency(folio.bedCharges)} />
+          ) : null}
+        </>
+      ) : null}
+
+      {folio.specialRequests.length > 0 ? (
+        <>
+          <SectionLabel>Additional / Special Requests</SectionLabel>
+          {folio.specialRequests.map((item) => (
+            <div key={item.id} className="text-sm text-slate-800">
+              <p className="break-words">{item.itemName}</p>
+              <div className="flex items-baseline justify-between gap-4 text-muted-foreground">
+                <span className="font-mono text-xs">
+                  {item.quantity} × {currency(item.unitPrice)}
+                </span>
+                <span className="font-mono text-slate-800">{currency(item.total)}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      ) : null}
+
+      {folio.otherCharges.length > 0 ? (
+        <>
+          <SectionLabel>Other Additional Charges</SectionLabel>
+          {folio.otherCharges.map((line) => (
+            <LineItem key={line.id} label={line.label} value={currency(line.amount)} />
+          ))}
+        </>
+      ) : null}
+
+      {folio.membershipFee > 0 ? (
+        <>
+          <SectionLabel>Club Membership</SectionLabel>
+          <LineItem label="Club Membership Registration" value={currency(folio.membershipFee)} />
+        </>
+      ) : null}
+
+      <div className="my-1.5 border-t border-dashed" />
+      <LineItem label="SUBTOTAL" value={currency(folio.subtotal)} />
+      {folio.discount > 0 ? (
+        <>
+          {folio.discountType ? (
+            <LineItem label="DISCOUNT TYPE" value={formatDiscountType(folio.discountType, folio.otherDiscountType) ?? "—"} muted />
+          ) : null}
+          {discountRate ? <LineItem label="DISCOUNT RATE" value={discountRate} muted /> : null}
+          <LineItem label="DISCOUNT" value={`-${currency(folio.discount)}`} muted />
+        </>
+      ) : (
+        <LineItem label="DISCOUNT" value={currency(0)} muted />
+      )}
+      <LineItem label="VAT" value={currency(folio.vat)} />
+      <div className="my-1.5 border-t" />
+      <LineItem label="TOTAL" value={currency(folio.total)} strong />
+      <LineItem label="PAYMENT" value={currency(folio.paid)} />
+      <LineItem label="BALANCE" value={currency(Math.max(0, folio.balance))} strong />
     </div>
   );
 }
@@ -178,9 +276,12 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
             ) : null}
           </div>
 
-          {hasFolioBreakdown ? (
+          {receipt.folio ? (
+            <FolioBreakdown folio={receipt.folio} roomTypeName={receipt.roomTypeName} />
+          ) : hasFolioBreakdown ? (
             <div className="space-y-1.5 rounded-lg border bg-slate-50/60 p-4">
-              <LineItem label="ROOM" value={currency(roomPrice)} />
+              {/* A Check-Out Club Membership charge has no room portion. */}
+              {roomPrice > 0 || membershipFeeIncluded === 0 ? <LineItem label="ROOM" value={currency(roomPrice)} /> : null}
               {receipt.bedCount ? <LineItem label={`BED (${receipt.bedCount})`} value={currency(bedCharge)} /> : null}
               {membershipFeeIncluded > 0 ? (
                 <LineItem label="CLUB MEMBERSHIP REGISTRATION" value={currency(membershipFeeIncluded)} />

@@ -6,6 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
 import { isRestrictedStatus } from "@/config/room-status";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
+import { calculateNights } from "@/lib/stay-nights";
 import {
   createInitialReservationCharge,
   getClubMemberDiscountEligibility,
@@ -181,6 +182,7 @@ type ActorContext = {
  */
 export async function resolveInitialReservationCharge(
   roomId: string,
+  stay: { arrivalDate: string | Date; departureDate: string | Date },
   pricing: {
     bedCount?: number;
     discountType?: DiscountType | null;
@@ -197,6 +199,14 @@ export async function resolveInitialReservationCharge(
     membershipFee?: number;
   }
 ) {
+  // The room is charged per night of the actual stay — never a flat
+  // one-night price. Validators already reject departure <= arrival; this
+  // guards any caller that skipped them so a ₱0 room charge can't persist.
+  const nights = calculateNights(stay.arrivalDate, stay.departureDate);
+  if (nights < 1) {
+    throw new AppError("Departure date must be after the arrival date.", "INVALID_STAY_DATES", 400);
+  }
+
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room) throw new NotFoundError("Room not found.");
   if (isRestrictedStatus(room.status)) {
@@ -222,6 +232,7 @@ export async function resolveInitialReservationCharge(
 
   const charge = await computeFolioCharge({
     roomTypeId: room.roomTypeId,
+    nights,
     bedCount: pricing.bedCount,
     discountType: pricing.discountType ?? null,
     otherDiscountType: pricing.otherDiscountType,
@@ -293,7 +304,7 @@ export async function createReservationAndChargeInTx(
 }
 
 export async function createReservation(input: CreateReservationInput, actor: ActorContext) {
-  const { room, charge } = await resolveInitialReservationCharge(input.roomId, {
+  const { room, charge } = await resolveInitialReservationCharge(input.roomId, input, {
     bedCount: input.bedCount,
     discountType: input.discountType,
     otherDiscountType: input.otherDiscountType,

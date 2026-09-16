@@ -6,10 +6,15 @@ import { authorize } from "@/lib/auth/guard";
 import { handleServiceError } from "@/lib/handle-service-error";
 import { PERMISSIONS } from "@/config/permissions";
 import { computeFolioCharge } from "@/lib/folio-pricing";
+import { calculateNights } from "@/lib/stay-nights";
 import { discountTypeEnum } from "@/validators/cashiering.schema";
 
 const folioQuoteSchema = z.object({
   roomTypeId: z.string().min(1),
+  // The stay being priced — the nightly rate is multiplied by
+  // calculateNights(arrivalDate, departureDate), exactly as on save.
+  arrivalDate: z.string().trim().refine((v) => !Number.isNaN(Date.parse(v)), "Enter a valid date."),
+  departureDate: z.string().trim().refine((v) => !Number.isNaN(Date.parse(v)), "Enter a valid date."),
   bedCount: z.coerce.number().int().min(0).max(10).optional(),
   discountType: discountTypeEnum.optional(),
   // Only meaningful when discountType is OTHER — the live preview shows
@@ -32,7 +37,8 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return apiValidationError(parsed.error);
 
   try {
-    const charge = await computeFolioCharge(parsed.data);
+    const { arrivalDate, departureDate, ...pricing } = parsed.data;
+    const charge = await computeFolioCharge({ ...pricing, nights: calculateNights(arrivalDate, departureDate) });
     return apiSuccess(charge);
   } catch (err) {
     return handleServiceError(err, "cashiering/folio-quote");

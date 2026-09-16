@@ -6,6 +6,9 @@ import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
+import { calculateNights } from "@/lib/stay-nights";
+import { reservationBalanceOf } from "@/lib/reservation-balance";
+import { buildFolioStatement, folioLedgerSelect } from "@/lib/folio-statement";
 import { formatGuestFullName } from "@/lib/formatters";
 import type {
   CloseCashierInput,
@@ -110,12 +113,7 @@ function endOfDay(d: Date) {
 }
 
 export function reservationBalance(transactions: { type: string; amount: Prisma.Decimal | number }[]) {
-  return transactions.reduce((sum, t) => {
-    const amount = Number(t.amount);
-    if (t.type === "CHARGE") return sum + amount;
-    if (t.type === "PAYMENT" || t.type === "DISCOUNT" || t.type === "REFUND") return sum - amount;
-    return sum;
-  }, 0);
+  return reservationBalanceOf(transactions);
 }
 
 export async function getCashieringKpis() {
@@ -201,6 +199,7 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
       user: { select: { firstName: true, lastName: true } },
       roomType: { select: { name: true } },
       settledBy: { select: { id: true, amount: true, reversedById: true, createdAt: true } },
+      specialRequest: { select: { itemName: true, quantity: true, unitPrice: true, notes: true } },
     },
     take: 200,
   });
@@ -474,6 +473,13 @@ export async function createClubMembershipPayment(
     paymentMethod: PaymentMethod;
     otherPaymentMethod?: string | null;
     processedBy: string;
+    // Only set when the fee is registered at Check-Out and billed on that
+    // stay's folio (see registerClubMembershipAtCheckOut): the payment then
+    // also settles the stay's Club Membership CHARGE in place, so the fee
+    // counts toward that reservation's balance exactly once.
+    reservationId?: string | null;
+    settlesTransactionId?: string | null;
+    reference?: string | null;
   }
 ) {
   const sessionId = await getOrCreateCashierSession(tx, params.userId);
@@ -486,14 +492,17 @@ export async function createClubMembershipPayment(
       amount: params.amount,
       paymentMethod: params.paymentMethod,
       otherPaymentMethod: params.otherPaymentMethod || null,
+      reference: params.reference || null,
       processedBy: params.processedBy,
       userId: params.userId,
       clubMembershipId: params.clubMembershipId,
+      reservationId: params.reservationId ?? null,
+      settlesTransactionId: params.settlesTransactionId ?? null,
     },
   });
 }
 
-async function getOrCreateCashierSession(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+export async function getOrCreateCashierSession(tx: Prisma.TransactionClient, userId: string): Promise<string> {
   const existing = await tx.cashierSession.findFirst({
     where: { cashierId: userId },
     select: { id: true },
@@ -606,8 +615,20 @@ export async function createTransaction(input: CreateTransactionInput, actor: Ac
   // manual folio-priced charge from the Cashiering dialog.
   let charge: FolioCharge | null = null;
   if (input.roomTypeId) {
+    // Priced for the reservation's own stored stay (nightly rate × nights),
+    // the same way its initial charge was — never a flat one-night price.
+    const stay = await prisma.reservation.findUnique({
+      where: { id: input.reservationId },
+      select: { arrivalDate: true, departureDate: true },
+    });
+    if (!stay) throw new NotFoundError("Reservation not found.");
+    const nights = calculateNights(stay.arrivalDate, stay.departureDate);
+    if (nights < 1) {
+      throw new AppError("The reservation's departure date must be after its arrival date.", "INVALID_STAY_DATES", 400);
+    }
     charge = await computeFolioCharge({
       roomTypeId: input.roomTypeId,
+      nights,
       bedCount: input.bedCount,
       discountType: input.discountType,
       otherDiscountType: input.otherDiscountType,
@@ -1054,11 +1075,27 @@ export async function getReceiptById(id: string) {
   // the printed receipt still itemizes Room/Bed/Discount/VAT, not just the
   // lump sum paid.
   if (row.subtotal === null && transaction.reservationId) {
-    const charge = await prisma.cashierTransaction.findFirst({
-      where: { reservationId: transaction.reservationId, type: "CHARGE", subtotal: { not: null } },
-      orderBy: { createdAt: "desc" },
-      include: receiptInclude,
-    });
+    // The charge this payment settles, when it's itemized (e.g. Check-Out's
+    // Club Membership charge); otherwise the stay's latest room charge —
+    // roomTypeId excludes that membership-only charge, which has no room.
+    const settled = transaction.settlesTransactionId
+      ? await prisma.cashierTransaction.findFirst({
+          where: { id: transaction.settlesTransactionId, subtotal: { not: null } },
+          include: receiptInclude,
+        })
+      : null;
+    const charge =
+      settled ??
+      (await prisma.cashierTransaction.findFirst({
+        where: {
+          reservationId: transaction.reservationId,
+          type: "CHARGE",
+          subtotal: { not: null },
+          roomTypeId: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+        include: receiptInclude,
+      }));
     if (charge) {
       const chargeRow = toReceiptRow(charge);
       Object.assign(row, {
@@ -1078,8 +1115,24 @@ export async function getReceiptById(id: string) {
     }
   }
 
+  // The stay's full itemized folio (room, special requests, other charges,
+  // Club Membership, discount, VAT, payments, balance) as it stood when this
+  // payment was made — later charges never change an already-issued
+  // receipt. Not attached to a Club Membership fee receipt, which keeps its
+  // own membership layout.
+  let folio: ReturnType<typeof buildFolioStatement> | null = null;
+  if (transaction.reservationId && !transaction.clubMembershipId && row.type === "PAYMENT") {
+    const ledger = await prisma.cashierTransaction.findMany({
+      where: { reservationId: transaction.reservationId, createdAt: { lte: new Date(row.paymentDate) } },
+      orderBy: { createdAt: "asc" },
+      select: folioLedgerSelect,
+    });
+    folio = buildFolioStatement(ledger);
+  }
+
   return {
     ...row,
+    folio,
     refundOfReceiptNumber: refundOf?.transactionNo ?? null,
     refundedByReceiptNumber: refundedBy?.transactionNo ?? null,
     refundedAt: refundedBy?.createdAt ?? null,

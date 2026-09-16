@@ -28,6 +28,11 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
+import {
+  SpecialRequestsDraftEditor,
+  validateSpecialRequestDrafts,
+  type SpecialRequestDraft,
+} from "@/components/front-office/special-requests";
 import { apiFetch } from "@/lib/api-client";
 import { formatDiscountRate, formatDiscountType, formatGuestFullName, formatPaymentMethod } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
@@ -39,6 +44,7 @@ import {
   FOLIO_DISCOUNT_TYPE_OPTIONS,
 } from "@/validators/folio-room-assignment.schema";
 import type { FolioCharge } from "@/lib/folio-pricing";
+import { calculateNights } from "@/lib/stay-nights";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
 type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
@@ -154,6 +160,12 @@ export function WalkInDialog({
   const [payProcessedBy, setPayProcessedBy] = useState("");
   const [paying, setPaying] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
+  // Special Requests & Additional Charges — saved with the walk-in; the
+  // chargeable ones are settled at check-out, not in the payment step below.
+  const [specialRequests, setSpecialRequests] = useState<SpecialRequestDraft[]>([]);
+  const [specialRequestErrors, setSpecialRequestErrors] = useState<
+    ReturnType<typeof validateSpecialRequestDrafts>["errors"]
+  >({});
 
   const balance = registered ? Math.max(0, Math.round((registered.totalDue - paidAmount) * 100) / 100) : 0;
   const fullyPaid = registered != null && balance <= 0;
@@ -246,6 +258,8 @@ export function WalkInDialog({
     setUseExistingGuest(false);
     setExistingGuestId("");
     setMembershipStatus(null);
+    setSpecialRequests([]);
+    setSpecialRequestErrors({});
     roomForm.reset({
       roomTypeId: "",
       roomId: "",
@@ -279,25 +293,40 @@ export function WalkInDialog({
   // whenever the priced inputs change, so staff see the real total before
   // saving (the actual charge is recomputed again, authoritatively, on submit).
   useEffect(() => {
-    if (step !== "register" || !roomTypeId) {
+    // No room line until the stay is at least one night (departure after
+    // arrival) — the form's own validation shows the date error.
+    const nights = calculateNights(roomArrivalDate, roomDepartureDate);
+    if (step !== "register" || !roomTypeId || nights < 1) {
       setCharge(null);
+      setQuoting(false);
       return;
     }
+    // Changing a date/room type in quick succession can resolve quotes out
+    // of order — only the latest request may update the summary.
+    let cancelled = false;
+    setCharge(null);
     setQuoting(true);
     apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
       method: "POST",
       body: JSON.stringify({
         roomTypeId,
+        arrivalDate: roomArrivalDate,
+        departureDate: roomDepartureDate,
         bedCount,
         discountType,
         otherDiscountRate: discountType === "OTHER" && otherDiscountRate ? Number(otherDiscountRate) : undefined,
       }),
     })
       .then((res) => {
-        if (res.success) setCharge(res.data);
+        if (!cancelled && res.success) setCharge(res.data);
       })
-      .finally(() => setQuoting(false));
-  }, [step, roomTypeId, bedCount, discountType, otherDiscountRate]);
+      .finally(() => {
+        if (!cancelled) setQuoting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, roomTypeId, bedCount, discountType, otherDiscountRate, roomArrivalDate, roomDepartureDate]);
 
   useEffect(() => {
     if (!open) return;
@@ -327,6 +356,13 @@ export function WalkInDialog({
       return;
     }
 
+    const requestCheck = validateSpecialRequestDrafts(specialRequests);
+    setSpecialRequestErrors(requestCheck.errors);
+    if (!requestCheck.valid) {
+      toast.error("Complete the highlighted special request fields before registering.");
+      return;
+    }
+
     const room = roomForm.getValues();
 
     // Guest + Reservation + initial Cashiering charge are created together in
@@ -352,6 +388,7 @@ export function WalkInDialog({
           paymentMethod: room.paymentMethod,
           otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
         },
+        specialRequests: requestCheck.items.length > 0 ? requestCheck.items : undefined,
       }),
     });
 
@@ -960,7 +997,12 @@ export function WalkInDialog({
                     {selectedRoomType && charge ? (
                       <div className="space-y-1 rounded-md border border-slate-200 bg-white p-3 text-sm">
                         <div className="flex justify-between text-slate-600">
-                          <span>Room ({selectedRoomType.name})</span>
+                          <span>
+                            Room ({selectedRoomType.name})
+                            <span className="block text-xs text-slate-500">
+                              {currency(charge.roomRate)} × {charge.nights} {charge.nights === 1 ? "night" : "nights"}
+                            </span>
+                          </span>
                           <span>{currency(charge.roomPrice)}</span>
                         </div>
                         {charge.bedCount > 0 ? (
@@ -999,6 +1041,14 @@ export function WalkInDialog({
                     ) : null}
                   </div>
                 </div>
+
+                {/* Special Requests & Additional Charges — after the room
+                    assignment; billed to this stay on registration. */}
+                <SpecialRequestsDraftEditor
+                  value={specialRequests}
+                  onChange={setSpecialRequests}
+                  errors={specialRequestErrors}
+                />
               </div>
 
               {/* Fixed Footer Actions */}

@@ -47,6 +47,7 @@ export function TransactionDialog({
   onDone,
   defaultType,
   initialReservationId,
+  clubMembership,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,6 +55,13 @@ export function TransactionDialog({
   defaultType?: "CHARGE" | "PAYMENT" | "DISCOUNT";
   /** Pre-selects a reservation (e.g. "Transact" from an existing transaction's details) so the cashier never has to search for the guest again. */
   initialReservationId?: string;
+  /**
+   * Check-Out's "Register as Club Member": the one-time fee (and its VAT) is
+   * added to the amount due, and the payment is posted to the Check-Out
+   * membership endpoint, which registers the membership with this same
+   * payment — never a second Mode of Payment.
+   */
+  clubMembership?: { fee: number; vat: number; total: number } | null;
 }) {
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [loadingReservations, setLoadingReservations] = useState(false);
@@ -76,6 +84,8 @@ export function TransactionDialog({
   const amount = form.watch("amount");
   const paymentMethod = form.watch("paymentMethod");
   const selected = reservations.find((r) => r.id === reservationId);
+  const membershipTotal = clubMembership?.total ?? 0;
+  const amountDue = selected ? Math.round((Math.max(0, selected.balance) + membershipTotal) * 100) / 100 : 0;
 
   // Switching away from "Others" clears the now-hidden free-text field so a
   // stale value can never be silently submitted alongside a different method.
@@ -112,21 +122,32 @@ export function TransactionDialog({
   // entries unrelated to what's already owed.
   useEffect(() => {
     if (form.formState.dirtyFields.amount) return;
-    if (type === "PAYMENT" && selected && selected.balance > 0) {
-      form.setValue("amount", Number(selected.balance.toFixed(2)));
+    if (type === "PAYMENT" && selected && amountDue > 0) {
+      form.setValue("amount", amountDue);
     } else {
       form.setValue("amount", undefined as unknown as number);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, type]);
+  }, [selected?.id, type, amountDue]);
 
   async function onSubmit(values: CreateTransactionInput) {
-    const result = await apiFetch("/api/cashiering/transactions", { method: "POST", body: JSON.stringify(values) });
+    const result = clubMembership
+      ? await apiFetch(`/api/front-office/check-out/${values.reservationId}/club-membership`, {
+          method: "POST",
+          body: JSON.stringify({
+            amount: values.amount,
+            paymentMethod: values.paymentMethod,
+            otherPaymentMethod: values.otherPaymentMethod,
+            reference: values.reference,
+            processedBy: values.processedBy,
+          }),
+        })
+      : await apiFetch("/api/cashiering/transactions", { method: "POST", body: JSON.stringify(values) });
     if (!result.success) {
       toast.error(result.message);
       return;
     }
-    toast.success("Transaction recorded.");
+    toast.success(clubMembership ? "Payment recorded. Guest registered as a Club Member." : "Transaction recorded.");
     onOpenChange(false);
     onDone();
   }
@@ -137,7 +158,7 @@ export function TransactionDialog({
     description: `Room ${r.room.number}`,
   }));
 
-  const exceedsBalance = type === "PAYMENT" && !!selected && selected.balance > 0 && Number(amount) > selected.balance;
+  const exceedsBalance = type === "PAYMENT" && !!selected && amountDue > 0 && Number(amount) > amountDue;
   const showPaymentMethod = type === "PAYMENT";
   const processedByRequired = type === "PAYMENT";
   const referenceLabel = type === "PAYMENT" ? "Reference / Notes" : type === "DISCOUNT" ? "Reason" : "Notes";
@@ -177,7 +198,7 @@ export function TransactionDialog({
                       placeholder={loadingReservations ? "Loading reservations…" : "Search reservation, guest, or room"}
                       searchPlaceholder="Search reservation #, guest name, room…"
                       emptyText="No reservations found."
-                      disabled={loadingReservations}
+                      disabled={loadingReservations || !!clubMembership}
                       ariaLabel="Reservation"
                     />
                   </FormControl>
@@ -193,9 +214,27 @@ export function TransactionDialog({
                   {formatGuestFullName(selected.guest)} · Room {selected.room.number}
                 </p>
                 <p className="text-muted-foreground">{selected.room.roomType.name}</p>
+                {clubMembership ? (
+                  <>
+                    <p className="flex justify-between border-t pt-1 text-muted-foreground">
+                      <span>Folio Balance</span>
+                      <span>{currency(Math.max(0, selected.balance))}</span>
+                    </p>
+                    <p className="flex justify-between text-emerald-800">
+                      <span>Club Membership Registration</span>
+                      <span>{currency(clubMembership.fee)}</span>
+                    </p>
+                    {clubMembership.vat > 0 ? (
+                      <p className="flex justify-between text-emerald-800">
+                        <span>VAT (Club Membership)</span>
+                        <span>{currency(clubMembership.vat)}</span>
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
                 <p className="flex justify-between border-t pt-1 font-medium text-slate-800">
                   <span>Amount Due / Balance</span>
-                  <span>{currency(selected.balance)}</span>
+                  <span>{currency(clubMembership ? amountDue : selected.balance)}</span>
                 </p>
               </div>
             ) : null}
@@ -207,7 +246,7 @@ export function TransactionDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Type</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select value={field.value} onValueChange={field.onChange} disabled={!!clubMembership}>
                       <FormControl>
                         <SelectTrigger className="w-full">
                           <SelectValue />
@@ -242,7 +281,7 @@ export function TransactionDialog({
                       />
                     </FormControl>
                     {exceedsBalance ? (
-                      <p className="text-xs text-amber-600">Exceeds the outstanding balance of {currency(selected!.balance)}.</p>
+                      <p className="text-xs text-amber-600">Exceeds the outstanding balance of {currency(amountDue)}.</p>
                     ) : null}
                     <FormMessage />
                   </FormItem>

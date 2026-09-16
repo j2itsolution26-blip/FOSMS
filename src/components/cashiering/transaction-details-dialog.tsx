@@ -59,8 +59,10 @@ export type TransactionDetailsRow = {
   reference: string | null;
   /** Set only on a CHARGE posted from Check-Out's Add Additional Charge (damage,
    * lost item, additional service, other) — null for every other transaction. */
-  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | null;
+  additionalChargeType: "DAMAGE" | "LOST_ITEM" | "ADDITIONAL_SERVICE" | "OTHER" | "SPECIAL_REQUEST" | null;
   otherChargeType: string | null;
+  // The itemized Special Request a SPECIAL_REQUEST charge bills.
+  specialRequest?: { itemName: string; quantity: number; unitPrice: string; notes: string | null } | null;
   /** Set only on the one-time Club Membership fee — lets Cashiering tell a
    * Membership payment apart from a Guest/Room/Walk-In one instead of just
    * showing a blank Guest/Reservation for it. */
@@ -84,6 +86,7 @@ const ADDITIONAL_CHARGE_TYPE_LABELS: Record<NonNullable<TransactionDetailsRow["a
   LOST_ITEM: "Lost Item",
   ADDITIONAL_SERVICE: "Additional Service",
   OTHER: "Other",
+  SPECIAL_REQUEST: "Special Request",
 };
 
 function additionalChargeTypeLabel(t: Pick<TransactionDetailsRow, "additionalChargeType" | "otherChargeType">): string | null {
@@ -345,6 +348,15 @@ export function TransactionDetailsDialog({
                   <Field label="Charge Type" value={additionalChargeTypeLabel(transaction)} />
                 ) : null}
                 {transaction.reference ? <Field label="Description" value={transaction.reference} /> : null}
+                {transaction.specialRequest ? (
+                  <>
+                    <Field label="Quantity" value={transaction.specialRequest.quantity} />
+                    <Field label="Unit Price" value={currency(Number(transaction.specialRequest.unitPrice))} />
+                    {transaction.specialRequest.notes ? (
+                      <Field label="Notes / Instructions" value={transaction.specialRequest.notes} />
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </div>
           ) : null}

@@ -19,6 +19,7 @@ import {
 import { apiFetch } from "@/lib/api-client";
 import { roomStatusLabel } from "@/config/room-status";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
+import { SpecialRequestsPanel } from "@/components/front-office/special-requests";
 import type { RoomStatus } from "@prisma/client";
 
 type Candidate = {
@@ -335,6 +336,10 @@ export function CheckInDialog({
                   Ready for Check-In
                 </div>
               )}
+
+              {/* Chargeable requests are billed to the room and settled at
+                  check-out — they never block this check-in. */}
+              <SpecialRequestsPanel reservationId={selected.id} onChanged={refreshSelectedBalance} />
 
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">

@@ -159,6 +159,22 @@ function PrintSection({ title, children }: { title: string; children: React.Reac
   );
 }
 
+// Signature over Printed Name — the name is always the recorded value (the
+// folio's Front Desk Officer or the guest's own full name); when none was
+// recorded the line is left blank to be filled in by hand.
+function SignatureLine({ role, name, print = false }: { role: string; name: string | null | undefined; print?: boolean }) {
+  const text = print ? "text-black" : "text-slate-800";
+  return (
+    <div className="break-inside-avoid">
+      <p className={`text-xs font-bold uppercase tracking-wider ${print ? "text-black" : "text-[#0b1c3f]"}`}>{role}</p>
+      <div className={`mt-10 border-b ${print ? "border-black" : "border-slate-400"} pb-0.5 text-center text-sm font-semibold uppercase ${text}`}>
+        {name || " "}
+      </div>
+      <p className={`mt-1 text-center text-[11px] ${print ? "text-black" : "text-slate-500"}`}>Signature over Printed Name</p>
+    </div>
+  );
+}
+
 export function GuestDetailsDialog({
   open,
   onOpenChange,
@@ -228,7 +244,6 @@ export function GuestDetailsDialog({
                 <Field label="First Name" value={guest.firstName} />
                 <Field label="Middle Name" value={guest.middleName} />
                 <Field label="Last Name" value={guest.lastName} />
-                <Field label="Front Desk Officer" value={guest.processedBy || "Not recorded"} />
               </Section>
 
               {guest.clubMembership ? (
@@ -284,6 +299,14 @@ export function GuestDetailsDialog({
                   })
                 )}
               </div>
+
+              <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                <Field label="Front Desk Officer" value={guest.processedBy || "Not recorded"} />
+                <div className="grid grid-cols-1 gap-6 pt-2 sm:grid-cols-2">
+                  <SignatureLine role="Front Desk Officer" name={guest.processedBy} />
+                  <SignatureLine role="Guest" name={formatGuestFullName(guest)} />
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -336,7 +359,6 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
         <PrintRow label="First Name" value={guest.firstName} />
         <PrintRow label="Middle Name" value={guest.middleName} />
         <PrintRow label="Last Name" value={guest.lastName} />
-        <PrintRow label="Front Desk Officer" value={guest.processedBy} />
       </PrintSection>
 
       {guest.clubMembership ? (
@@ -406,6 +428,19 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
           </div>
         );
       })}
+
+      {/* Kept together on one page so the signature lines are never split
+          from the officer's name or cut off at a page break. */}
+      <div className="mt-6 break-inside-avoid" style={{ pageBreakInside: "avoid" }}>
+        <h3 className="mb-1.5 border-b-2 border-black pb-0.5 text-xs font-bold tracking-wider text-black uppercase">
+          Front Desk Officer
+        </h3>
+        <p className="py-1 text-[11px] text-black">{guest.processedBy || "Not recorded"}</p>
+        <div className="mt-6 grid grid-cols-2 gap-x-12">
+          <SignatureLine print role="Front Desk Officer" name={guest.processedBy} />
+          <SignatureLine print role="Guest" name={formatGuestFullName(guest)} />
+        </div>
+      </div>
     </>
   );
 }

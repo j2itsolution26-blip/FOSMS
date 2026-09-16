@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { guestSchema } from "@/validators/guest.schema";
 import { discountTypeEnum, paymentMethodEnum } from "@/validators/cashiering.schema";
+import { specialRequestItemsSchema } from "@/validators/special-request.schema";
 
 const dateOnly = z
   .string()
@@ -127,10 +128,16 @@ export const createGuestFolioSchema = z
     guest: guestSchema.optional(),
     room: guestFolioRoomSchema.optional(),
     clubMembership: guestFolioClubMembershipSchema.optional(),
+    // Billed to the stay, so only accepted together with a room.
+    specialRequests: specialRequestItemsSchema.optional(),
   })
   .refine((data) => !!data.guestId || !!data.guest, {
     message: "Select an existing guest or enter a new guest's details.",
     path: ["guest"],
+  })
+  .refine((data) => !data.specialRequests?.length || !!data.room, {
+    message: "Assign a room before adding special requests.",
+    path: ["specialRequests"],
   });
 
 export type CreateGuestFolioInput = z.infer<typeof createGuestFolioSchema>;
@@ -148,6 +155,7 @@ export const createWalkInGuestSchema = z
     guestId: z.string().min(1).optional(),
     guest: guestSchema.optional(),
     room: guestFolioRoomSchema,
+    specialRequests: specialRequestItemsSchema.optional(),
   })
   .refine((data) => !!data.guestId || !!data.guest, {
     message: "Select an existing guest or enter a new guest's details.",

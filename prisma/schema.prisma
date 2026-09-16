@@ -209,6 +209,10 @@ enum AdditionalChargeType {
   LOST_ITEM
   ADDITIONAL_SERVICE
   OTHER
+  // A chargeable Special Request entered on the Guest Folio / Walk-In /
+  // Check-In / Check-Out screens — itemized in the special_requests table
+  // (SpecialRequest.transactionId points back at this CHARGE).
+  SPECIAL_REQUEST
 }
 
 enum NightAuditStatus {
@@ -791,6 +795,9 @@ model Reservation {
   checkIn      CheckIn?
   checkOut     CheckOut?
   transactions CashierTransaction[]
+  // Itemized Special Requests & Additional Charges — distinct from the
+  // free-text `specialRequests` column above, which is left unchanged.
+  specialRequestItems SpecialRequest[]
 
   @@index([roomId, arrivalDate, departureDate])
   @@index([arrivalDate])
@@ -980,6 +987,9 @@ model CashierTransaction {
   settles               CashierTransaction?  @relation("TransactionSettlement", fields: [settlesTransactionId], references: [id])
   settledBy             CashierTransaction[] @relation("TransactionSettlement")
 
+  // The Special Request this CHARGE bills (additionalChargeType SPECIAL_REQUEST).
+  specialRequest SpecialRequest?
+
   session     CashierSession @relation(fields: [sessionId], references: [id])
   reservation Reservation?   @relation(fields: [reservationId], references: [id])
   user        User           @relation(fields: [userId], references: [id])
@@ -991,6 +1001,38 @@ model CashierTransaction {
   @@index([settlesTransactionId])
   @@index([clubMembershipId])
   @@map("cashier_transactions")
+}
+
+// One Special Request / Additional Charge on a stay. Every request is kept
+// for operational follow-up; only a chargeable one is billed, as its own
+// CashierTransaction CHARGE (transactionId, unique — so one request can never
+// be billed twice). Non-chargeable requests never touch the ledger.
+// quantity/unitPrice/lineTotal are the snapshot the charge was computed from.
+// Removing a request soft-deletes it (deletedAt) and deletes its still-unpaid
+// charge; a charge that has any payment against it can't be removed.
+model SpecialRequest {
+  id            String    @id @default(cuid())
+  reservationId String
+  itemName      String
+  quantity      Int       @default(1)
+  unitPrice     Decimal   @default(0) @db.Decimal(10, 2)
+  lineTotal     Decimal   @default(0) @db.Decimal(10, 2)
+  isChargeable  Boolean   @default(false)
+  notes         String?
+  transactionId String?   @unique
+  // Client-generated per entry — a retried/double-submitted save returns the
+  // request already created instead of billing it a second time.
+  requestKey    String?   @unique
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+  deletedById   String?
+
+  reservation Reservation         @relation(fields: [reservationId], references: [id])
+  transaction CashierTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([reservationId])
+  @@map("special_requests")
 }
 
 model NightAudit {

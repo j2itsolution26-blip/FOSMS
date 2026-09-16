@@ -49,12 +49,12 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Operations",
     items: [
-      { label: "Reservations", href: "/reservations", icon: CalendarCheck, permission: PERMISSIONS.RESERVATIONS_VIEW },
       { label: "Guests", href: "/guests", icon: Users, permission: PERMISSIONS.GUESTS_VIEW },
-      { label: "Room Management", href: "/rooms", icon: BedDouble, permission: PERMISSIONS.ROOMS_VIEW },
       { label: "Front Office Services", href: "/front-office", icon: ConciergeBell, permission: PERMISSIONS.FRONT_OFFICE_VIEW },
       { label: "Club Reception", href: "/club-reception", icon: Sparkles, permission: PERMISSIONS.CLUB_RECEPTION_VIEW },
       { label: "Cashiering", href: "/cashiering", icon: Wallet, permission: PERMISSIONS.CASHIERING_VIEW },
+      { label: "Reservations", href: "/reservations", icon: CalendarCheck, permission: PERMISSIONS.RESERVATIONS_VIEW },
+      { label: "Room Management", href: "/rooms", icon: BedDouble, permission: PERMISSIONS.ROOMS_VIEW },
       { label: "Night Audit", href: "/night-audit", icon: Moon, permission: PERMISSIONS.NIGHT_AUDIT_VIEW },
     ],
   },

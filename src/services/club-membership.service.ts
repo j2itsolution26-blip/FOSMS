@@ -182,7 +182,15 @@ export async function listClubMembers(pagination: PaginationInput, filters: { st
 export async function registerClubMembershipForGuestInTx(
   tx: Prisma.TransactionClient,
   guestId: string,
-  payment: { paymentMethod: PaymentMethod; otherPaymentMethod?: string | null; processedBy: string },
+  payment: {
+    paymentMethod: PaymentMethod;
+    otherPaymentMethod?: string | null;
+    processedBy: string;
+    reference?: string | null;
+    // Check-Out registration only — see createClubMembershipPayment.
+    reservationId?: string | null;
+    settlesTransactionId?: string | null;
+  },
   registeredByUserId: string
 ) {
   const existing = await tx.clubMembership.findUnique({ where: { guestId } });
@@ -207,6 +215,9 @@ export async function registerClubMembershipForGuestInTx(
     paymentMethod: payment.paymentMethod,
     otherPaymentMethod: payment.otherPaymentMethod,
     processedBy: payment.processedBy,
+    reference: payment.reference,
+    reservationId: payment.reservationId,
+    settlesTransactionId: payment.settlesTransactionId,
   });
 
   return { membership, transaction };
@@ -354,7 +365,10 @@ export async function getGuestFinancialHistory(guestId: string) {
       },
     }),
     prisma.cashierTransaction.findMany({
-      where: { reservation: { guestId } },
+      // A membership fee registered at Check-Out is also linked to that stay
+      // (see registerClubMembershipAtCheckOut) — it's already counted once as
+      // the membership's own payment below, never again as a guest payment.
+      where: { reservation: { guestId }, clubMembershipId: null },
       orderBy: { createdAt: "desc" },
       include: { reservation: { select: { reservationNo: true } } },
     }),
@@ -387,7 +401,11 @@ export async function getGuestFinancialHistory(guestId: string) {
   const guestPaidTotal =
     guestPayments.reduce((sum, p) => sum + Number(p.amount), 0) - guestRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
 
-  const combinedTotal = guestChargeTotal + membershipFee;
+  // A fee registered at Check-Out is billed as a CHARGE on that stay (its
+  // payment carries the reservationId), so guestChargeTotal already includes
+  // it — adding membershipFee again would count the fee twice.
+  const membershipBilledOnStay = !!membershipTransaction?.reservationId;
+  const combinedTotal = guestChargeTotal + (membershipBilledOnStay ? 0 : membershipFee);
   const combinedPaid = guestPaidTotal + membershipPaid;
 
   return {

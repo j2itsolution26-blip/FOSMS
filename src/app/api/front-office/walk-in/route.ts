@@ -42,7 +42,8 @@ export async function POST(req: NextRequest) {
         userId: auth.user.id,
         role: auth.user.roles[0] ?? null,
         ...meta,
-      }
+      },
+      parsed.data.specialRequests ?? []
     );
     return apiSuccess(result, undefined, 201);
   } catch (err) {

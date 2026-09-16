@@ -27,6 +27,11 @@ import {
 } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
+import {
+  SpecialRequestsDraftEditor,
+  validateSpecialRequestDrafts,
+  type SpecialRequestDraft,
+} from "@/components/front-office/special-requests";
 import { apiFetch } from "@/lib/api-client";
 import { formatDiscountRate, formatDiscountType, formatGuestFullName } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
@@ -37,8 +42,8 @@ import {
   FOLIO_PAYMENT_METHOD_OPTIONS,
   FOLIO_DISCOUNT_TYPE_OPTIONS,
 } from "@/validators/folio-room-assignment.schema";
-import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
 import type { FolioCharge } from "@/lib/folio-pricing";
+import { calculateNights } from "@/lib/stay-nights";
 
 type RoomTypeRow = { id: string; name: string; baseRate: string };
 type GuestRow = { id: string; firstName: string; middleName?: string | null; lastName: string; email: string | null };
@@ -104,14 +109,12 @@ export function GuestFormDialog({
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
-
-  // Club Membership registration — offered whenever the selected/entered
-  // guest is NOT already an active member (a brand-new guest never is; an
-  // existing one might be, in which case membershipStatus already covers
-  // that — see the "✓ Active Club Member" branch below). Its own Mode of
-  // Payment/Front Desk Officer, independent of the room's — the membership
-  // fee is paid immediately as its own transaction, unlike the room charge.
-  const [registerMembership, setRegisterMembership] = useState(false);
+  // Special Requests & Additional Charges — billed to the stay, so only
+  // offered (and submitted) together with a room assignment.
+  const [specialRequests, setSpecialRequests] = useState<SpecialRequestDraft[]>([]);
+  const [specialRequestErrors, setSpecialRequestErrors] = useState<
+    ReturnType<typeof validateSpecialRequestDrafts>["errors"]
+  >({});
 
   const roomForm = useForm({
     resolver: zodResolver(folioRoomAssignmentSchema),
@@ -188,7 +191,8 @@ export function GuestFormDialog({
       setUseExistingGuest(false);
       setExistingGuestId("");
       setMembershipStatus(null);
-      setRegisterMembership(false);
+      setSpecialRequests([]);
+      setSpecialRequestErrors({});
       roomForm.reset({
         roomTypeId: "",
         roomId: "",
@@ -208,29 +212,40 @@ export function GuestFormDialog({
   // whenever the priced inputs change, so staff see the real total before
   // saving (the actual charge is recomputed again, authoritatively, on submit).
   useEffect(() => {
-    if (!assignRoom || !roomTypeId) {
+    // No room line until the stay is at least one night (departure after
+    // arrival) — the form's own validation shows the date error.
+    const nights = calculateNights(roomArrivalDate, roomDepartureDate);
+    if (!assignRoom || !roomTypeId || nights < 1) {
       setCharge(null);
+      setQuoting(false);
       return;
     }
+    // Changing a date/room type in quick succession can resolve quotes out
+    // of order — only the latest request may update the summary.
+    let cancelled = false;
+    setCharge(null);
     setQuoting(true);
     apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
       method: "POST",
       body: JSON.stringify({
         roomTypeId,
+        arrivalDate: roomArrivalDate,
+        departureDate: roomDepartureDate,
         bedCount,
         discountType,
         otherDiscountRate: discountType === "OTHER" && otherDiscountRate ? Number(otherDiscountRate) : undefined,
-        // Folds the one-time membership fee into this preview's own VAT/total
-        // whenever a NEW membership is also being registered on this folio —
-        // see the identical comment in createGuestFolioWithReservationAndCharge.
-        membershipFee: registerMembership ? CLUB_MEMBERSHIP_FEE : undefined,
       }),
     })
       .then((res) => {
-        if (res.success) setCharge(res.data);
+        if (!cancelled && res.success) setCharge(res.data);
       })
-      .finally(() => setQuoting(false));
-  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate, registerMembership]);
+      .finally(() => {
+        if (!cancelled) setQuoting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate, roomArrivalDate, roomDepartureDate]);
 
   useEffect(() => {
     if (!open || !isCreate) return;
@@ -260,11 +275,7 @@ export function GuestFormDialog({
         );
       })
       .finally(() => setCheckingMembership(false));
-    // Switching guests clears a stale "register this person" selection —
-    // the checkbox re-appears/disappears based on the newly-selected
-    // person's own membership status, never carrying over from the last one.
-    setRegisterMembership(false);
-  }, [useExistingGuest, existingGuestId]);
+  },[useExistingGuest, existingGuestId]);
 
   // Selecting a non-eligible guest (or switching away from "existing")
   // clears a stale Club Member selection instead of silently submitting a
@@ -303,26 +314,11 @@ export function GuestFormDialog({
       }
     }
 
-    if (registerMembership) {
-      // The membership fee always uses the SAME Mode of Payment as the rest
-      // of this Guest Folio — never a second payment-method field. When a
-      // room is also being assigned, roomForm.trigger() above already
-      // validated it; when it's membership-only (no room), it's only
-      // rendered (see below) once membership registration is turned on, so
-      // it must be validated here too.
-      if (!assignRoom) {
-        const paymentFields: Array<"paymentMethod" | "otherPaymentMethod"> =
-          roomForm.getValues("paymentMethod") === "OTHER" ? ["paymentMethod", "otherPaymentMethod"] : ["paymentMethod"];
-        const paymentValid = await roomForm.trigger(paymentFields);
-        if (!paymentValid) return;
-      }
-      // The membership fee is processed by the SAME Front Desk Officer as the
-      // rest of this Guest Folio — never a second staff field. For a new
-      // guest that field already lives further down this same form; for an
-      // existing guest it's only rendered (see below) once membership
-      // registration is turned on, so it must be validated here too.
-      const officerValid = await form.trigger("processedBy");
-      if (!officerValid) return;
+    const requestCheck = validateSpecialRequestDrafts(assignRoom ? specialRequests : []);
+    setSpecialRequestErrors(requestCheck.errors);
+    if (!requestCheck.valid) {
+      toast.error("Complete the highlighted special request fields before saving.");
+      return;
     }
 
     const room = roomForm.getValues();
@@ -332,8 +328,7 @@ export function GuestFormDialog({
     // instead of three separate calls — so a Reservation can never end up
     // without the charge that makes it reachable in Cashiering, and a
     // mid-flow failure rolls back the whole Guest Folio instead of leaving a
-    // partially-saved record. Club Membership registration rides along in
-    // the same atomic request for the same reason.
+    // partially-saved record.
     const result = await apiFetch("/api/guests/folio", {
       method: "POST",
       body: JSON.stringify({
@@ -351,18 +346,7 @@ export function GuestFormDialog({
               otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
             }
           : undefined,
-        clubMembership: registerMembership
-          ? {
-              register: true,
-              // The one and only Mode of Payment for this whole folio — see
-              // the comment above the roomForm.trigger(paymentFields) call.
-              paymentMethod: room.paymentMethod,
-              otherPaymentMethod: room.paymentMethod === "OTHER" ? room.otherPaymentMethod : undefined,
-              // The one and only Front Desk Officer for this whole folio —
-              // see the comment above the form.trigger("processedBy") call.
-              processedBy: form.getValues("processedBy"),
-            }
-          : undefined,
+        specialRequests: assignRoom && requestCheck.items.length > 0 ? requestCheck.items : undefined,
       }),
     });
 
@@ -370,23 +354,14 @@ export function GuestFormDialog({
       // The save is atomic server-side — nothing was written, so the guest
       // must never be reported as saved here.
       toast.error(
-        assignRoom || registerMembership
+        assignRoom
           ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
           : result.message
       );
       return;
     }
 
-    if (registerMembership) {
-      // The very first check-in a membership is registered on never carries
-      // the 2% discount itself — see getClubMemberDiscountEligibility().
-      toast.success(
-        "Club Membership registered. The 2% member discount will be available starting on your next check-in.",
-        { duration: 8000 }
-      );
-    } else {
-      toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
-    }
+    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
     onOpenChange(false);
     onSaved();
   }
@@ -500,144 +475,6 @@ export function GuestFormDialog({
                         <p className="mt-1 text-xs text-muted-foreground">Not a Club Member.</p>
                       )}
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {/* Club Membership registration — only offered when the selected/entered
-                  guest is NOT already an active member (an active member's status is
-                  already shown above instead). A brand-new guest is never already a
-                  member, so this is always available in that branch. */}
-              {isCreate && !(useExistingGuest && (checkingMembership || membershipStatus?.isActiveMember)) ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/50">
-                  <label className="flex cursor-pointer items-start gap-2.5 px-4 py-3">
-                    <Checkbox
-                      checked={registerMembership}
-                      onCheckedChange={(v) => setRegisterMembership(v === true)}
-                      disabled={useExistingGuest && !existingGuestId}
-                    />
-                    <span>
-                      <span className="block text-xs font-semibold tracking-wider text-slate-700 uppercase">
-                        Register as Club Member
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground normal-case">
-                        Pay the one-time ₱1,000 membership fee and become a Club Member.
-                      </span>
-                    </span>
-                  </label>
-
-                  {registerMembership ? (
-                    <div className="space-y-4 border-t border-slate-200 px-4 py-4">
-                      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white p-3 text-sm">
-                        <span className="font-medium text-slate-700">Club Membership</span>
-                        <span className="text-slate-500">One-Time Membership Fee</span>
-                        <span className="font-semibold text-[#0b1c3f]">{currency(CLUB_MEMBERSHIP_FEE)}</span>
-                      </div>
-
-                      {/* No Mode of Payment field here — the membership fee
-                          always uses the ONE Mode of Payment field for this
-                          whole Guest Folio (see the
-                          roomForm.trigger(paymentFields) validation above).
-                          That field lives outside this Club Membership
-                          section entirely: inside "Assign a Room Now" when a
-                          room is being assigned, or in the standalone block
-                          just below this section when it isn't — never both,
-                          and never a second copy in here. */}
-
-                      {/* No separate "Membership Processed By" field — the
-                          membership fee is processed by the same Front Desk
-                          Officer as the rest of this Guest Folio (see the
-                          form.trigger("processedBy") validation above). A new
-                          guest already has this field further down this same
-                          form; an existing guest has no other Front Desk
-                          Officer field at all, so it's rendered here instead. */}
-                      {useExistingGuest ? (
-                        <FormField
-                          control={form.control}
-                          name="processedBy"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                                Front Desk Officer <span className="text-red-500">*</span>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter name of Front Desk Officer"
-                                  className="h-10 rounded-md border-slate-200 bg-white text-sm"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage className="text-xs text-red-600" />
-                            </FormItem>
-                          )}
-                        />
-                      ) : null}
-
-                      <p className="rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">
-                        This is a first-time membership registration — the 2% Club Member discount is not applied on
-                        this visit. It will be available starting on the next check-in.
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {/* The Guest Folio's ONE Mode of Payment field, for the case
-                  where it's paying for the Club Membership fee alone (no
-                  room being assigned — "Assign a Room Now" below renders its
-                  own copy of this same field instead, and never both at
-                  once). Rendered as its own block, outside the Club
-                  Membership card above, so it reads as belonging to the
-                  Guest Folio as a whole rather than to the membership. */}
-              {registerMembership && !assignRoom ? (
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
-                  <FormField
-                    control={roomForm.control}
-                    name="paymentMethod"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                          Mode of Payment <span className="text-red-500">*</span>
-                        </FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {FOLIO_PAYMENT_METHOD_OPTIONS.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {roomPaymentMethod === "OTHER" ? (
-                    <FormField
-                      control={roomForm.control}
-                      name="otherPaymentMethod"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Other Payment Method <span className="text-red-500">*</span>
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Enter payment method"
-                              className="h-10 rounded-md border-slate-200 bg-white text-sm"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage className="text-xs text-red-600" />
-                        </FormItem>
-                      )}
-                    />
                   ) : null}
                 </div>
               ) : null}
@@ -1064,7 +901,12 @@ export function GuestFormDialog({
                       {selectedRoomType && charge ? (
                         <div className="space-y-1 rounded-md border border-slate-200 bg-white p-3 text-sm">
                           <div className="flex justify-between text-slate-600">
-                            <span>Room ({selectedRoomType.name})</span>
+                            <span>
+                            Room ({selectedRoomType.name})
+                            <span className="block text-xs text-slate-500">
+                              {currency(charge.roomRate)} × {charge.nights} {charge.nights === 1 ? "night" : "nights"}
+                            </span>
+                          </span>
                             <span>{currency(charge.roomPrice)}</span>
                           </div>
                           {charge.bedCount > 0 ? (
@@ -1110,6 +952,16 @@ export function GuestFormDialog({
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+
+              {/* Special Requests & Additional Charges — right after the room
+                  assignment; billed to that stay when the folio is saved. */}
+              {isCreate && assignRoom ? (
+                <SpecialRequestsDraftEditor
+                  value={specialRequests}
+                  onChange={setSpecialRequests}
+                  errors={specialRequestErrors}
+                />
               ) : null}
             </div>
 
