@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
-import { ConciergeBell, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, ConciergeBell, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -409,7 +409,11 @@ export function SpecialRequestsDraftEditor({
 // Saved entries on an existing stay (Check-In / Check-Out)
 // ---------------------------------------------------------------------------
 
-type SavedRequestStatus = "NO_CHARGE" | "PENDING" | "PARTIALLY_PAID" | "PAID";
+// The request's own fulfilment state — only PENDING -> COMPLETED or
+// PENDING -> CANCELLED (enforced server-side).
+type SavedRequestStatus = "PENDING" | "COMPLETED" | "CANCELLED";
+// The charge's payment state, derived from the ledger.
+type SavedPaymentStatus = "NO_CHARGE" | "PENDING" | "PARTIALLY_PAID" | "PAID";
 
 type SavedRequest = {
   id: string;
@@ -422,6 +426,7 @@ type SavedRequest = {
   createdAt: string;
   addedBy: string | null;
   status: SavedRequestStatus;
+  paymentStatus: SavedPaymentStatus;
   charge: { id: string; transactionNo: string; amount: number; vatAmount: number; paidAmount: number } | null;
   removable: boolean;
 };
@@ -439,10 +444,18 @@ type SavedList = { reservationStatus: string; canModify: boolean; stay: SpecialR
 
 const SAVED_STATUS_META: Record<SavedRequestStatus, { label: string; className: string }> = {
   PENDING: { label: "Pending", className: "bg-amber-50 text-amber-700" },
-  PARTIALLY_PAID: { label: "Partially Paid", className: "bg-blue-50 text-blue-700" },
-  PAID: { label: "Paid", className: "bg-emerald-50 text-emerald-700" },
-  NO_CHARGE: { label: "No Charge", className: "bg-slate-100 text-slate-600" },
+  COMPLETED: { label: "Completed", className: "bg-emerald-50 text-emerald-700" },
+  CANCELLED: { label: "Cancelled", className: "bg-red-50 text-red-700" },
 };
+
+// Shown next to the status only when it adds something (a payment, or a
+// request that was never chargeable).
+function paymentChip(r: { paymentStatus: SavedPaymentStatus; isChargeable: boolean; status: SavedRequestStatus }) {
+  if (r.paymentStatus === "PAID") return { label: "Paid", className: "bg-emerald-50 text-emerald-700" };
+  if (r.paymentStatus === "PARTIALLY_PAID") return { label: "Partially Paid", className: "bg-blue-50 text-blue-700" };
+  if (!r.isChargeable && r.status !== "CANCELLED") return { label: "No Charge", className: "bg-slate-100 text-slate-600" };
+  return null;
+}
 
 function sameRequest(draft: SpecialRequestItemInput, saved: SavedRequest) {
   return (
@@ -481,6 +494,9 @@ export function SpecialRequestsPanel({
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<SavedRequest | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState<SavedRequest | null>(null);
+  // The request whose status change is in flight — one at a time.
+  const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
   // Entries that match a request already saved on this stay — confirmed
   // before saving so the same request isn't billed twice by accident.
   const [duplicates, setDuplicates] = useState<string[] | null>(null);
@@ -515,7 +531,9 @@ export function SpecialRequestsPanel({
       return;
     }
     if (!confirmedDuplicates) {
-      const matches = items.filter((i) => (list?.items ?? []).some((saved) => sameRequest(i, saved)));
+      const matches = items.filter((i) =>
+        (list?.items ?? []).some((saved) => saved.status !== "CANCELLED" && sameRequest(i, saved))
+      );
       if (matches.length > 0) {
         setDuplicates(matches.map((m) => m.itemName));
         return;
@@ -556,6 +574,26 @@ export function SpecialRequestsPanel({
     onChanged?.();
   }
 
+  async function changeStatus(item: SavedRequest, status: "COMPLETED" | "CANCELLED") {
+    if (statusBusyId) return;
+    setStatusBusyId(item.id);
+    const res = await apiFetch<SavedList>(`/api/front-office/special-requests/item/${item.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    setStatusBusyId(null);
+    setConfirmCancel(null);
+    if (!res.success) {
+      toast.error(res.message);
+      // Someone else may have changed it — show the current state.
+      load();
+      return;
+    }
+    setList(res.data);
+    toast.success(status === "COMPLETED" ? `${item.itemName} marked as completed.` : `${item.itemName} cancelled.`);
+    onChanged?.();
+  }
+
   const items = list?.items ?? [];
   const editable = !readOnly && (list?.canModify ?? false);
 
@@ -571,57 +609,105 @@ export function SpecialRequestsPanel({
         <ul className="divide-y divide-slate-200 overflow-hidden rounded-md border border-slate-200 bg-white">
           {items.map((r) => {
             const statusMeta = SAVED_STATUS_META[r.status];
+            const chip = paymentChip(r);
+            const cancelled = r.status === "CANCELLED";
+            const pendingActions = editable && r.status === "PENDING";
+            const busy = statusBusyId === r.id;
             return (
-              <li key={r.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-900">
-                    <span className="break-words">{r.itemName}</span>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
-                        statusMeta.className
+              <li key={r.id} className="px-3 py-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-900">
+                      <span className="break-words">{r.itemName}</span>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+                          statusMeta.className
+                        )}
+                      >
+                        {statusMeta.label}
+                      </span>
+                      {chip ? (
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+                            chip.className
+                          )}
+                        >
+                          {chip.label}
+                        </span>
+                      ) : null}
+                    </p>
+                    {r.notes ? <p className="mt-0.5 text-xs break-words text-slate-600">{r.notes}</p> : null}
+                    <p className="mt-0.5 text-xs text-slate-600">
+                      Qty {r.quantity}
+                      {r.isChargeable ? <> · Unit Price {currency(r.unitPrice)}</> : null}
+                      {r.charge ? <span className="text-muted-foreground"> · {r.charge.transactionNo}</span> : null}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      Added by {r.addedBy ?? "—"} ·{" "}
+                      <time dateTime={r.createdAt}>
+                        {new Date(r.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                      </time>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="text-right">
+                      <span className="block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">Total</span>
+                      {cancelled ? (
+                        <span className="font-mono text-sm font-semibold text-slate-500">{currency(0)} charge</span>
+                      ) : (
+                        <span className="font-mono text-sm font-semibold text-slate-900">{currency(r.lineTotal)}</span>
                       )}
-                    >
-                      {statusMeta.label}
                     </span>
-                  </p>
-                  {r.notes ? <p className="mt-0.5 text-xs break-words text-slate-600">{r.notes}</p> : null}
-                  <p className="mt-0.5 text-xs text-slate-600">
-                    Qty {r.quantity}
-                    {r.isChargeable ? <> · Unit Price {currency(r.unitPrice)}</> : null}
-                    {r.charge ? <span className="text-muted-foreground"> · {r.charge.transactionNo}</span> : null}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Added by {r.addedBy ?? "—"} ·{" "}
-                    <time dateTime={r.createdAt}>
-                      {new Date(r.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-                    </time>
-                  </p>
+                    {/* Cancelled requests stay as history — no removal. */}
+                    {editable && !cancelled ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                        disabled={!r.removable}
+                        title={
+                          r.removable
+                            ? `Remove ${r.itemName}`
+                            : "Already paid — issue a refund in Cashiering instead"
+                        }
+                        aria-label={`Remove ${r.itemName}`}
+                        onClick={() => (r.isChargeable ? setConfirm(r) : removeSaved(r))}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <span className="text-right">
-                    <span className="block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">Total</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{currency(r.lineTotal)}</span>
-                  </span>
-                  {editable ? (
+                {pendingActions ? (
+                  <div className="mt-2 flex flex-wrap justify-end gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-slate-500 hover:bg-red-50 hover:text-red-600"
-                      disabled={!r.removable}
-                      title={
-                        r.removable
-                          ? `Remove ${r.itemName}`
-                          : "Already paid — issue a refund in Cashiering instead"
-                      }
-                      aria-label={`Remove ${r.itemName}`}
-                      onClick={() => (r.isChargeable ? setConfirm(r) : removeSaved(r))}
+                      size="sm"
+                      className="h-7 gap-1 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-700"
+                      disabled={!!statusBusyId}
+                      onClick={() => changeStatus(r, "COMPLETED")}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      {busy && !confirmCancel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Mark as Completed
                     </Button>
-                  ) : null}
-                </div>
+                    {/* Hidden once the charge has any payment — that needs a refund instead. */}
+                    {r.removable ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 border-red-200 px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
+                        disabled={!!statusBusyId}
+                        onClick={() => setConfirmCancel(r)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             );
           })}
@@ -663,6 +749,32 @@ export function SpecialRequestsPanel({
         onCancel={() => setConfirm(null)}
         onConfirm={() => confirm && removeSaved(confirm)}
       />
+
+      <Dialog open={!!confirmCancel} onOpenChange={(o) => !o && !statusBusyId && setConfirmCancel(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cancel this special request?</DialogTitle>
+            <DialogDescription>
+              {confirmCancel ? <span className="font-medium text-slate-900">{confirmCancel.itemName}</span> : null}
+              {confirmCancel ? " — " : null}This request will not be charged to the guest.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmCancel(null)} disabled={!!statusBusyId}>
+              Keep Request
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => confirmCancel && changeStatus(confirmCancel, "CANCELLED")}
+              disabled={!!statusBusyId}
+            >
+              {statusBusyId ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Cancel Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!duplicates} onOpenChange={(o) => !o && setDuplicates(null)}>
         <DialogContent className="sm:max-w-sm">

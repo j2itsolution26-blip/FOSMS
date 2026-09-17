@@ -242,9 +242,9 @@ export async function listSpecialRequests(reservationId: string) {
       ? charge.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0)
       : 0;
     const coveredByPayments = charge ? balance - Number(charge.amount) < -0.005 : false;
-    // Derived from the ledger (no status column): a chargeable request stays
-    // "Pending" on the folio until a payment settles its charge.
-    const status: "NO_CHARGE" | "PENDING" | "PARTIALLY_PAID" | "PAID" = !charge
+    // Payment state, derived from the ledger — separate from the request's
+    // own fulfilment `status` (Pending / Completed / Cancelled).
+    const paymentStatus: "NO_CHARGE" | "PENDING" | "PARTIALLY_PAID" | "PAID" = !charge
       ? "NO_CHARGE"
       : paidAmount >= Number(charge.amount) - 0.005
         ? "PAID"
@@ -261,7 +261,8 @@ export async function listSpecialRequests(reservationId: string) {
       notes: r.notes,
       createdAt: r.createdAt,
       addedBy: r.createdById ? (creatorName.get(r.createdById) ?? null) : null,
-      status,
+      status: r.status,
+      paymentStatus,
       charge: charge
         ? {
             id: charge.id,
@@ -271,7 +272,9 @@ export async function listSpecialRequests(reservationId: string) {
             paidAmount: round2(paidAmount),
           }
         : null,
-      removable: open && (!charge || (charge.settledBy.length === 0 && !coveredByPayments)),
+      // A cancelled request stays on the stay as history — never removable.
+      removable:
+        open && r.status !== "CANCELLED" && (!charge || (charge.settledBy.length === 0 && !coveredByPayments)),
     };
   });
 
@@ -317,6 +320,9 @@ export async function deleteSpecialRequest(id: string, actor: ActorContext) {
     });
     if (!request || request.deletedAt) throw new NotFoundError("Special request not found.");
     assertOpen(request.reservation.status);
+    if (request.status === "CANCELLED") {
+      throw new AppError("A cancelled request is kept as a historical record and can't be removed.", "INVALID_REQUEST_STATUS", 409);
+    }
 
     const charge = request.transaction;
     if (charge) {
@@ -364,6 +370,98 @@ export async function deleteSpecialRequest(id: string, actor: ActorContext) {
       isChargeable: result.request.isChargeable,
       transactionNo: result.charge?.transactionNo ?? null,
       amount: result.charge ? Number(result.charge.amount) : 0,
+    },
+  });
+
+  return listSpecialRequests(result.request.reservationId);
+}
+
+/**
+ * The only two status changes a Special Request allows: PENDING -> COMPLETED
+ * (fulfilled; its charge stays on the folio untouched) or PENDING ->
+ * CANCELLED (the row is kept as history, its still-unpaid charge is removed
+ * exactly like deleteSpecialRequest() does, so the guest is never billed).
+ * The update is conditional on the row still being PENDING, so two staff
+ * acting at once can never apply both, and a finished request can never be
+ * changed back.
+ */
+export async function updateSpecialRequestStatus(
+  id: string,
+  next: "COMPLETED" | "CANCELLED",
+  actor: ActorContext
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.specialRequest.findUnique({ where: { id }, select: { reservationId: true } });
+    if (!existing) throw new NotFoundError("Special request not found.");
+    await tx.$queryRaw`SELECT id FROM reservations WHERE id = ${existing.reservationId} FOR UPDATE`;
+
+    const request = await tx.specialRequest.findUnique({
+      where: { id },
+      include: {
+        reservation: {
+          include: {
+            guest: { select: { firstName: true, middleName: true, lastName: true } },
+            transactions: { select: { type: true, amount: true } },
+          },
+        },
+        transaction: { include: { settledBy: { select: { id: true } } } },
+      },
+    });
+    if (!request || request.deletedAt) throw new NotFoundError("Special request not found.");
+    assertOpen(request.reservation.status);
+    if (request.status !== "PENDING") {
+      throw new AppError(
+        `This request is already ${request.status.toLowerCase()} and can no longer be changed.`,
+        "INVALID_REQUEST_STATUS",
+        409
+      );
+    }
+
+    const charge = request.transaction;
+    if (next === "CANCELLED" && charge) {
+      // Same rule as removal: a charge with any payment against it needs a
+      // refund in Cashiering, never a silent cancel.
+      const coveredByPayments = reservationBalanceOf(request.reservation.transactions) - Number(charge.amount) < -0.005;
+      if (charge.settledBy.length > 0 || coveredByPayments) {
+        throw new AppError(
+          "This request's charge already has a payment recorded. Issue a refund in Cashiering instead of cancelling it.",
+          "CHARGE_ALREADY_PAID",
+          409
+        );
+      }
+    }
+
+    const updated = await tx.specialRequest.updateMany({
+      where: { id, status: "PENDING" },
+      data: next === "CANCELLED" ? { status: "CANCELLED", transactionId: null } : { status: "COMPLETED" },
+    });
+    if (updated.count !== 1) {
+      throw new AppError("This request was already updated by someone else.", "INVALID_REQUEST_STATUS", 409);
+    }
+    if (next === "CANCELLED" && charge) await tx.cashierTransaction.delete({ where: { id: charge.id } });
+
+    return { request, charge };
+  });
+
+  await recordAudit({
+    userId: actor.userId,
+    role: actor.role,
+    action: next === "CANCELLED" ? "CANCEL" : "UPDATE",
+    module: "special-requests",
+    recordId: id,
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
+    previousValue: { status: "PENDING" },
+    newValue: {
+      status: next,
+      reservationNo: result.request.reservation.reservationNo,
+      guestName: formatGuestFullName(result.request.reservation.guest),
+      itemName: result.request.itemName,
+      lineTotal: Number(result.request.lineTotal),
+      // A cancelled request's removed charge, for the trail.
+      ...(next === "CANCELLED" && result.charge
+        ? { removedTransactionNo: result.charge.transactionNo, removedAmount: Number(result.charge.amount) }
+        : {}),
     },
   });
 

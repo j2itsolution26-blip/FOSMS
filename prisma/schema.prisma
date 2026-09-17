@@ -1003,6 +1003,12 @@ model CashierTransaction {
   @@map("cashier_transactions")
 }
 
+enum SpecialRequestStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
 // One Special Request / Additional Charge on a stay. Every request is kept
 // for operational follow-up; only a chargeable one is billed, as its own
 // CashierTransaction CHARGE (transactionId, unique — so one request can never
@@ -1019,6 +1025,10 @@ model SpecialRequest {
   lineTotal     Decimal   @default(0) @db.Decimal(10, 2)
   isChargeable  Boolean   @default(false)
   notes         String?
+  // Fulfilment state, separate from the charge's payment state. Only
+  // PENDING -> COMPLETED or PENDING -> CANCELLED; a CANCELLED request keeps
+  // its row (history) but its unpaid charge is removed, so it's never billed.
+  status        SpecialRequestStatus @default(PENDING)
   transactionId String?   @unique
   // Client-generated per entry — a retried/double-submitted save returns the
   // request already created instead of billing it a second time.
