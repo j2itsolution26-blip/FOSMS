@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ import {
   validateSpecialRequestDrafts,
   type SpecialRequestDraft,
 } from "@/components/front-office/special-requests";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, type ApiResult } from "@/lib/api-client";
 import { formatDiscountRate, formatDiscountType, formatGuestFullName } from "@/lib/formatters";
 import { useRoomOptions } from "@/hooks/use-room-options";
 import { ASSIGNABLE_ROOM_STATUS_QUERY } from "@/config/room-status";
@@ -51,6 +51,14 @@ type MembershipStatus = { isActiveMember: boolean; eligibleForDiscount: boolean;
 
 function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+type ApiFailure = Extract<ApiResult<unknown>, { success: false }>;
+
+/** The actual reason a request failed — a validation failure lists its field messages instead of just "Validation failed." */
+function describeApiError(result: ApiFailure) {
+  const details = [...new Set(result.errors.map((e) => e.message))];
+  return details.length ? details.join(" ") : result.message;
 }
 
 function todayIso() {
@@ -100,7 +108,7 @@ export function GuestFormDialog({
   // creating a brand-new Guest record for the same person. Kept as plain
   // state rather than part of `form` (guestSchema) so switching modes can
   // never leave stale, still-validated "new guest" field values behind —
-  // see the comment on submitFolio() below for why.
+  // see the comment on validateFolio() below for why.
   const [useExistingGuest, setUseExistingGuest] = useState(false);
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [existingGuestId, setExistingGuestId] = useState("");
@@ -109,6 +117,16 @@ export function GuestFormDialog({
   const [smokingFilter, setSmokingFilter] = useState<"any" | "smoking" | "nonsmoking">("any");
   const [charge, setCharge] = useState<FolioCharge | null>(null);
   const [quoting, setQuoting] = useState(false);
+  // Why the live price couldn't be loaded — shown in place of the price
+  // summary, and bumping quoteAttempt retries it (a failed quote used to
+  // leave Save disabled with nothing on screen saying why).
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
+  // One save at a time: the ref blocks a second click synchronously (before
+  // React re-renders the disabled button), the state drives the button UI.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [existingGuestError, setExistingGuestError] = useState<string | null>(null);
   // Special Requests & Additional Charges — billed to the stay, so only
   // offered (and submitted) together with a room assignment.
   const [specialRequests, setSpecialRequests] = useState<SpecialRequestDraft[]>([]);
@@ -188,6 +206,8 @@ export function GuestFormDialog({
       setAssignRoom(false);
       setSmokingFilter("any");
       setCharge(null);
+      setQuoteError(null);
+      setExistingGuestError(null);
       setUseExistingGuest(false);
       setExistingGuestId("");
       setMembershipStatus(null);
@@ -217,6 +237,7 @@ export function GuestFormDialog({
     const nights = calculateNights(roomArrivalDate, roomDepartureDate);
     if (!assignRoom || !roomTypeId || nights < 1) {
       setCharge(null);
+      setQuoteError(null);
       setQuoting(false);
       return;
     }
@@ -224,6 +245,7 @@ export function GuestFormDialog({
     // of order — only the latest request may update the summary.
     let cancelled = false;
     setCharge(null);
+    setQuoteError(null);
     setQuoting(true);
     apiFetch<FolioCharge>("/api/cashiering/folio-quote", {
       method: "POST",
@@ -237,7 +259,13 @@ export function GuestFormDialog({
       }),
     })
       .then((res) => {
-        if (!cancelled && res.success) setCharge(res.data);
+        if (cancelled) return;
+        if (res.success) setCharge(res.data);
+        else setQuoteError(describeApiError(res));
+      })
+      .catch((err) => {
+        console.error("[Guest Folio] price quote failed", err);
+        if (!cancelled) setQuoteError("Could not reach the server to load the room price.");
       })
       .finally(() => {
         if (!cancelled) setQuoting(false);
@@ -245,7 +273,7 @@ export function GuestFormDialog({
     return () => {
       cancelled = true;
     };
-  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate, roomArrivalDate, roomDepartureDate]);
+  }, [assignRoom, roomTypeId, bedCount, discountType, otherDiscountRate, roomArrivalDate, roomDepartureDate, quoteAttempt]);
 
   useEffect(() => {
     if (!open || !isCreate) return;
@@ -289,39 +317,93 @@ export function GuestFormDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useExistingGuest, existingGuestId, membershipStatus]);
 
-  const [submittingExisting, setSubmittingExisting] = useState(false);
+  function reportSaveError(reason: string) {
+    toast.error("Unable to save guest folio.", { description: reason, duration: 10000 });
+  }
 
-  /**
-   * Shared by both the "new person" and "use an existing guest" paths — only
-   * the `person` payload differs. Keeping guestId/guest as two entirely
-   * separate submit paths (rather than both living inside one react-hook-form
-   * `guestSchema`-validated form) avoids a real trap: an optional nested
-   * object field that's merely *present* (even filled with empty strings)
-   * still gets fully validated by zodResolver, so leaving stale "new guest"
-   * field values around while `guestId` is what's actually meant to submit
-   * could silently block submission on validation errors nothing on screen
-   * shows.
-   */
-  async function submitFolio(person: { guestId: string } | { guest: GuestInput }) {
-    if (assignRoom) {
-      const roomValid = await roomForm.trigger();
-      if (!roomValid) return;
-      // The live price preview hasn't resolved yet — block the save instead
-      // of letting a room-priced charge post without a confirmed amount.
-      if (quoting || !charge) {
-        toast.error("Room price is not available yet. Please wait for the rate to load before saving the Guest Folio.");
-        return;
+  // A server-side validation failure names the exact field — show it beside
+  // that field, the same place client-side validation errors appear.
+  function showServerFieldErrors(errors: ApiFailure["errors"]) {
+    for (const { path, message } of errors) {
+      if (path.startsWith("guest.")) {
+        form.setError(path.slice("guest.".length) as keyof GuestInput, { message });
+      } else if (path === "processedBy") {
+        form.setError("processedBy", { message });
+      } else if (path === "guestId") {
+        setExistingGuestError(message);
+      } else if (path.startsWith("room.")) {
+        roomForm.setError(path.slice("room.".length) as Parameters<typeof roomForm.setError>[0], { message });
       }
     }
+  }
 
+  /**
+   * Validates everything the save needs at once (guest, Front Desk Officer,
+   * room, special requests) so every problem is shown beside its field in one
+   * pass. Returns null — with the reason already on screen — when the save
+   * can't proceed; otherwise the validated special requests.
+   *
+   * The two create paths ("new person" / "use an existing guest") are kept
+   * apart on purpose: an existing guest only validates the Front Desk Officer,
+   * never the hidden new-guest name fields, so stale empty values there can
+   * never silently block the save.
+   */
+  async function validateFolio() {
+    const guestValid = useExistingGuest ? await form.trigger("processedBy") : await form.trigger();
+    const existingValid = !useExistingGuest || !!existingGuestId;
+    setExistingGuestError(existingValid ? null : "Guest is required.");
+    const roomValid = assignRoom ? await roomForm.trigger() : true;
     const requestCheck = validateSpecialRequestDrafts(assignRoom ? specialRequests : []);
     setSpecialRequestErrors(requestCheck.errors);
-    if (!requestCheck.valid) {
-      toast.error("Complete the highlighted special request fields before saving.");
+
+    if (!guestValid || !existingValid || !roomValid || !requestCheck.valid) {
+      reportSaveError("Please correct the highlighted fields.");
+      return null;
+    }
+
+    // The price shown is what gets charged — never save a room-priced folio
+    // before it has loaded (the server recomputes it again on save).
+    if (assignRoom && !charge) {
+      if (quoteError) setQuoteAttempt((n) => n + 1);
+      reportSaveError(
+        quoteError
+          ? `The room price could not be loaded: ${quoteError} Retrying — please try saving again.`
+          : "The room price is still loading. Please wait a moment and try again."
+      );
+      return null;
+    }
+
+    return requestCheck;
+  }
+
+  async function saveGuestFolio() {
+    // Editing an existing Guest Folio never touches reservations/cashiering.
+    if (guestId) {
+      if (!(await form.trigger())) {
+        reportSaveError("Please correct the highlighted fields.");
+        return;
+      }
+      const result = await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(form.getValues()) });
+      if (!result.success) {
+        console.error("[Guest Folio] update failed", result);
+        showServerFieldErrors(result.errors);
+        reportSaveError(describeApiError(result));
+        return;
+      }
+      toast.success("Guest folio updated successfully.");
+      onOpenChange(false);
+      onSaved();
       return;
     }
 
+    const requestCheck = await validateFolio();
+    if (!requestCheck) return;
+
+    const values = form.getValues();
     const room = roomForm.getValues();
+    const person = useExistingGuest
+      ? { guestId: existingGuestId, processedBy: values.processedBy }
+      : { guest: values };
 
     // Guest + Reservation + initial Cashiering charge are created together in
     // ONE atomic server-side request (see createGuestFolioWithReservationAndCharge)
@@ -351,47 +433,44 @@ export function GuestFormDialog({
     });
 
     if (!result.success) {
-      // The save is atomic server-side — nothing was written, so the guest
-      // must never be reported as saved here.
-      toast.error(
-        assignRoom
-          ? `Unable to save the guest folio: ${result.message} No guest record was saved. Please try again.`
-          : result.message
+      // The save is atomic server-side — nothing was written, so the modal
+      // stays open with everything the user entered.
+      console.error("[Guest Folio] save failed", result);
+      showServerFieldErrors(result.errors);
+      reportSaveError(
+        result.code === "INVALID_RESPONSE"
+          ? `${result.message} Check the guest list before saving again — the folio may already have been saved.`
+          : `${describeApiError(result)} Nothing was saved.`
       );
       return;
     }
 
-    toast.success(assignRoom ? "Guest folio saved, room assigned, and charge sent to Cashiering." : "Guest folio saved successfully.");
+    toast.success("Guest folio saved successfully.", {
+      description: assignRoom ? "Room assigned and the charge was sent to Cashiering." : undefined,
+    });
     onOpenChange(false);
     onSaved();
   }
 
-  async function onSubmit(values: GuestInput) {
-    // Editing an existing Guest Folio never touches reservations/cashiering —
-    // unchanged single-call path.
-    if (guestId) {
-      const result = await apiFetch(`/api/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(values) });
-      if (!result.success) {
-        toast.error(result.message);
-        return;
-      }
-      toast.success("Guest folio updated successfully.");
-      onOpenChange(false);
-      onSaved();
-      return;
+  async function handleSave(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await saveGuestFolio();
+    } catch (err) {
+      // A network failure or unexpected client error — never swallowed.
+      console.error("[Guest Folio] save failed", err);
+      reportSaveError(
+        err instanceof TypeError
+          ? "Could not reach the server. Check the guest list before saving again — the folio may or may not have been saved."
+          : `${err instanceof Error ? err.message : "An unexpected error occurred."} Please try again.`
+      );
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
-    await submitFolio({ guest: values });
-  }
-
-  async function handleExistingGuestSubmit() {
-    if (!existingGuestId) {
-      toast.error("Select an existing guest.");
-      return;
-    }
-    setSubmittingExisting(true);
-    await submitFolio({ guestId: existingGuestId });
-    setSubmittingExisting(false);
   }
 
   const selectedExistingGuest = guests.find((g) => g.id === existingGuestId);
@@ -400,6 +479,30 @@ export function GuestFormDialog({
     label: formatGuestFullName(g),
     description: g.email ?? undefined,
   }));
+
+  // The folio's single Front Desk Officer field — shown for a new guest and
+  // for an existing guest alike (saved on the guest record either way).
+  const officerField = (
+    <FormField
+      control={form.control}
+      name="processedBy"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+            Front Desk Officer <span className="text-red-500">*</span>
+          </FormLabel>
+          <FormControl>
+            <Input
+              placeholder="Enter name of Front Desk Officer"
+              className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
+              {...field}
+            />
+          </FormControl>
+          <FormMessage className="text-xs text-red-600" />
+        </FormItem>
+      )}
+    />
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -420,7 +523,7 @@ export function GuestFormDialog({
 
         {/* Scrollable Form Body */}
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col" noValidate>
+          <form onSubmit={handleSave} className="flex flex-col" noValidate>
             <div className="max-h-[min(65vh,520px)] space-y-4 overflow-y-auto px-6 py-4 text-slate-800">
               {/* Use an existing guest (create only) — reuses a person already in the
                   system (e.g. an already-registered Club Member) instead of always
@@ -450,12 +553,16 @@ export function GuestFormDialog({
                     <Combobox
                       options={guestOptions}
                       value={existingGuestId}
-                      onChange={setExistingGuestId}
+                      onChange={(v) => {
+                        setExistingGuestId(v);
+                        setExistingGuestError(null);
+                      }}
                       placeholder="Search existing guest…"
                       searchPlaceholder="Search by name…"
                       emptyText="No guests found."
                       ariaLabel="Guest"
                     />
+                    {existingGuestError ? <p className="mt-1.5 text-xs text-red-600">{existingGuestError}</p> : null}
                   </div>
 
                   {selectedExistingGuest ? (
@@ -478,6 +585,8 @@ export function GuestFormDialog({
                   ) : null}
                 </div>
               ) : null}
+
+              {isCreate && useExistingGuest ? officerField : null}
 
               {!useExistingGuest ? (
                 <>
@@ -544,25 +653,7 @@ export function GuestFormDialog({
 
               {/* Front Desk Officer (Full-width) — manually typed by staff; never
                   auto-filled from the logged-in user's account. */}
-              <FormField
-                control={form.control}
-                name="processedBy"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Front Desk Officer <span className="text-red-500">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Enter name of Front Desk Officer"
-                        className="h-10 rounded-md border-slate-200 bg-slate-50/50 text-sm transition-colors focus-visible:border-[#0b1c3f] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#0b1c3f]"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage className="text-xs text-red-600" />
-                  </FormItem>
-                )}
-              />
+              {officerField}
 
               {/* Preferences (Full-width) */}
               <FormField
@@ -623,6 +714,11 @@ export function GuestFormDialog({
                   </label>
 
                   {assignRoom ? (
+                    // Its own form context: the shared FormMessage reads errors from
+                    // the nearest provider, so without this the room fields' errors
+                    // (Room is required, departure date, ...) were looked up on the
+                    // guest form and never shown.
+                    <Form {...roomForm}>
                     <div className="space-y-4 border-t border-slate-200 px-4 py-4">
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <FormField
@@ -948,8 +1044,16 @@ export function GuestFormDialog({
                         </div>
                       ) : quoting ? (
                         <p className="text-xs text-muted-foreground">Calculating price…</p>
+                      ) : quoteError ? (
+                        <div className="flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                          <span>Unable to load the room price: {quoteError}</span>
+                          <Button type="button" variant="outline" size="sm" onClick={() => setQuoteAttempt((n) => n + 1)}>
+                            Retry
+                          </Button>
+                        </div>
                       ) : null}
                     </div>
+                    </Form>
                   ) : null}
                 </div>
               ) : null}
@@ -975,46 +1079,24 @@ export function GuestFormDialog({
               >
                 CANCEL
               </Button>
-              {useExistingGuest ? (
-                <Button
-                  type="button"
-                  onClick={handleExistingGuestSubmit}
-                  disabled={
-                    submittingExisting || !existingGuestId || (assignRoom && (quoting || !charge))
-                  }
-                  className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
-                >
-                  {submittingExisting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      SAVING GUEST FOLIO…
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="mr-2 h-4 w-4" />
-                      SAVE GUEST FOLIO
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={form.formState.isSubmitting || (isCreate && assignRoom && (quoting || !charge))}
-                  className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
-                >
-                  {form.formState.isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      SAVING GUEST FOLIO…
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="mr-2 h-4 w-4" />
-                      SAVE GUEST FOLIO
-                    </>
-                  )}
-                </Button>
-              )}
+              <Button
+                type="submit"
+                disabled={saving}
+                aria-busy={saving}
+                className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving Guest Folio...
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="mr-2 h-4 w-4" />
+                    SAVE GUEST FOLIO
+                  </>
+                )}
+              </Button>
             </div>
           </form>
         </Form>

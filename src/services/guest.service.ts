@@ -194,7 +194,13 @@ function toGuestData(input: GuestInput) {
   };
 }
 
-export type PersonInput = { guestId?: string | null; guest?: GuestInput | null };
+export type PersonInput = {
+  guestId?: string | null;
+  guest?: GuestInput | null;
+  // Guest Folio only: the Front Desk Officer entered for an existing guest's
+  // new folio — recorded on Guest.processedBy, the folio's officer field.
+  processedBy?: string | null;
+};
 
 /**
  * Resolves the real person behind a Guest Folio / Walk-In submission:
@@ -216,6 +222,9 @@ async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: Pe
     // row is untouched (see promoteGuestToRegular), so an ACTIVE member
     // keeps their 2% discount eligibility across the flip.
     await promoteGuestToRegular(tx, guest);
+    if (person.processedBy && person.processedBy !== guest.processedBy) {
+      return tx.guest.update({ where: { id: guest.id }, data: { processedBy: person.processedBy } });
+    }
     return guest;
   }
   if (person.guest) {

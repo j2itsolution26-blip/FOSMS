@@ -126,6 +126,11 @@ export const createGuestFolioSchema = z
   .object({
     guestId: z.string().min(1).optional(),
     guest: guestSchema.optional(),
+    // The folio's Front Desk Officer when reusing an existing guest (a new
+    // guest carries it inside `guest` instead) — required for that path, see
+    // the refine below. Stored on Guest.processedBy, the same field a new
+    // guest's folio uses.
+    processedBy: guestSchema.shape.processedBy.optional(),
     room: guestFolioRoomSchema.optional(),
     clubMembership: guestFolioClubMembershipSchema.optional(),
     // Billed to the stay, so only accepted together with a room.
@@ -138,6 +143,10 @@ export const createGuestFolioSchema = z
   .refine((data) => !data.specialRequests?.length || !!data.room, {
     message: "Assign a room before adding special requests.",
     path: ["specialRequests"],
+  })
+  .refine((data) => !data.guestId || !!data.processedBy, {
+    message: "Front Desk Officer is required.",
+    path: ["processedBy"],
   });
 
 export type CreateGuestFolioInput = z.infer<typeof createGuestFolioSchema>;

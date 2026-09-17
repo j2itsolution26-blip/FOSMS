@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await createGuestFolioWithReservationAndCharge(
-      { guestId: parsed.data.guestId, guest: parsed.data.guest },
+      { guestId: parsed.data.guestId, guest: parsed.data.guest, processedBy: parsed.data.processedBy },
       parsed.data.room ?? null,
       parsed.data.clubMembership ?? null,
       {
