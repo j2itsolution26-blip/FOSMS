@@ -21,7 +21,6 @@ import { apiFetch } from "@/lib/api-client";
 import { guestTypeLabel } from "@/lib/formatters";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { AdditionalChargeDialog } from "@/components/cashiering/additional-charge-dialog";
-import { SpecialRequestsPanel } from "@/components/front-office/special-requests";
 
 type Candidate = {
   id: string;
@@ -298,9 +297,11 @@ export function CheckOutDialog({
                       <span className="font-mono">{currency(summary.folio.additionalCharges)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>Special Requests / Additional Charges</span>
+                      <span>Special Requests / Charges</span>
                       <span className="font-mono">{currency(summary.folio.specialRequests)}</span>
                     </div>
+                    {/* Read-only: requests are entered at Check-In / Guest Folio and
+                        read here from the charges already saved on the folio. */}
                     {summary.specialRequestItems.length > 0 ? (
                       <ul className="space-y-0.5 border-l-2 border-slate-200 pl-3 text-xs text-slate-500">
                         {summary.specialRequestItems.map((item) => (
@@ -350,13 +351,23 @@ export function CheckOutDialog({
                     Ready for Check-Out
                   </div>
                 ) : (
+                  // Check-Out is where the stay's folio must be settled — checkOut()
+                  // enforces the same ₱0 balance server-side.
                   <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 font-bold uppercase tracking-wide">
                       <AlertTriangle className="h-4 w-4 shrink-0" />
-                      Checkout cannot be completed because there is an outstanding balance.
+                      Payment Required
                     </div>
-                    <p className="pl-6 text-xs text-amber-700">Outstanding Balance</p>
+                    <p className="pl-6 text-xs font-normal text-amber-700">
+                      Checkout cannot be completed until the outstanding balance is settled.
+                    </p>
+                    <p className="pl-6 pt-1 text-xs text-amber-700">Outstanding Balance</p>
                     <p className="pl-6 text-base font-bold">{currency(balance)}</p>
+                    <div className="pl-6 pt-1">
+                      <Button type="button" size="sm" onClick={() => setSettleOpen(true)}>
+                        Process Payment
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -403,10 +414,6 @@ export function CheckOutDialog({
                 <Button type="button" variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
                   <ReceiptText className="h-4 w-4" /> Add Additional / Damage Charge
                 </Button>
-
-                {/* Adding or removing a request here re-pulls the folio above, so
-                    the balance always reflects the saved charges. */}
-                <SpecialRequestsPanel reservationId={summary.id} onChanged={refreshSummary} />
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">

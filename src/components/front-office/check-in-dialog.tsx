@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api-client";
 import { roomStatusLabel } from "@/config/room-status";
-import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { SpecialRequestsPanel } from "@/components/front-office/special-requests";
 import type { RoomStatus } from "@prisma/client";
 
@@ -31,8 +30,9 @@ type Candidate = {
   arrivalDate: string;
   departureDate: string;
   status: "PENDING" | "CONFIRMED";
-  /** Same reservationBalance() math the checkIn() server gate and Cashiering
-   * use — never a separate "is this paid" flag that could drift from it. */
+  /** The stay's current folio balance (same reservationBalance() ledger math
+   * Check-Out and Cashiering use). Informational only — an unpaid balance
+   * never blocks check-in; it is settled at Check-Out. */
   balance: number;
 };
 
@@ -40,13 +40,10 @@ function currency(n: number) {
   return `₱${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** Payment status is what the guest actually needs to know before check-in —
- * a meaningful financial state, not the reservation's raw Pending/Confirmed
- * lifecycle value. */
-function paymentStatusMeta(balance: number) {
-  return balance > 0
-    ? { label: "Payment Required", className: "bg-amber-50 text-amber-700", dot: "bg-amber-500" }
-    : { label: "Ready for Check-In", className: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" };
+/** Every listed reservation can be checked in — a balance is only shown for
+ * information and is settled at Check-Out. */
+function paymentStatusLabel(balance: number) {
+  return balance > 0 ? "Balance due at Check-Out" : "Fully paid";
 }
 
 function formatDate(d: string) {
@@ -85,7 +82,6 @@ export function CheckInDialog({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [completedRoomStatus, setCompletedRoomStatus] = useState<RoomStatus | null>(null);
-  const [settleOpen, setSettleOpen] = useState(false);
 
   function loadCandidates() {
     setLoadingCandidates(true);
@@ -109,9 +105,8 @@ export function CheckInDialog({
       .finally(() => setLoadingCandidates(false));
   }
 
-  // After a payment is recorded from Process Payment below, re-pull the
-  // candidate's real balance from the server rather than assuming it's now
-  // ₱0 — a partial payment should still show Payment Required.
+  // After a special request is added/removed below, re-pull the candidate's
+  // real balance from the server so the Payment Status card stays accurate.
   async function refreshSelectedBalance() {
     if (!selected) return;
     const res = await apiFetch<Candidate[]>("/api/front-office/check-in/candidates");
@@ -128,7 +123,6 @@ export function CheckInDialog({
     setKeyCardStatus("");
     setNotes("");
     setCompletedRoomStatus(null);
-    setSettleOpen(false);
     if (initialReservationId) {
       setStep("review");
     } else {
@@ -250,7 +244,6 @@ export function CheckInDialog({
                   </div>
                 ) : (
                   filteredCandidates.map((c) => {
-                    const meta = paymentStatusMeta(c.balance);
                     return (
                       <button
                         key={c.id}
@@ -267,12 +260,12 @@ export function CheckInDialog({
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
                           <span className="text-sm font-medium text-slate-700">Room {c.room}</span>
-                          <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
-                            {meta.label}
+                          <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                            Ready for Check-In
                           </span>
                           {c.balance > 0 ? (
-                            <span className="text-xs font-medium text-amber-700">{currency(c.balance)} outstanding</span>
+                            <span className="text-xs text-slate-500">{currency(c.balance)} balance · pay at Check-Out</span>
                           ) : null}
                         </div>
                       </button>
@@ -301,8 +294,8 @@ export function CheckInDialog({
                   <div>
                     <p className="text-xs text-muted-foreground">Status</p>
                     <p className="flex items-center gap-1.5 font-medium text-slate-800">
-                      <span className={`h-1.5 w-1.5 rounded-full ${paymentStatusMeta(selected.balance).dot}`} aria-hidden />
-                      {paymentStatusMeta(selected.balance).label}
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                      Ready for Check-In
                     </p>
                   </div>
                   <div>
@@ -316,26 +309,29 @@ export function CheckInDialog({
                 </div>
               </div>
 
-              {selected.balance > 0 ? (
-                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    Guest cannot be checked in because there is an outstanding balance.
-                  </div>
-                  <p className="pl-6 text-xs text-amber-700">Outstanding Balance</p>
-                  <p className="pl-6 text-base font-bold">{currency(selected.balance)}</p>
-                  <div className="pl-6 pt-1">
-                    <Button type="button" size="sm" onClick={() => setSettleOpen(true)}>
-                      <Wallet className="h-4 w-4" /> Process Payment
-                    </Button>
-                  </div>
+              {/* Informational only — an unpaid balance never blocks check-in;
+                  the folio is settled at Check-Out. */}
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">
+                <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0b1c3f]">
+                  <Wallet className="h-3.5 w-3.5" /> Payment Status
+                </p>
+                <div className="mt-2 flex items-baseline justify-between gap-3">
+                  <span className="text-slate-600">{selected.balance > 0 ? "Outstanding Balance" : "Balance"}</span>
+                  <span className="font-mono text-base font-semibold text-slate-900">
+                    {currency(Math.max(0, selected.balance))}
+                  </span>
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Ready for Check-In
-                </div>
-              )}
+                <p className="mt-1 text-xs text-slate-500">
+                  {selected.balance > 0
+                    ? "Payment will be settled during Check-Out."
+                    : "Fully paid. Any charges added during the stay are settled at Check-Out."}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Ready for Check-In
+              </div>
 
               {/* Chargeable requests are billed to the room and settled at
                   check-out — they never block this check-in. */}
@@ -379,6 +375,13 @@ export function CheckInDialog({
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Reservation</span>
                     <span className="font-medium text-slate-900">{selected.reservationNo}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Payment Status</span>
+                    <span className="font-medium text-slate-900">
+                      {paymentStatusLabel(selected.balance)}
+                      {selected.balance > 0 ? ` (${currency(selected.balance)})` : ""}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -429,9 +432,9 @@ export function CheckInDialog({
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                {/* Disabled client-side the moment a balance is owed — checkIn() enforces
-                    the same rule server-side, so this can't be bypassed via direct API calls. */}
-                <Button type="button" onClick={() => setStep("confirm")} disabled={(selected?.balance ?? 0) > 0}>
+                {/* An unpaid balance never disables this — checkIn() still validates the
+                    reservation state and room availability server-side. */}
+                <Button type="button" onClick={() => setStep("confirm")} disabled={!selected}>
                   Continue
                 </Button>
               </div>
@@ -454,16 +457,6 @@ export function CheckInDialog({
       </DialogContent>
     </Dialog>
 
-    <TransactionDialog
-      open={settleOpen}
-      onOpenChange={setSettleOpen}
-      defaultType="PAYMENT"
-      initialReservationId={selected?.id}
-      onDone={() => {
-        setSettleOpen(false);
-        refreshSelectedBalance();
-      }}
-    />
     </>
   );
 }

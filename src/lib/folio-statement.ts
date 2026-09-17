@@ -196,28 +196,3 @@ export function buildFolioStatement(transactions: FolioLedgerRow[]): FolioStatem
   }
   return s;
 }
-
-/**
- * The part of a stay's balance that must be settled before check-in.
- * Chargeable Special Requests are incidentals billed to the room and settled
- * at check-out, so their charges (and any payment made directly against
- * them) are left out; everything else is exactly reservationBalance().
- */
-export function checkInBalanceOf(
-  transactions: Array<{
-    id: string;
-    type: string;
-    amount: Amount;
-    additionalChargeType: AdditionalChargeType | null;
-    settlesTransactionId: string | null;
-  }>
-) {
-  const incidentalIds = new Set(
-    transactions.filter((t) => t.type === "CHARGE" && t.additionalChargeType === "SPECIAL_REQUEST").map((t) => t.id)
-  );
-  return reservationBalanceOf(
-    transactions.filter(
-      (t) => !incidentalIds.has(t.id) && !(t.settlesTransactionId && incidentalIds.has(t.settlesTransactionId))
-    )
-  );
-}

@@ -84,16 +84,14 @@ const EMPTY_GUEST: GuestInput = {
 };
 
 /**
- * Walk-In Guest — a 3-step flow (Register -> Payment -> Check-In), not one
- * atomic action: a walk-in must NOT be checked in (and must NOT occupy its
- * room) until payment actually clears. See createWalkInGuestFolio() in
- * guest.service.ts for why: it now only registers the guest/reservation/
- * charge, PENDING, exactly like the Guest Folio does with the same
- * guestSchema / folioRoomAssignmentSchema fields, discount, VAT, and payment
- * logic. Steps 2 and 3 below just call the SAME existing endpoints
- * Cashiering's own "Transact" (pay) and the Check-In dialog already use —
- * so "no payment, no check-in" is enforced by the one gate checkIn()
- * already has, not a second copy of that rule.
+ * Walk-In Guest — a 3-step flow (Register -> optional Payment -> Check-In).
+ * See createWalkInGuestFolio() in guest.service.ts: step 1 only registers the
+ * guest/reservation/charge, PENDING, exactly like the Guest Folio does with
+ * the same guestSchema / folioRoomAssignmentSchema fields, discount, VAT, and
+ * payment logic. Steps 2 and 3 just call the SAME existing endpoints
+ * Cashiering's own "Transact" (pay) and the Check-In dialog already use.
+ * Payment is optional before check-in — any balance is settled at Check-Out,
+ * where checkOut() requires the folio to be fully paid.
  */
 export function WalkInDialog({
   open,
@@ -411,7 +409,7 @@ export function WalkInDialog({
       totalDue: Number(result.data.transaction.amount),
     });
     setPayAmount(String(Number(result.data.transaction.amount).toFixed(2)));
-    toast.success("Guest registered. Payment is required before check-in.");
+    toast.success("Guest registered. Collect a payment now, or check the guest in and settle the balance at Check-Out.");
     onDone();
     setStep("payment");
   }
@@ -473,7 +471,7 @@ export function WalkInDialog({
       toast.success("Payment completed.");
       setStep("checkin");
     } else {
-      toast.success("Partial payment recorded. Remaining balance still due before check-in.");
+      toast.success("Partial payment recorded. The remaining balance will be settled at Check-Out.");
       setPayAmount(String((registered.totalDue - nowPaid).toFixed(2)));
     }
   }
@@ -488,20 +486,26 @@ export function WalkInDialog({
     setCheckingIn(false);
 
     if (!result.success) {
-      // Payment already succeeded and is preserved — only the check-in step
+      // Any payment already recorded is preserved — only the check-in step
       // itself failed (e.g. the room became unavailable in the meantime).
-      toast.error(`Payment completed, but check-in failed: ${result.message} Resolve this in Front Office / Cashiering.`);
+      toast.error(
+        `${paidAmount > 0 ? "Payment recorded, but check-in" : "Check-in"} failed: ${result.message} Resolve this in Front Office / Cashiering.`
+      );
       return;
     }
 
-    toast.success("Payment completed. Guest successfully checked in.");
+    toast.success(
+      fullyPaid
+        ? "Payment completed. Guest successfully checked in."
+        : "Guest successfully checked in. The outstanding balance will be settled at Check-Out."
+    );
     onOpenChange(false);
     onDone();
   }
 
   function handleFinishLater() {
-    toast.info("Walk-in guest saved as unpaid/pending.", {
-      description: "Complete payment in Cashiering to check them in.",
+    toast.info("Walk-in guest saved as pending.", {
+      description: "Check them in from Front Office when ready. Any balance is settled at Check-Out.",
     });
     onOpenChange(false);
     onDone();
@@ -509,10 +513,12 @@ export function WalkInDialog({
 
   const headerCopy =
     step === "register"
-      ? "Register a guest with no prior reservation. Payment is required before check-in."
+      ? "Register a guest with no prior reservation."
       : step === "payment"
-        ? "Collect the required payment before this guest can be checked in."
-        : "Payment completed — confirm to complete check-in.";
+        ? "Optionally collect a payment now — any balance is settled at Check-Out."
+        : fullyPaid
+          ? "Payment completed — confirm to complete check-in."
+          : "Confirm to complete check-in. The balance will be settled at Check-Out.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1107,8 +1113,8 @@ export function WalkInDialog({
         {step === "payment" && registered ? (
           <div className="flex flex-col">
             <div className="space-y-4 px-6 py-4 text-slate-800">
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold tracking-wide text-amber-800 uppercase">
-                Unpaid / Pending — payment is required before check-in
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold tracking-wide text-slate-700 uppercase">
+                Payment is optional now — the balance can be settled during Check-Out
               </div>
 
               <div className="grid grid-cols-2 gap-3 rounded-md bg-slate-50 p-3 text-sm">
@@ -1189,6 +1195,15 @@ export function WalkInDialog({
               </Button>
               <Button
                 type="button"
+                variant="outline"
+                onClick={() => setStep("checkin")}
+                disabled={paying}
+                className="h-10 px-5 font-medium tracking-wide text-slate-700 uppercase border-slate-300 hover:bg-slate-100"
+              >
+                <UserCheck className="mr-2 h-4 w-4" /> Check In Now
+              </Button>
+              <Button
+                type="button"
                 onClick={handlePay}
                 disabled={paying}
                 className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
@@ -1210,10 +1225,22 @@ export function WalkInDialog({
         {step === "checkin" && registered ? (
           <div className="flex flex-col">
             <div className="space-y-4 px-6 py-4 text-slate-800">
-              <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                Payment completed. Ready to check in.
-              </div>
+              {fullyPaid ? (
+                <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Payment completed. Ready to check in.
+                </div>
+              ) : (
+                // Informational only — an unpaid balance never blocks check-in.
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#0b1c3f]">Payment Status</p>
+                  <div className="mt-1 flex items-baseline justify-between gap-3">
+                    <span className="text-slate-600">Outstanding Balance</span>
+                    <span className="font-mono font-semibold text-slate-900">{currency(balance)}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500">Payment will be settled during Check-Out.</p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 rounded-md bg-slate-50 p-3 text-sm">
                 <div>
@@ -1247,7 +1274,7 @@ export function WalkInDialog({
               <Button
                 type="button"
                 onClick={handleCompleteCheckIn}
-                disabled={checkingIn || !fullyPaid}
+                disabled={checkingIn}
                 className="h-10 px-6 font-semibold tracking-wide uppercase bg-[#0b1c3f] text-white hover:bg-[#132c5e] shadow-sm disabled:opacity-60"
               >
                 {checkingIn ? (

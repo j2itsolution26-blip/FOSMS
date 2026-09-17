@@ -13,8 +13,10 @@ import type { SpecialRequestItemInput } from "@/validators/special-request.schem
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
 
-// Stays that can still take new requests/charges or have them removed — a
-// checked-out or cancelled stay's folio is closed.
+// Stays whose folio is still open: requests are entered at Guest Folio /
+// Walk-In / Check-In and, once in-house, from the Check-In activity's
+// Special Requests action. Check-Out only reads the charges already on the
+// folio — a checked-out or cancelled stay's folio is closed.
 const OPEN_STATUSES = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
 
 function round2(n: number) {
@@ -24,7 +26,7 @@ function round2(n: number) {
 function assertOpen(status: string) {
   if (!(OPEN_STATUSES as readonly string[]).includes(status)) {
     throw new AppError(
-      "Special requests can only be changed while the stay is reserved or in-house.",
+      "Special requests can only be changed while the stay is reserved or checked in.",
       "INVALID_RESERVATION_STATE",
       409
     );
@@ -192,6 +194,12 @@ export async function listSpecialRequests(reservationId: string) {
     where: { id: reservationId },
     select: {
       status: true,
+      reservationNo: true,
+      arrivalDate: true,
+      departureDate: true,
+      guest: { select: { firstName: true, middleName: true, lastName: true } },
+      room: { select: { number: true } },
+      checkIn: { select: { checkedInAt: true } },
       transactions: { select: { type: true, amount: true } },
       specialRequestItems: {
         where: { deletedAt: null },
@@ -215,12 +223,34 @@ export async function listSpecialRequests(reservationId: string) {
   const open = (OPEN_STATUSES as readonly string[]).includes(reservation.status);
   const balance = reservationBalanceOf(reservation.transactions);
 
+  // createdById is a plain column (no relation), so resolve the staff names
+  // in one batch.
+  const creatorIds = [
+    ...new Set(reservation.specialRequestItems.map((r) => r.createdById).filter((id): id is string => !!id)),
+  ];
+  const creators = creatorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: creatorIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : [];
+  const creatorName = new Map(creators.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+
   const items = reservation.specialRequestItems.map((r) => {
     const charge = r.transaction;
     const paidAmount = charge
       ? charge.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0)
       : 0;
     const coveredByPayments = charge ? balance - Number(charge.amount) < -0.005 : false;
+    // Derived from the ledger (no status column): a chargeable request stays
+    // "Pending" on the folio until a payment settles its charge.
+    const status: "NO_CHARGE" | "PENDING" | "PARTIALLY_PAID" | "PAID" = !charge
+      ? "NO_CHARGE"
+      : paidAmount >= Number(charge.amount) - 0.005
+        ? "PAID"
+        : paidAmount > 0.005
+          ? "PARTIALLY_PAID"
+          : "PENDING";
     return {
       id: r.id,
       itemName: r.itemName,
@@ -230,6 +260,8 @@ export async function listSpecialRequests(reservationId: string) {
       isChargeable: r.isChargeable,
       notes: r.notes,
       createdAt: r.createdAt,
+      addedBy: r.createdById ? (creatorName.get(r.createdById) ?? null) : null,
+      status,
       charge: charge
         ? {
             id: charge.id,
@@ -243,7 +275,19 @@ export async function listSpecialRequests(reservationId: string) {
     };
   });
 
-  return { reservationStatus: reservation.status, items };
+  return {
+    reservationStatus: reservation.status,
+    canModify: open,
+    stay: {
+      guestName: formatGuestFullName(reservation.guest),
+      roomNumber: reservation.room.number,
+      reservationNo: reservation.reservationNo,
+      arrivalDate: reservation.arrivalDate,
+      checkedInAt: reservation.checkIn?.checkedInAt ?? null,
+      departureDate: reservation.departureDate,
+    },
+    items,
+  };
 }
 
 /**

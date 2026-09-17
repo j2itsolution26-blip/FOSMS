@@ -460,13 +460,12 @@ export async function createGuestFolioWithReservationAndCharge(
  *
  * Deliberately does NOT check the guest in and does NOT occupy the room —
  * the reservation is left PENDING with guestType WALK_IN, exactly like a
- * regular reservation with a balance due. Step 2 is the front desk actually
- * collecting payment (payTransaction() in cashiering.service.ts, the same
- * "Transact" flow Cashiering already uses) and then calling the existing
- * checkIn() in front-office.service.ts — which already refuses to check in
- * a reservation with an outstanding balance. Routing the walk-in through
- * that same gate (instead of bypassing it, as this used to) is what
- * enforces "no payment, no check-in" without duplicating that rule anywhere.
+ * regular reservation with a balance due. The front desk may then collect a
+ * payment (payTransaction() in cashiering.service.ts, the same "Transact"
+ * flow Cashiering already uses) and checks the guest in through the existing
+ * checkIn() in front-office.service.ts. Payment is optional at that point —
+ * an outstanding balance never blocks check-in; checkOut() is where the
+ * folio must be fully settled.
  */
 export async function createWalkInGuestFolio(
   person: PersonInput,
@@ -510,8 +509,8 @@ export async function createWalkInGuestFolio(
       { guestType: "WALK_IN" }
     );
 
-    // Incidentals billed to the stay — settled at check-out, so they never
-    // block the walk-in's own check-in (see checkInBalanceOf).
+    // Incidentals billed to the stay — settled at check-out with the rest of
+    // the folio.
     const savedRequests = await createSpecialRequestsInTx(tx, {
       reservationId: reservation.id,
       items: specialRequests,

@@ -31,6 +31,7 @@ import { RoomTransferDialog } from "@/components/front-office/room-transfer-dial
 import { GuestVerificationDialog } from "@/components/front-office/guest-verification-dialog";
 import { WalkInDialog } from "@/components/front-office/walk-in-dialog";
 import { FrontOfficeActivityActionsMenu } from "@/components/front-office/front-office-activity-actions-menu";
+import { SpecialRequestsDialog } from "@/components/front-office/special-requests-dialog";
 import { TransactionDetailsDialog } from "@/components/cashiering/transaction-details-dialog";
 import type { FrontOfficeActivityRow, FrontOfficeActivityType } from "@/services/front-office.service";
 
@@ -135,6 +136,7 @@ export function FrontOfficeServicesClient({
   >(null);
   const [prefillReservationId, setPrefillReservationId] = useState<string | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<FrontOfficeActivityRow["transaction"]>(null);
+  const [specialRequestsFor, setSpecialRequestsFor] = useState<string | null>(null);
 
   const load = useCallback(
     async (showSpinner = false) => {
@@ -279,6 +281,7 @@ export function FrontOfficeServicesClient({
             canViewGuests={canViewGuests}
             canViewCashiering={canViewCashiering}
             onViewTransaction={() => setViewingTransaction(r.transaction)}
+            onSpecialRequests={() => setSpecialRequestsFor(r.reservationId)}
           />
         </div>
       ),
@@ -371,6 +374,14 @@ export function FrontOfficeServicesClient({
         canViewRooms={canViewRooms}
         canTransact={false}
         onTransact={() => {}}
+      />
+
+      <SpecialRequestsDialog
+        reservationId={specialRequestsFor}
+        open={!!specialRequestsFor}
+        onOpenChange={(o) => !o && setSpecialRequestsFor(null)}
+        canManage={canManage}
+        onChanged={() => load(true)}
       />
     </>
   );

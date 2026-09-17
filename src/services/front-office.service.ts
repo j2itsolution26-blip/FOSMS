@@ -1,12 +1,12 @@
 import "server-only";
-import type { DiscountType, PaymentMethod } from "@prisma/client";
+import type { DiscountType, PaymentMethod, ReservationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
 import { computeMembershipFeeCharge } from "@/lib/folio-pricing";
 import { formatGuestFullName, guestTypeLabel } from "@/lib/formatters";
-import { buildFolioStatement, checkInBalanceOf, folioLedgerSelect } from "@/lib/folio-statement";
+import { buildFolioStatement, folioLedgerSelect } from "@/lib/folio-statement";
 import { assertRoomAvailable } from "@/services/reservation.service";
 import { reservationBalance, listTodayTransactions, getOrCreateCashierSession } from "@/services/cashiering.service";
 import { hasActiveMembershipPayment, registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
@@ -136,6 +136,10 @@ export type FrontOfficeActivityRow = {
   /** Only present for Charge/Payment/Refund rows — lets the UI reuse the existing
    * Cashiering transaction-details dialog and receipt route without duplicating them. */
   transaction: FrontOfficeActivityTransaction | null;
+  /** Only set on Check-in rows — the stay's live status, so actions that
+   * operate on the current stay (Special Requests) only appear while the
+   * guest is still checked in. */
+  reservationStatus?: ReservationStatus;
 };
 
 export type FrontOfficeActivityFilters = {
@@ -321,6 +325,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       status: "COMPLETED" as const,
       guestType: c.reservation.guestType,
       transaction: null,
+      reservationStatus: c.reservation.status,
     })),
     ...checkOuts.map((c) => ({
       id: `co-${c.id}`,
@@ -439,23 +444,8 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       );
     }
 
-    // A guest cannot be checked in while any required balance is unpaid — the
-    // same reservationBalance() math the check-out gate and Cashiering use, so
-    // this can never disagree with what Cashiering shows as owed. Enforced
-    // here (not just in the Check-In dialog) so it can't be bypassed by
-    // calling this API directly. Mode of Payment is never treated as proof of
-    // payment — only an actual PAYMENT/DISCOUNT/REFUND row reduces this.
-    // Chargeable Special Requests are the one exception: incidentals billed
-    // to the room and settled at check-out (see checkInBalanceOf).
-    const transactions = await tx.cashierTransaction.findMany({ where: { reservationId: reservation.id } });
-    const balance = checkInBalanceOf(transactions);
-    if (balance > 0.005) {
-      throw new AppError(
-        `Guest cannot be checked in because there is an outstanding balance of ₱${balance.toFixed(2)}. Settle it in Cashiering before checking in.`,
-        "OUTSTANDING_BALANCE",
-        409
-      );
-    }
+    // An outstanding balance never blocks check-in — the stay's folio is
+    // settled at check-out, where checkOut() below requires a ₱0 balance.
 
     // The room may have changed state since the reservation was made (taken by a
     // walk-in, flagged out of order, blocked, etc.) — re-verify it's still
@@ -516,9 +506,7 @@ export async function listCheckInEligibleReservations() {
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
       room: { select: { number: true, roomType: { select: { name: true } } } },
-      transactions: {
-        select: { id: true, type: true, amount: true, additionalChargeType: true, settlesTransactionId: true },
-      },
+      transactions: { select: { type: true, amount: true } },
     },
   });
 
@@ -531,9 +519,9 @@ export async function listCheckInEligibleReservations() {
     arrivalDate: r.arrivalDate,
     departureDate: r.departureDate,
     status: r.status,
-    // Same checkInBalanceOf() math the checkIn() gate uses — never a separate
-    // "is this paid" flag that could drift from the ledger.
-    balance: Math.round(checkInBalanceOf(r.transactions) * 100) / 100,
+    // Informational only (check-in never requires payment) — the same
+    // reservationBalance() ledger math Check-Out and Cashiering use.
+    balance: Math.round(reservationBalance(r.transactions) * 100) / 100,
   }));
 }
 

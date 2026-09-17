@@ -161,8 +161,8 @@ export function AdditionalChargeDialog({
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <p>
-                This adds <strong>{currency(numericAmount)}</strong> to the guest&apos;s outstanding balance. Checkout stays blocked
-                until it&apos;s paid in Cashiering.
+                This adds <strong>{currency(numericAmount)}</strong> to the guest&apos;s outstanding balance. It must be paid
+                before the guest can complete Check-Out.
               </p>
             </div>
           ) : null}
