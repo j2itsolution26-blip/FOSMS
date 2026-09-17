@@ -300,12 +300,9 @@ export function GuestDetailsDialog({
                 )}
               </div>
 
-              <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
-                <Field label="Front Desk Officer" value={guest.processedBy || "Not recorded"} />
-                <div className="grid grid-cols-1 gap-6 pt-2 sm:grid-cols-2">
-                  <SignatureLine role="Front Desk Officer" name={guest.processedBy} />
-                  <SignatureLine role="Guest" name={formatGuestFullName(guest)} />
-                </div>
+              <div className="grid grid-cols-1 gap-6 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                <SignatureLine role="Front Desk Officer" name={guest.processedBy} />
+                <SignatureLine role="Guest" name={formatGuestFullName(guest)} />
               </div>
             </>
           )}
@@ -429,14 +426,10 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
         );
       })}
 
-      {/* Kept together on one page so the signature lines are never split
-          from the officer's name or cut off at a page break. */}
+      {/* Kept together on one page so the signature lines are never cut off
+          at a page break. The officer's name prints on its signature line. */}
       <div className="mt-6 break-inside-avoid" style={{ pageBreakInside: "avoid" }}>
-        <h3 className="mb-1.5 border-b-2 border-black pb-0.5 text-xs font-bold tracking-wider text-black uppercase">
-          Front Desk Officer
-        </h3>
-        <p className="py-1 text-[11px] text-black">{guest.processedBy || "Not recorded"}</p>
-        <div className="mt-6 grid grid-cols-2 gap-x-12">
+        <div className="grid grid-cols-2 gap-x-12">
           <SignatureLine print role="Front Desk Officer" name={guest.processedBy} />
           <SignatureLine print role="Guest" name={formatGuestFullName(guest)} />
         </div>

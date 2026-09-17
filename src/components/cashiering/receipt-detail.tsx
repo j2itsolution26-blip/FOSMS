@@ -94,6 +94,20 @@ function LineItem({
   );
 }
 
+/**
+ * One signing slot — a blank line tall enough for a handwritten signature,
+ * the role label directly beneath it, then the signer's recorded name.
+ */
+function SignatureBlock({ label, name }: { label: string; name: string }) {
+  return (
+    <div className="min-w-0 text-center">
+      <div className="h-12 border-b border-slate-900 print:h-16" />
+      <p className="mt-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
+      <p className="mt-0.5 break-words text-sm font-semibold text-slate-900">{name}</p>
+    </div>
+  );
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="pt-1 text-xs font-semibold tracking-wider text-slate-500 uppercase">{children}</p>;
 }
@@ -260,7 +274,6 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               label="Date / Time"
               value={new Date(receipt.paymentDate).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
             />
-            <Field label="Front Desk Officer" value={receipt.processedBy || "Not recorded"} />
             {receipt.membership ? (
               <>
                 <Field label="Membership Type" value="Club Member" />
@@ -320,9 +333,21 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
             </p>
           ) : null}
 
-          <div className="flex items-center justify-between border-t pt-4">
-            <p className="text-sm font-medium text-slate-700">{receipt.type === "REFUND" ? "Amount Refunded" : "Amount Paid"}</p>
-            <p className="text-2xl font-bold text-slate-900">{currency(amountPaid)}</p>
+          {/* Amount Paid and the signatures print as one unit, so the
+              signature area can never land alone on a separate page. */}
+          <div className="space-y-6 break-inside-avoid">
+            <div className="flex items-center justify-between border-t pt-4">
+              <p className="text-sm font-medium text-slate-700">{receipt.type === "REFUND" ? "Amount Refunded" : "Amount Paid"}</p>
+              <p className="text-2xl font-bold text-slate-900">{currency(amountPaid)}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-8 border-t border-dashed pt-6 sm:gap-12 print:gap-16 print:pt-10">
+              <SignatureBlock label="Front Desk Officer Signature" name={receipt.processedBy || "Not recorded"} />
+              <SignatureBlock
+                label={receipt.membership ? "Member Signature" : "Guest Signature"}
+                name={receipt.guestName ?? "—"}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
