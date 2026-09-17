@@ -1,9 +1,8 @@
 import "server-only";
-import { redirect } from "next/navigation";
 import type { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, hasPermission, type SessionUser } from "@/lib/auth/session";
+import { getCurrentUser, hasPermission, redirectToLogin, type SessionUser } from "@/lib/auth/session";
 import { apiForbidden, apiUnauthorized } from "@/lib/api-response";
 import { PERMISSIONS } from "@/config/permissions";
 
@@ -33,7 +32,7 @@ async function resolveOwnTrainee(user: SessionUser): Promise<OwnTrainee | null> 
 /** Page-level guard for trainee-portal pages. Redirects if unauthenticated, returns null if forbidden/no profile. */
 export async function requireOwnTraineePage(): Promise<{ user: SessionUser; trainee: OwnTrainee } | null> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) return redirectToLogin();
   const trainee = await resolveOwnTrainee(user);
   if (!trainee) return null;
   return { user, trainee };

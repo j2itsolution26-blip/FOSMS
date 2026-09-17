@@ -9,6 +9,7 @@ import { computeVatOnlyCharge } from "@/lib/folio-pricing";
 import { reservationBalanceOf } from "@/lib/reservation-balance";
 import { formatGuestFullName } from "@/lib/formatters";
 import { getOrCreateCashierSession } from "@/services/cashiering.service";
+import { assertOwnedBy, requireDataScope } from "@/lib/auth/data-scope";
 import type { SpecialRequestItemInput } from "@/validators/special-request.schema";
 
 type ActorContext = { userId: string; role: string | null; ipAddress?: string | null; userAgent?: string | null };
@@ -167,6 +168,7 @@ export async function addSpecialRequests(reservationId: string, items: SpecialRe
         where: { id: reservationId },
         include: { guest: { select: { firstName: true, middleName: true, lastName: true } } },
       });
+      assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");
       if (!reservation) throw new NotFoundError("Reservation not found.");
       assertOpen(reservation.status);
 
@@ -193,6 +195,7 @@ export async function listSpecialRequests(reservationId: string) {
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
     select: {
+      createdById: true,
       status: true,
       reservationNo: true,
       arrivalDate: true,
@@ -218,6 +221,7 @@ export async function listSpecialRequests(reservationId: string) {
       },
     },
   });
+  assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");
   if (!reservation) throw new NotFoundError("Reservation not found.");
 
   const open = (OPEN_STATUSES as readonly string[]).includes(reservation.status);
@@ -302,7 +306,15 @@ export async function listSpecialRequests(reservationId: string) {
  */
 export async function deleteSpecialRequest(id: string, actor: ActorContext) {
   const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.specialRequest.findUnique({ where: { id }, select: { reservationId: true } });
+    const existing = await tx.specialRequest.findUnique({
+      where: { id },
+      select: { reservationId: true, reservation: { select: { createdById: true } } },
+    });
+    assertOwnedBy(
+      await requireDataScope(),
+      existing && { ownerId: existing.reservation.createdById },
+      "Special request not found."
+    );
     if (!existing) throw new NotFoundError("Special request not found.");
     await tx.$queryRaw`SELECT id FROM reservations WHERE id = ${existing.reservationId} FOR UPDATE`;
 
@@ -391,7 +403,15 @@ export async function updateSpecialRequestStatus(
   actor: ActorContext
 ) {
   const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.specialRequest.findUnique({ where: { id }, select: { reservationId: true } });
+    const existing = await tx.specialRequest.findUnique({
+      where: { id },
+      select: { reservationId: true, reservation: { select: { createdById: true } } },
+    });
+    assertOwnedBy(
+      await requireDataScope(),
+      existing && { ownerId: existing.reservation.createdById },
+      "Special request not found."
+    );
     if (!existing) throw new NotFoundError("Special request not found.");
     await tx.$queryRaw`SELECT id FROM reservations WHERE id = ${existing.reservationId} FOR UPDATE`;
 

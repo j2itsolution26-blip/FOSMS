@@ -2,6 +2,7 @@ import "server-only";
 import type { AuditAction, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { auditLogWhere, requireDataScope } from "@/lib/auth/data-scope";
 import type { PaginationInput } from "@/validators/pagination.schema";
 import { paginationMeta } from "@/validators/pagination.schema";
 
@@ -15,8 +16,9 @@ export type AuditLogFilters = {
 
 /** Recent audit trail for a module's activity feed (Front Office, Club Reception, Concierge, Cashiering, ...). */
 export async function getRecentModuleActivity(module: string, limit = 8) {
+  const scope = await requireDataScope();
   return prisma.auditLog.findMany({
-    where: { module },
+    where: { ...auditLogWhere(scope), module },
     orderBy: { createdAt: "desc" },
     take: limit,
     include: { user: { select: { firstName: true, lastName: true } } },
@@ -26,7 +28,9 @@ export async function getRecentModuleActivity(module: string, limit = 8) {
 export async function listAuditLogs(pagination: PaginationInput, filters: AuditLogFilters = {}) {
   const { page, pageSize, search } = pagination;
 
+  const scope = await requireDataScope();
   const where: Prisma.AuditLogWhereInput = {
+    ...auditLogWhere(scope),
     ...(filters.module ? { module: filters.module } : {}),
     ...(filters.action ? { action: filters.action } : {}),
     ...(filters.userId ? { userId: filters.userId } : {}),

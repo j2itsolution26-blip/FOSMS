@@ -8,6 +8,12 @@ import { computeMembershipFeeCharge } from "@/lib/folio-pricing";
 import { formatGuestFullName, guestTypeLabel } from "@/lib/formatters";
 import { buildFolioStatement, folioLedgerSelect } from "@/lib/folio-statement";
 import { assertRoomAvailable } from "@/services/reservation.service";
+import {
+  assertOwnedBy,
+  auditLogWhere,
+  requireDataScope,
+  reservationWhere,
+} from "@/lib/auth/data-scope";
 import { reservationBalance, listTodayTransactions, getOrCreateCashierSession } from "@/services/cashiering.service";
 import { hasActiveMembershipPayment, registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
 import { resolveDateRange, type DateRange } from "@/services/report.service";
@@ -39,16 +45,17 @@ export async function getFrontOfficeKpis() {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  const own = reservationWhere(await requireDataScope());
 
   const [todaysCheckIns, todaysCheckOuts, inHouseGuests, awaitingCheckIn, awaitingCheckOut] = await Promise.all([
-    prisma.checkIn.count({ where: { checkedInAt: { gte: todayStart, lte: todayEnd } } }),
-    prisma.checkOut.count({ where: { checkedOutAt: { gte: todayStart, lte: todayEnd } } }),
-    prisma.reservation.count({ where: { status: "CHECKED_IN" } }),
+    prisma.checkIn.count({ where: { reservation: own, checkedInAt: { gte: todayStart, lte: todayEnd } } }),
+    prisma.checkOut.count({ where: { reservation: own, checkedOutAt: { gte: todayStart, lte: todayEnd } } }),
+    prisma.reservation.count({ where: { ...own, status: "CHECKED_IN" } }),
     prisma.reservation.count({
-      where: { arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { ...own, arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["PENDING", "CONFIRMED"] } },
     }),
     prisma.reservation.count({
-      where: { departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
+      where: { ...own, departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
     }),
   ]);
 
@@ -216,26 +223,29 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
   const searchLower = (filters.search ?? "").trim().toLowerCase();
   const page = filters.page && filters.page > 0 ? filters.page : 1;
   const pageSize = filters.pageSize && filters.pageSize > 0 ? filters.pageSize : 25;
+  const scope = await requireDataScope();
+  const own = reservationWhere(scope);
 
   const [arrivals, departures, checkIns, checkOuts, activityLogs, reservationsCreated, transactions] = await Promise.all([
     prisma.reservation.findMany({
-      where: { arrivalDate: { gte: range.from, lte: range.to }, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { ...own, arrivalDate: { gte: range.from, lte: range.to }, status: { in: ["PENDING", "CONFIRMED"] } },
       include: { guest: true, room: true },
     }),
     prisma.reservation.findMany({
-      where: { departureDate: { gte: range.from, lte: range.to }, status: "CHECKED_IN" },
+      where: { ...own, departureDate: { gte: range.from, lte: range.to }, status: "CHECKED_IN" },
       include: { guest: true, room: true },
     }),
     prisma.checkIn.findMany({
-      where: { checkedInAt: { gte: range.from, lte: range.to } },
+      where: { reservation: own, checkedInAt: { gte: range.from, lte: range.to } },
       include: { reservation: { include: { guest: true, room: true } } },
     }),
     prisma.checkOut.findMany({
-      where: { checkedOutAt: { gte: range.from, lte: range.to } },
+      where: { reservation: own, checkedOutAt: { gte: range.from, lte: range.to } },
       include: { reservation: { include: { guest: true, room: true } } },
     }),
     prisma.auditLog.findMany({
       where: {
+        ...auditLogWhere(scope),
         module: "front-office",
         action: { in: ["ROOM_TRANSFER", "GUEST_VERIFICATION", "CHECK_IN", "CHECK_OUT", "WALK_IN"] },
         createdAt: { gte: range.from, lte: range.to },
@@ -243,7 +253,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
       include: { user: true },
     }),
     prisma.reservation.findMany({
-      where: { createdAt: { gte: range.from, lte: range.to } },
+      where: { ...own, createdAt: { gte: range.from, lte: range.to } },
       include: { guest: true, room: true, createdBy: { select: { firstName: true, lastName: true } } },
     }),
     listTodayTransactions("", range),
@@ -262,7 +272,7 @@ export async function listFrontOfficeActivity(filters: FrontOfficeActivityFilter
   const guestTypeByReservationId = new Map<string, "RESERVATION" | "WALK_IN" | null>();
   if (transferOrVerifyReservationIds.length) {
     const reservations = await prisma.reservation.findMany({
-      where: { id: { in: transferOrVerifyReservationIds } },
+      where: { ...own, id: { in: transferOrVerifyReservationIds } },
       select: { id: true, guestType: true },
     });
     for (const r of reservations) guestTypeByReservationId.set(r.id, r.guestType);
@@ -435,7 +445,7 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
       where: { id: input.reservationId },
       include: { guest: true, room: true },
     });
-    if (!reservation) throw new NotFoundError("Reservation not found.");
+    assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");    if (!reservation) throw new NotFoundError("Reservation not found.");
     if (!["PENDING", "CONFIRMED"].includes(reservation.status)) {
       throw new AppError(
         `Cannot check in a reservation that is ${reservation.status.toLowerCase().replace("_", " ")}.`,
@@ -501,7 +511,11 @@ export async function checkIn(input: CheckInInput, actor: ActorContext) {
  */
 export async function listCheckInEligibleReservations() {
   const reservations = await prisma.reservation.findMany({
-    where: { status: { in: ["PENDING", "CONFIRMED"] }, arrivalDate: { lte: endOfDay(new Date()) } },
+    where: {
+      ...reservationWhere(await requireDataScope()),
+      status: { in: ["PENDING", "CONFIRMED"] },
+      arrivalDate: { lte: endOfDay(new Date()) },
+    },
     orderBy: { arrivalDate: "desc" },
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
@@ -531,7 +545,7 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
       where: { id: input.reservationId },
       include: { guest: true, room: true },
     });
-    if (!reservation) throw new NotFoundError("Reservation not found.");
+    assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");    if (!reservation) throw new NotFoundError("Reservation not found.");
     if (reservation.status !== "CHECKED_IN") {
       throw new AppError("Only a checked-in reservation can be checked out.", "INVALID_RESERVATION_STATE", 409);
     }
@@ -582,7 +596,7 @@ export async function checkOut(input: CheckOutInput, actor: ActorContext) {
  */
 export async function listInHouseReservations() {
   const reservations = await prisma.reservation.findMany({
-    where: { status: "CHECKED_IN" },
+    where: { ...reservationWhere(await requireDataScope()), status: "CHECKED_IN" },
     orderBy: { departureDate: "asc" },
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
@@ -616,7 +630,7 @@ export async function getCheckoutFolioSummary(reservationId: string) {
       transactions: { orderBy: { createdAt: "desc" }, select: folioLedgerSelect },
     },
   });
-  if (!reservation) throw new NotFoundError("Reservation not found.");
+  assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");  if (!reservation) throw new NotFoundError("Reservation not found.");
   if (reservation.status !== "CHECKED_IN") {
     throw new AppError("This guest is not currently checked in.", "INVALID_RESERVATION_STATE", 409);
   }
@@ -710,7 +724,7 @@ export async function registerClubMembershipAtCheckOut(
         transactions: { orderBy: { createdAt: "desc" }, select: { type: true, amount: true, discountType: true } },
       },
     });
-    if (!reservation) throw new NotFoundError("Reservation not found.");
+    assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");    if (!reservation) throw new NotFoundError("Reservation not found.");
     if (reservation.status !== "CHECKED_IN") {
       throw new AppError("Only a checked-in guest can register as a Club Member at check-out.", "INVALID_RESERVATION_STATE", 409);
     }
@@ -848,7 +862,7 @@ export async function transferRoom(input: RoomTransferInput, actor: ActorContext
       where: { id: input.reservationId },
       include: { guest: true, room: true },
     });
-    if (!reservation) throw new NotFoundError("Reservation not found.");
+    assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");    if (!reservation) throw new NotFoundError("Reservation not found.");
     if (reservation.status !== "CHECKED_IN") {
       throw new AppError("Only a checked-in guest can be transferred to a new room.", "INVALID_RESERVATION_STATE", 409);
     }
@@ -913,7 +927,7 @@ export async function verifyGuest(input: GuestVerificationInput, actor: ActorCon
     where: { id: input.reservationId },
     include: { guest: true, room: true },
   });
-  if (!reservation) throw new NotFoundError("Reservation not found.");
+  assertOwnedBy(await requireDataScope(), reservation && { ownerId: reservation.createdById }, "Reservation not found.");  if (!reservation) throw new NotFoundError("Reservation not found.");
 
   await recordAudit({
     userId: actor.userId,

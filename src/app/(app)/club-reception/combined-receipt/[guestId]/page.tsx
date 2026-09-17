@@ -8,6 +8,7 @@ import { getGuestFinancialHistory } from "@/services/club-membership.service";
 import { CombinedReceipt, type CombinedReceiptData } from "@/components/club-reception/combined-receipt";
 import { formatGuestFullName } from "@/lib/formatters";
 import { NotFoundError } from "@/lib/errors";
+import { ForbiddenError } from "@/lib/auth/data-scope";
 
 const ORG_NAME = process.env.NEXT_PUBLIC_ORG_NAME || "Front Office Training Center";
 
@@ -26,6 +27,8 @@ export default async function CombinedReceiptPage({ params }: RouteParams) {
     history = await getGuestFinancialHistory(guestId);
   } catch (err) {
     if (err instanceof NotFoundError) notFound();
+    // Another account's record — refused, never shown.
+    if (err instanceof ForbiddenError) return <AccessDenied />;
     throw err;
   }
 

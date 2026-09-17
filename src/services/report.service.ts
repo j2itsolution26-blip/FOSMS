@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { ownerLabel, requireDataScope, reservationWhere, transactionWhere } from "@/lib/auth/data-scope";
 import { getRoomOccupancySummary } from "@/services/room.service";
 import { getCashieringKpis, getOutstandingBalanceTotal } from "@/services/cashiering.service";
 import { getFrontOfficeKpis } from "@/services/front-office.service";
@@ -63,6 +64,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           ...(filters.dateTo ? { lte: new Date(filters.dateTo) } : {}),
         }
       : undefined;
+  const scope = await requireDataScope();
 
   switch (type) {
     case "room-occupancy": {
@@ -76,17 +78,18 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
     case "cashiering-transactions": {
       const rows = await prisma.cashierTransaction.findMany({
         where: {
+          ...transactionWhere(scope),
           ...(dateRange ? { createdAt: dateRange } : {}),
           ...(filters.status && TRANSACTION_TYPES.includes(filters.status as (typeof TRANSACTION_TYPES)[number])
             ? { type: filters.status as (typeof TRANSACTION_TYPES)[number] }
             : {}),
         },
-        include: { reservation: { include: { guest: true } } },
+        include: { reservation: { include: { guest: true } }, user: { select: { firstName: true, lastName: true } } },
         orderBy: { createdAt: "desc" },
         take: 1000,
       });
       return toCsv(
-        ["Transaction #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Discount Type", "VAT", "Date"],
+        ["Transaction #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Discount Type", "VAT", "Date", "Account"],
         rows.map((r) => [
           r.transactionNo,
           r.type,
@@ -97,6 +100,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           r.discountType ?? "—",
           r.vatAmount ? Number(r.vatAmount).toFixed(2) : "—",
           r.createdAt.toISOString().slice(0, 10),
+          ownerLabel(r.user) ?? "—",
         ])
       );
     }
@@ -104,15 +108,16 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
     case "receipts": {
       const rows = await prisma.cashierTransaction.findMany({
         where: {
+          ...transactionWhere(scope),
           type: { in: ["PAYMENT", "REFUND"] },
           ...(dateRange ? { createdAt: dateRange } : {}),
         },
-        include: { reservation: { include: { guest: true } } },
+        include: { reservation: { include: { guest: true } }, user: { select: { firstName: true, lastName: true } } },
         orderBy: { createdAt: "desc" },
         take: 1000,
       });
       return toCsv(
-        ["Receipt #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Date"],
+        ["Receipt #", "Type", "Guest", "Reservation #", "Amount", "Payment Method", "Date", "Account"],
         rows.map((r) => [
           r.transactionNo,
           r.type,
@@ -121,6 +126,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           Number(r.amount).toFixed(2),
           formatPaymentMethod(r.paymentMethod, r.otherPaymentMethod) ?? "—",
           r.createdAt.toISOString().slice(0, 10),
+          ownerLabel(r.user) ?? "—",
         ])
       );
     }
@@ -129,17 +135,22 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
     default: {
       const rows = await prisma.reservation.findMany({
         where: {
+          ...reservationWhere(scope),
           ...(dateRange ? { createdAt: dateRange } : {}),
           ...(filters.status && RESERVATION_STATUSES.includes(filters.status as (typeof RESERVATION_STATUSES)[number])
             ? { status: filters.status as (typeof RESERVATION_STATUSES)[number] }
             : {}),
         },
-        include: { guest: true, room: { include: { roomType: true } } },
+        include: {
+          guest: true,
+          room: { include: { roomType: true } },
+          createdBy: { select: { firstName: true, lastName: true } },
+        },
         orderBy: { createdAt: "desc" },
         take: 1000,
       });
       return toCsv(
-        ["Reservation #", "Guest", "Room", "Room Type", "Arrival", "Departure", "Status", "Source"],
+        ["Reservation #", "Guest", "Room", "Room Type", "Arrival", "Departure", "Status", "Source", "Account"],
         rows.map((r) => [
           r.reservationNo,
           formatGuestFullName(r.guest),
@@ -149,6 +160,7 @@ async function buildReportCsv(type: ReportType, filters: ReportFilters): Promise
           r.departureDate.toISOString().slice(0, 10),
           r.status,
           r.source,
+          ownerLabel(r.createdBy) ?? "—",
         ])
       );
     }
@@ -219,7 +231,9 @@ export async function getFrontOfficeSnapshot() {
     getFrontOfficeKpis(),
     getRoomOccupancySummary(),
     getOutstandingBalanceTotal(),
-    prisma.reservation.count({ where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } } }),
+    prisma.reservation.count({
+      where: { ...reservationWhere(await requireDataScope()), status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
+    }),
   ]);
 
   const occupiedCount = Object.entries(roomSummary.byStatus).reduce(
@@ -256,7 +270,7 @@ export async function getRoomOccupancyReport() {
 export async function getReservationStatusReport(range: DateRange) {
   const grouped = await prisma.reservation.groupBy({
     by: ["status"],
-    where: { createdAt: { gte: range.from, lte: range.to } },
+    where: { ...reservationWhere(await requireDataScope()), createdAt: { gte: range.from, lte: range.to } },
     _count: { _all: true },
   });
   const byStatus = Object.fromEntries(grouped.map((g) => [g.status, g._count._all]));
@@ -271,7 +285,7 @@ export async function getReservationStatusReport(range: DateRange) {
  */
 export async function getRevenueTransactionsTrend(range: DateRange) {
   const rows = await prisma.cashierTransaction.findMany({
-    where: { createdAt: { gte: range.from, lte: range.to } },
+    where: { ...transactionWhere(await requireDataScope()), createdAt: { gte: range.from, lte: range.to } },
     select: { type: true, amount: true, createdAt: true },
   });
 
@@ -311,7 +325,7 @@ export async function getRevenueTransactionsTrend(range: DateRange) {
 export async function getPaymentMethodReport(range: DateRange) {
   const grouped = await prisma.cashierTransaction.groupBy({
     by: ["paymentMethod"],
-    where: { createdAt: { gte: range.from, lte: range.to }, type: "PAYMENT" },
+    where: { ...transactionWhere(await requireDataScope()), createdAt: { gte: range.from, lte: range.to }, type: "PAYMENT" },
     _sum: { amount: true },
     _count: { _all: true },
   });
@@ -323,7 +337,7 @@ export async function getPaymentMethodReport(range: DateRange) {
 
 /** Gross charges, discounts, VAT, net revenue, payments, refunds — all authoritative Cashiering aggregates. Outstanding balance is the same live figure as the snapshot (a point-in-time state, not a range total). */
 export async function getFinancialSummaryReport(range: DateRange) {
-  const where = { createdAt: { gte: range.from, lte: range.to } };
+  const where = { ...transactionWhere(await requireDataScope()), createdAt: { gte: range.from, lte: range.to } };
 
   const [chargeAgg, paymentAgg, refundAgg, outstandingBalance] = await Promise.all([
     prisma.cashierTransaction.aggregate({
@@ -350,7 +364,12 @@ export async function getFinancialSummaryReport(range: DateRange) {
 export async function getDiscountReport(range: DateRange) {
   const grouped = await prisma.cashierTransaction.groupBy({
     by: ["discountType"],
-    where: { createdAt: { gte: range.from, lte: range.to }, type: "CHARGE", discountType: { not: null } },
+    where: {
+      ...transactionWhere(await requireDataScope()),
+      createdAt: { gte: range.from, lte: range.to },
+      type: "CHARGE",
+      discountType: { not: null },
+    },
     _sum: { discountAmount: true },
     _count: { _all: true },
   });
@@ -367,7 +386,12 @@ export async function getDiscountReport(range: DateRange) {
 /** VAT actually recorded on charges over the selected range (the same rate/amount Cashiering computed at charge time — never recalculated here). */
 export async function getVatReport(range: DateRange) {
   const agg = await prisma.cashierTransaction.aggregate({
-    where: { createdAt: { gte: range.from, lte: range.to }, type: "CHARGE", vatAmount: { gt: 0 } },
+    where: {
+      ...transactionWhere(await requireDataScope()),
+      createdAt: { gte: range.from, lte: range.to },
+      type: "CHARGE",
+      vatAmount: { gt: 0 },
+    },
     _sum: { vatAmount: true },
     _count: { _all: true },
   });

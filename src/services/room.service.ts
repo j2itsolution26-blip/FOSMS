@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma, RoomStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { requireDataScope, reservationWhere, roomStatusHistoryWhere } from "@/lib/auth/data-scope";
 import { recordAudit } from "@/lib/audit";
 import { formatGuestFullName } from "@/lib/formatters";
 import { NotFoundError, AppError } from "@/lib/errors";
@@ -89,8 +90,13 @@ export async function listRooms(
 
   // Front Desk's room-status board needs to show who's currently in an
   // occupied room; a room holds at most one CHECKED_IN reservation at a time.
+  // Rooms are shared, but only this account's own in-house guest is named.
   const inHouse = await prisma.reservation.findMany({
-    where: { roomId: { in: rooms.map((r) => r.id) }, status: "CHECKED_IN" },
+    where: {
+      ...reservationWhere(await requireDataScope()),
+      roomId: { in: rooms.map((r) => r.id) },
+      status: "CHECKED_IN",
+    },
     select: { roomId: true, guest: { select: { firstName: true, middleName: true, lastName: true } } },
   });
   const guestByRoomId = new Map(inHouse.map((r) => [r.roomId, formatGuestFullName(r.guest)]));
@@ -211,7 +217,7 @@ export async function getRoomStatusHistory(roomId: string) {
   if (!room) throw new NotFoundError("Room not found.");
 
   return prisma.roomStatusHistory.findMany({
-    where: { roomId },
+    where: { ...roomStatusHistoryWhere(await requireDataScope()), roomId },
     orderBy: { changedAt: "desc" },
     include: { changedBy: { select: { firstName: true, lastName: true } } },
   });

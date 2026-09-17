@@ -350,6 +350,7 @@ model User {
   auditLogs                AuditLog[]
   instructor               Instructor?
   trainee                  Trainee?
+  guestsCreated            Guest[]              @relation("GuestCreatedBy")
   reservationsCreated      Reservation[]        @relation("ReservationCreatedBy")
   cashierSessions          CashierSession[]
   transactions             CashierTransaction[]
@@ -733,6 +734,11 @@ model Guest {
   // (Guest Folio, Walk-In, Reservation) — see resolveOrCreateGuestInTx /
   // promoteGuestToRegular. Their ClubMembership is untouched by this flip.
   guestType          GuestRecordType     @default(REGULAR)
+  // The Front Office account that created this guest — the ownership key
+  // for per-account data isolation (see src/lib/auth/data-scope.ts). Null
+  // only for rows whose creator can't be determined; those are visible to
+  // supervisory accounts only.
+  createdById        String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
@@ -741,8 +747,10 @@ model Guest {
   documents       GuestDocument[]
   serviceRequests ServiceRequest[]
   clubMembership  ClubMembership?
+  createdBy       User?           @relation("GuestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([lastName, firstName])
+  @@index([createdById])
   @@map("guests")
 }
 

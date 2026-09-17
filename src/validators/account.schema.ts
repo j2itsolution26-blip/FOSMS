@@ -42,3 +42,10 @@ export const resetAccountPasswordSchema = z
   });
 
 export type ResetAccountPasswordInput = z.infer<typeof resetAccountPasswordSchema>;
+
+/** Supervisor activating / deactivating a Front Desk trainee login. */
+export const staffAccountStatusSchema = z.object({
+  status: z.enum(["ACTIVE", "DEACTIVATED"], { message: "Choose ACTIVE or DEACTIVATED." }),
+});
+
+export type StaffAccountStatusInput = z.infer<typeof staffAccountStatusSchema>;

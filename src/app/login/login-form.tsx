@@ -26,11 +26,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { loginSchema, type LoginInput } from "@/validators/auth.schema";
+import { ACCOUNT_DEACTIVATED_MESSAGE, ACCOUNT_DEACTIVATED_REASON } from "@/lib/auth/constants";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [serverError, setServerError] = useState<string | null>(null);
+  // Sent here after a Supervisor deactivated the signed-in account.
+  const [serverError, setServerError] = useState<string | null>(
+    searchParams.get("reason") === ACCOUNT_DEACTIVATED_REASON ? ACCOUNT_DEACTIVATED_MESSAGE : null
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 

@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   FlaskConical,
   KeyRound,
+  UserRound,
 } from "lucide-react";
 
 import { PERMISSIONS, type PermissionKey } from "@/config/permissions";
@@ -76,6 +77,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Administration",
     items: [
       { label: "Users", href: "/admin/users", icon: UserCog, permission: PERMISSIONS.USERS_MANAGE },
+      { label: "Staff / Accounts", href: "/admin/staff", icon: UserRound, permission: PERMISSIONS.USERS_MANAGE },
       { label: "Account & Password", href: "/admin/account", icon: KeyRound, permission: PERMISSIONS.USERS_MANAGE },
       { label: "Roles & Permissions", href: "/admin/roles", icon: ShieldCheck, permission: PERMISSIONS.ROLES_MANAGE },
       { label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText, permission: PERMISSIONS.AUDIT_VIEW },
@@ -142,6 +144,12 @@ export const SUPERVISOR_NAV_SECTIONS: NavSection[] = [
   {
     label: "Reports",
     items: [{ label: "Reports & Analytics", href: "/reports", icon: BarChart3, permission: PERMISSIONS.REPORTS_VIEW }],
+  },
+  {
+    label: "Staff",
+    items: [
+      { label: "Staff / Accounts", href: "/admin/staff", icon: UserRound, permission: PERMISSIONS.USERS_MANAGE },
+    ],
   },
   {
     label: "Administration",

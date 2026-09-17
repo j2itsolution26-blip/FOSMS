@@ -1,6 +1,4 @@
-import { redirect } from "next/navigation";
-
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, redirectToLogin } from "@/lib/auth/session";
 import type { PermissionKey } from "@/config/permissions";
 import { AppShell } from "@/components/layout/app-shell";
 import { getUnreadNotifications } from "@/services/notification.service";
@@ -9,7 +7,7 @@ const ORG_NAME = process.env.NEXT_PUBLIC_ORG_NAME || "Front Office Training Cent
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) return redirectToLogin();
 
   const { items, unreadCount } = await getUnreadNotifications(user.id);
 

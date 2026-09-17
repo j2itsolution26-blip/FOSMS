@@ -10,6 +10,14 @@ import { calculateNights } from "@/lib/stay-nights";
 import { reservationBalanceOf } from "@/lib/reservation-balance";
 import { buildFolioStatement, folioLedgerSelect } from "@/lib/folio-statement";
 import { formatGuestFullName } from "@/lib/formatters";
+import {
+  assertOwnedBy,
+  isIsolated,
+  ownerLabel,
+  requireDataScope,
+  reservationWhere,
+  transactionWhere,
+} from "@/lib/auth/data-scope";
 import type {
   CloseCashierInput,
   CreateTransactionInput,
@@ -121,18 +129,21 @@ export async function getCashieringKpis() {
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
 
+  const scope = await requireDataScope();
+  const own = transactionWhere(scope);
+
   const [todaysTransactions, todaysPayments, todaysRefunds, checkedInReservations] = await Promise.all([
-    prisma.cashierTransaction.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+    prisma.cashierTransaction.count({ where: { ...own, createdAt: { gte: todayStart, lte: todayEnd } } }),
     prisma.cashierTransaction.aggregate({
-      where: { type: "PAYMENT", createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { ...own, type: "PAYMENT", createdAt: { gte: todayStart, lte: todayEnd } },
       _sum: { amount: true },
     }),
     prisma.cashierTransaction.aggregate({
-      where: { type: "REFUND", createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { ...own, type: "REFUND", createdAt: { gte: todayStart, lte: todayEnd } },
       _sum: { amount: true },
     }),
     prisma.reservation.findMany({
-      where: { status: "CHECKED_IN" },
+      where: { ...reservationWhere(scope), status: "CHECKED_IN" },
       select: { id: true, transactions: { select: { type: true, amount: true } } },
     }),
   ]);
@@ -150,8 +161,9 @@ export async function getCashieringKpis() {
  * Reports & Analytics never computes this differently than Cashiering does.
  */
 export async function getOutstandingBalanceTotal() {
+  const scope = await requireDataScope();
   const reservations = await prisma.reservation.findMany({
-    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
+    where: { ...reservationWhere(scope), status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
     select: { transactions: { select: { type: true, amount: true } } },
   });
   return reservations.reduce((sum, r) => sum + Math.max(0, reservationBalance(r.transactions)), 0);
@@ -162,9 +174,11 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
   const todayStart = range?.from ?? startOfDay(now);
   const todayEnd = range?.to ?? endOfDay(now);
   const searchLower = search.trim();
+  const scope = await requireDataScope();
 
   const transactions = await prisma.cashierTransaction.findMany({
     where: {
+      ...transactionWhere(scope),
       createdAt: { gte: todayStart, lte: todayEnd },
       // A payment created by "Transact" to settle an existing charge in place
       // is never its own row in this list — it's folded into the charge's
@@ -220,7 +234,12 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
   >();
   if (reservationIdsNeedingDiscount.length) {
     const chargesWithDiscount = await prisma.cashierTransaction.findMany({
-      where: { reservationId: { in: reservationIdsNeedingDiscount }, type: "CHARGE", discountType: { not: null } },
+      where: {
+        ...transactionWhere(scope),
+        reservationId: { in: reservationIdsNeedingDiscount },
+        type: "CHARGE",
+        discountType: { not: null },
+      },
       orderBy: { createdAt: "desc" },
       select: { reservationId: true, discountType: true, otherDiscountType: true, otherDiscountRate: true },
     });
@@ -234,7 +253,7 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
   return transactions.map((t) => {
     const backfill = t.reservationId && discountByReservation.get(t.reservationId);
     const paidAmount = t.settledBy.filter((s) => !s.reversedById).reduce((sum, s) => sum + Number(s.amount), 0);
-    return { ...(backfill && !t.discountType ? { ...t, ...backfill } : t), paidAmount };
+    return { ...(backfill && !t.discountType ? { ...t, ...backfill } : t), paidAmount, ownerName: isIsolated(scope) ? null : ownerLabel(t.user) };
   });
 }
 
@@ -245,8 +264,9 @@ export async function listTodayTransactions(search = "", range?: { from: Date; t
  * hardcode a balance.
  */
 export async function listOpenReservationsForTransactions() {
+  const scope = await requireDataScope();
   const reservations = await prisma.reservation.findMany({
-    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
+    where: { ...reservationWhere(scope), status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
     orderBy: { createdAt: "desc" },
     include: {
       guest: { select: { firstName: true, lastName: true } },
@@ -292,8 +312,9 @@ export async function listOpenReservationsForTransactions() {
  * unlinked standalone payment that would show up as a second visible row.
  */
 export async function getGuestsAwaitingPayment() {
+  const scope = await requireDataScope();
   const reservations = await prisma.reservation.findMany({
-    where: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] } },
+    where: { ...reservationWhere(scope), status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] } },
     orderBy: { updatedAt: "desc" },
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
@@ -588,6 +609,14 @@ export async function closeCashierSession(input: CloseCashierInput, actor: Actor
 }
 
 export async function createTransaction(input: CreateTransactionInput, actor: ActorContext) {
+  // Only this account's own reservations can be billed or paid.
+  const scope = await requireDataScope();
+  const target = await prisma.reservation.findUnique({
+    where: { id: input.reservationId },
+    select: { createdById: true },
+  });
+  assertOwnedBy(scope, target && { ownerId: target.createdById }, "Reservation not found.");
+
   // The 2% Club Member rate is a benefit of an ACTIVE membership, never a
   // plain discount anyone can pick — verified server-side (same gate
   // resolveInitialReservationCharge uses) so a manual Cashiering charge can't
@@ -727,6 +756,7 @@ export async function payTransaction(
   input: { transactionId: string; amount: number; reference?: string; processedBy: string },
   actor: ActorContext
 ) {
+  const scope = await requireDataScope();
   const result = await prisma.$transaction(async (tx) => {
     // Locked so two cashiers can't both read the same remaining balance and
     // both post a "full" payment against it.
@@ -739,6 +769,7 @@ export async function payTransaction(
         settledBy: { select: { amount: true, reversedById: true } },
       },
     });
+    assertOwnedBy(scope, charge && { ownerId: charge.userId }, "Transaction not found.");
     if (!charge) throw new NotFoundError("Transaction not found.");
     if (charge.type !== "CHARGE") {
       throw new AppError("Only a charge can be paid through Transact.", "INVALID_TRANSACTION_TYPE", 400);
@@ -818,6 +849,7 @@ export async function payTransaction(
 }
 
 export async function issueRefund(input: IssueRefundInput, actor: ActorContext) {
+  const scope = await requireDataScope();
   const result = await prisma.$transaction(async (tx) => {
     // Lock the original payment row for the duration of this transaction so two
     // concurrent refund requests against the same payment can't both read
@@ -829,6 +861,7 @@ export async function issueRefund(input: IssueRefundInput, actor: ActorContext) 
       where: { id: input.originalTransactionId },
       include: { reservation: { include: { guest: true } } },
     });
+    assertOwnedBy(scope, original && { ownerId: original.userId }, "Original transaction not found.");
     if (!original) throw new NotFoundError("Original transaction not found.");
     if (original.type !== "PAYMENT") {
       throw new AppError("Only payments can be refunded.", "INVALID_TRANSACTION_TYPE", 400);
@@ -969,7 +1002,9 @@ export type ReceiptListFilters = {
 export async function listReceipts(pagination: PaginationInput, filters: ReceiptListFilters = {}) {
   const { page, pageSize, search, sortBy, sortDir } = pagination;
 
+  const scope = await requireDataScope();
   const where: Prisma.CashierTransactionWhereInput = {
+    ...transactionWhere(scope),
     type: { in: ["PAYMENT", "REFUND"] },
     ...receiptStatusWhere(filters.status),
     ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
@@ -1013,10 +1048,11 @@ export async function listReceipts(pagination: PaginationInput, filters: Receipt
 }
 
 export async function getReceiptKpis() {
+  const own = transactionWhere(await requireDataScope());
   const [totalReceipts, collected, refunded] = await Promise.all([
-    prisma.cashierTransaction.count({ where: { type: { in: ["PAYMENT", "REFUND"] } } }),
-    prisma.cashierTransaction.aggregate({ where: { type: "PAYMENT" }, _sum: { amount: true } }),
-    prisma.cashierTransaction.aggregate({ where: { type: "REFUND" }, _sum: { amount: true } }),
+    prisma.cashierTransaction.count({ where: { ...own, type: { in: ["PAYMENT", "REFUND"] } } }),
+    prisma.cashierTransaction.aggregate({ where: { ...own, type: "PAYMENT" }, _sum: { amount: true } }),
+    prisma.cashierTransaction.aggregate({ where: { ...own, type: "REFUND" }, _sum: { amount: true } }),
   ]);
 
   const totalCollected = Number(collected._sum.amount ?? 0);
@@ -1030,6 +1066,7 @@ export async function getReceiptById(id: string) {
     where: { id },
     include: { ...receiptInclude, settledBy: { select: { amount: true, reversedById: true, createdAt: true } } },
   });
+  assertOwnedBy(await requireDataScope(), transaction && { ownerId: transaction.userId }, "Receipt not found.");
   if (!transaction) throw new NotFoundError("Receipt not found.");
 
   // A CHARGE row never gets its own PAYMENT/REFUND-only receipt eligibility —

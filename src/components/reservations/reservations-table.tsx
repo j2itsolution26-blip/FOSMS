@@ -33,6 +33,8 @@ type ReservationRow = {
   numGuests: number;
   guest: { firstName: string; middleName?: string | null; lastName: string; email: string | null };
   room: { number: string; roomType: { name: string } };
+  // The Front Desk account that owns this reservation — sent to supervisors only.
+  ownerName?: string | null;
 };
 
 const STATUS_TABS = [
@@ -58,6 +60,7 @@ export function ReservationsTable({
   const searchParams = useSearchParams();
 
   const [rows, setRows] = useState<ReservationRow[]>([]);
+  const showAccount = rows.some((r) => r.ownerName);
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -159,6 +162,7 @@ export function ReservationsTable({
             <TableRow>
               <TableHead>Reservation #</TableHead>
               <TableHead>Guest</TableHead>
+              {showAccount ? <TableHead>Account</TableHead> : null}
               <TableHead>Room</TableHead>
               <TableHead>Arrival</TableHead>
               <TableHead>Departure</TableHead>
@@ -179,7 +183,7 @@ export function ReservationsTable({
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={showAccount ? 8 : 7} className="py-10 text-center text-sm text-muted-foreground">
                   No reservations found.
                 </TableCell>
               </TableRow>
@@ -190,6 +194,7 @@ export function ReservationsTable({
                   <TableCell>
                     {formatGuestFullName(r.guest)}
                   </TableCell>
+                  {showAccount ? <TableCell className="whitespace-nowrap">{r.ownerName ?? "—"}</TableCell> : null}
                   <TableCell>
                     {r.room.number} <span className="text-muted-foreground">({r.room.roomType.name})</span>
                   </TableCell>

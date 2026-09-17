@@ -11,3 +11,8 @@ export const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10; // per IP, across all emails
 export const PASSWORD_RESET_TOKEN_TTL_MS = 1000 * 60 * 30; // 30 minutes
 export const PASSWORD_RESET_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 15; // 15 minutes
 export const PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS = 5; // per IP
+
+export const ACCOUNT_DEACTIVATED_MESSAGE =
+  "Your account has been deactivated. Please contact your instructor or supervisor.";
+// `/login?reason=deactivated` — set when a signed-in account is deactivated mid-session.
+export const ACCOUNT_DEACTIVATED_REASON = "deactivated";

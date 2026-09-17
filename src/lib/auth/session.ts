@@ -1,11 +1,13 @@
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type { RoleName } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/auth/tokens";
 import {
+  ACCOUNT_DEACTIVATED_REASON,
   SESSION_COOKIE_NAME,
   SESSION_DURATION_MS,
 } from "@/lib/auth/constants";
@@ -108,6 +110,28 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     permissions,
   };
 });
+
+/**
+ * True when the request carries a session cookie whose account has since
+ * been deactivated — lets callers tell "your account was deactivated" apart
+ * from an ordinary signed-out/expired session. getCurrentUser() has already
+ * rejected such a session; this only explains why.
+ */
+export const isCurrentAccountDeactivated = cache(async (): Promise<boolean> => {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return false;
+  const session = await prisma.session.findUnique({
+    where: { tokenHash: hashToken(token) },
+    select: { user: { select: { isActive: true, deletedAt: true } } },
+  });
+  return !!session?.user && !session.user.isActive && !session.user.deletedAt;
+});
+
+/** Page-level "not signed in" redirect, carrying the deactivated notice when that's the cause. */
+export async function redirectToLogin(): Promise<never> {
+  redirect((await isCurrentAccountDeactivated()) ? `/login?reason=${ACCOUNT_DEACTIVATED_REASON}` : "/login");
+}
 
 export async function getCurrentSessionId(): Promise<string | null> {
   const store = await cookies();

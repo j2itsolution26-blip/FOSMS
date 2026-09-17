@@ -9,6 +9,7 @@ import { promoteGuestToRegular } from "@/services/cashiering.service";
 import { registerClubMembershipForGuestInTx } from "@/services/club-membership.service";
 import { auditCreatedSpecialRequests, createSpecialRequestsInTx } from "@/services/special-request.service";
 import { formatGuestFullName } from "@/lib/formatters";
+import { assertOwnedBy, guestWhere, isIsolated, ownerLabel, requireDataScope } from "@/lib/auth/data-scope";
 import { CLUB_MEMBERSHIP_FEE } from "@/validators/club-membership.schema";
 import type { SpecialRequestItemInput } from "@/validators/special-request.schema";
 import type { GuestInput } from "@/validators/guest.schema";
@@ -49,8 +50,10 @@ export type GuestListFilters = {
  */
 export async function listGuests(pagination: PaginationInput, filters: GuestListFilters = {}) {
   const { page, pageSize, search, sortBy, sortDir } = pagination;
+  const scope = await requireDataScope();
 
   const where: Prisma.GuestWhereInput = {
+    ...guestWhere(scope),
     deletedAt: null,
     // A membership-only Guest (see the schema comment on Guest.guestType)
     // exists only to satisfy ClubMembership.guestId's foreign key and must
@@ -94,6 +97,7 @@ export async function listGuests(pagination: PaginationInput, filters: GuestList
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
+        createdBy: { select: { firstName: true, lastName: true } },
         reservations: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -118,13 +122,18 @@ export async function listGuests(pagination: PaginationInput, filters: GuestList
     prisma.guest.count({ where }),
   ]);
 
-  return { rows, meta: paginationMeta(total, { page, pageSize }) };
+  return {
+    rows: rows.map(({ createdBy, ...row }) => ({ ...row, ownerName: isIsolated(scope) ? null : ownerLabel(createdBy) })),
+    meta: paginationMeta(total, { page, pageSize }),
+  };
 }
 
 export async function getGuestById(id: string) {
+  const scope = await requireDataScope();
   const guest = await prisma.guest.findUnique({
     where: { id, deletedAt: null },
     include: {
+      createdBy: { select: { firstName: true, lastName: true } },
       clubMembership: {
         select: {
           membershipNo: true,
@@ -171,8 +180,9 @@ export async function getGuestById(id: string) {
       },
     },
   });
-  if (!guest) throw new NotFoundError("Guest not found.");
-  return guest;
+  assertOwnedBy(scope, guest && { ownerId: guest.createdById }, "Guest not found.");
+  const { createdBy, ...rest } = guest!;
+  return { ...rest, ownerName: isIsolated(scope) ? null : ownerLabel(createdBy) };
 }
 
 function toGuestData(input: GuestInput) {
@@ -212,9 +222,12 @@ export type PersonInput = {
  * Mirrors the identical guestId/newGuest choice registerClubMembership()
  * already makes.
  */
-async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: PersonInput) {
+async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: PersonInput, actor: ActorContext) {
   if (person.guestId) {
+    const scope = await requireDataScope();
     const guest = await tx.guest.findUnique({ where: { id: person.guestId, deletedAt: null } });
+    // Only a guest this account created can be reused — never another account's.
+    assertOwnedBy(scope, guest && { ownerId: guest.createdById }, "Guest not found.");
     if (!guest) throw new NotFoundError("Guest not found.");
     // Selecting an existing person for a real Guest Folio/Walk-In IS the
     // "becomes a legitimate Guest" event — flip MEMBERSHIP_ONLY -> REGULAR
@@ -228,13 +241,13 @@ async function resolveOrCreateGuestInTx(tx: Prisma.TransactionClient, person: Pe
     return guest;
   }
   if (person.guest) {
-    return tx.guest.create({ data: toGuestData(person.guest) });
+    return tx.guest.create({ data: { ...toGuestData(person.guest), createdById: actor.userId } });
   }
   throw new AppError("Select an existing guest or enter a new guest's details.", "GUEST_REQUIRED", 400);
 }
 
 export async function createGuest(input: GuestInput, actor: ActorContext) {
-  const guest = await prisma.guest.create({ data: toGuestData(input) });
+  const guest = await prisma.guest.create({ data: { ...toGuestData(input), createdById: actor.userId } });
 
   await recordAudit({
     userId: actor.userId,
@@ -306,7 +319,7 @@ export async function createGuestFolioWithReservationAndCharge(
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const guest = await resolveOrCreateGuestInTx(tx, person);
+    const guest = await resolveOrCreateGuestInTx(tx, person, actor);
     const isNewGuest = !person.guestId;
 
     // Registering happens against the SAME resolved guest — never a second,
@@ -485,7 +498,7 @@ export async function createWalkInGuestFolio(
   });
 
   const result = await prisma.$transaction(async (tx) => {
-    const guest = await resolveOrCreateGuestInTx(tx, person);
+    const guest = await resolveOrCreateGuestInTx(tx, person, actor);
     const isNewGuest = !person.guestId;
 
     const { reservation, transaction } = await createReservationAndChargeInTx(
@@ -575,8 +588,9 @@ export async function createWalkInGuestFolio(
 }
 
 export async function updateGuest(id: string, input: GuestInput, actor: ActorContext) {
+  const scope = await requireDataScope();
   const existing = await prisma.guest.findUnique({ where: { id, deletedAt: null } });
-  if (!existing) throw new NotFoundError("Guest not found.");
+  assertOwnedBy(scope, existing && { ownerId: existing.createdById }, "Guest not found.");
 
   const guest = await prisma.guest.update({ where: { id }, data: toGuestData(input) });
 

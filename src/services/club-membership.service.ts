@@ -2,6 +2,7 @@ import "server-only";
 import type { PaymentMethod, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { assertOwnedBy, clubMembershipWhere, guestWhere, requireDataScope } from "@/lib/auth/data-scope";
 import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
@@ -42,6 +43,9 @@ type ActorContext = { userId: string; role: string | null; ipAddress?: string | 
  * server will reject.
  */
 export async function getClubMembershipSummary(guestId: string) {
+  const guest = await prisma.guest.findUnique({ where: { id: guestId }, select: { createdById: true } });
+  assertOwnedBy(await requireDataScope(), guest && { ownerId: guest.createdById }, "Guest not found.");
+
   const membership = await prisma.clubMembership.findUnique({
     where: { guestId },
     select: {
@@ -95,7 +99,8 @@ export function hasActiveMembershipPayment(payments: Array<{ reversedById: strin
  * current page.
  */
 export async function countActiveClubMembers(): Promise<number> {
-  return prisma.clubMembership.count({ where: ACTIVE_CLUB_MEMBERSHIP_WHERE });
+  const scope = await requireDataScope();
+  return prisma.clubMembership.count({ where: { ...clubMembershipWhere(scope), ...ACTIVE_CLUB_MEMBERSHIP_WHERE } });
 }
 
 /**
@@ -125,8 +130,9 @@ export async function listClubMembers(pagination: PaginationInput, filters: { st
   // row is fetched and paged in memory instead. Fine at this scale (a
   // property's Club Membership roster, not its full guest/reservation
   // history).
+  const scope = await requireDataScope();
   const all = await prisma.clubMembership.findMany({
-    where,
+    where: { ...clubMembershipWhere(scope), ...where },
     orderBy: { createdAt: sortDir },
     include: {
       guest: { select: { firstName: true, middleName: true, lastName: true } },
@@ -231,11 +237,13 @@ export async function registerClubMembershipForGuestInTx(
  * so a membership can never exist without its payment, or vice versa.
  */
 export async function registerClubMembership(input: RegisterClubMembershipInput, actor: ActorContext) {
+  const scope = await requireDataScope();
   const result = await prisma.$transaction(async (tx) => {
     let guestId = input.guestId ?? null;
 
     if (guestId) {
       const guest = await tx.guest.findUnique({ where: { id: guestId, deletedAt: null } });
+      assertOwnedBy(scope, guest && { ownerId: guest.createdById }, "Guest not found.");
       if (!guest) throw new NotFoundError("Guest not found.");
     } else if (input.newGuest) {
       // Enforced server-side (not just by the shared Zod schema's superRefine)
@@ -257,8 +265,10 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
       // different real people sharing a name, or a name-alike guest with no
       // membership, are left alone rather than guessed at — see the schema
       // comment on ClubMembership and item 4 of the one-membership brief.
+      // Only this account's own guests — never another account's members.
       const candidates = await tx.guest.findMany({
         where: {
+          ...guestWhere(scope),
           deletedAt: null,
           OR: [
             { firstName: { contains: firstName, mode: "insensitive" } },
@@ -303,6 +313,7 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
           // the /guests list until they actually become a guest (see the
           // schema comment on Guest.guestType and promoteGuestToRegular).
           guestType: "MEMBERSHIP_ONLY",
+          createdById: actor.userId,
         },
       });
       guestId = guest.id;
@@ -354,6 +365,7 @@ export async function registerClubMembership(input: RegisterClubMembershipInput,
  */
 export async function getGuestFinancialHistory(guestId: string) {
   const guest = await prisma.guest.findUnique({ where: { id: guestId, deletedAt: null } });
+  assertOwnedBy(await requireDataScope(), guest && { ownerId: guest.createdById }, "Guest not found.");
   if (!guest) throw new NotFoundError("Guest not found.");
 
   const [membership, guestTransactions] = await Promise.all([

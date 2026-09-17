@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { requireDataScope, reservationWhere } from "@/lib/auth/data-scope";
 import { formatGuestFullName } from "@/lib/formatters";
 
 function startOfDay(date: Date) {
@@ -41,20 +42,21 @@ export async function getTodaysActivities(): Promise<TodayActivity[]> {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  const own = reservationWhere(await requireDataScope());
 
   const [arrivals, departures, created] = await Promise.all([
     prisma.reservation.findMany({
-      where: { arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
+      where: { ...own, arrivalDate: { gte: todayStart, lte: todayEnd }, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
       include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
       take: 10,
     }),
     prisma.reservation.findMany({
-      where: { departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
+      where: { ...own, departureDate: { gte: todayStart, lte: todayEnd }, status: "CHECKED_IN" },
       include: { guest: { select: { firstName: true, middleName: true, lastName: true } }, room: { select: { number: true } } },
       take: 10,
     }),
     prisma.reservation.findMany({
-      where: { createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { ...own, createdAt: { gte: todayStart, lte: todayEnd } },
       include: { guest: { select: { firstName: true, middleName: true, lastName: true } } },
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -100,6 +102,7 @@ export async function getDashboardSummary() {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  const own = reservationWhere(await requireDataScope());
 
   const [
     todaysArrivals,
@@ -111,20 +114,23 @@ export async function getDashboardSummary() {
   ] = await Promise.all([
     prisma.reservation.count({
       where: {
+        ...own,
         arrivalDate: { gte: todayStart, lte: todayEnd },
         status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
       },
     }),
     prisma.reservation.count({
       where: {
+        ...own,
         departureDate: { gte: todayStart, lte: todayEnd },
         status: "CHECKED_IN",
       },
     }),
-    prisma.reservation.count({ where: { status: "CHECKED_IN" } }),
-    prisma.reservation.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+    prisma.reservation.count({ where: { ...own, status: "CHECKED_IN" } }),
+    prisma.reservation.count({ where: { ...own, createdAt: { gte: todayStart, lte: todayEnd } } }),
     prisma.room.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.reservation.findMany({
+      where: own,
       orderBy: { createdAt: "desc" },
       take: 6,
       include: { guest: { select: { firstName: true, middleName: true, lastName: true } } },
@@ -138,11 +144,11 @@ export async function getDashboardSummary() {
   const sevenDaysAgo = startOfDay(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
   const [newInWindow, checkInsInWindow] = await Promise.all([
     prisma.reservation.findMany({
-      where: { createdAt: { gte: sevenDaysAgo } },
+      where: { ...own, createdAt: { gte: sevenDaysAgo } },
       select: { createdAt: true },
     }),
     prisma.checkIn.findMany({
-      where: { checkedInAt: { gte: sevenDaysAgo } },
+      where: { reservation: own, checkedInAt: { gte: sevenDaysAgo } },
       select: { checkedInAt: true },
     }),
   ]);

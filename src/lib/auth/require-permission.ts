@@ -1,7 +1,6 @@
 import "server-only";
-import { redirect } from "next/navigation";
 
-import { getCurrentUser, hasPermission, type SessionUser } from "@/lib/auth/session";
+import { getCurrentUser, hasPermission, redirectToLogin, type SessionUser } from "@/lib/auth/session";
 import type { PermissionKey } from "@/config/permissions";
 
 /**
@@ -13,7 +12,7 @@ import type { PermissionKey } from "@/config/permissions";
  */
 export async function requirePagePermission(permission: PermissionKey): Promise<SessionUser | null> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) return redirectToLogin();
   if (!hasPermission(user, permission)) return null;
   return user;
 }

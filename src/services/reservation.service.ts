@@ -5,6 +5,14 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { ReservationConflictError, NotFoundError, AppError } from "@/lib/errors";
 import { isRestrictedStatus } from "@/config/room-status";
+import {
+  assertOwnedBy,
+  isIsolated,
+  ownerLabel,
+  requireDataScope,
+  reservationWhere,
+  type DataScope,
+} from "@/lib/auth/data-scope";
 import { computeFolioCharge, type FolioCharge } from "@/lib/folio-pricing";
 import { calculateNights } from "@/lib/stay-nights";
 import {
@@ -89,14 +97,20 @@ export async function assertRoomAvailable(
       departureDate: { gt: arrivalDate },
       ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
     },
-    select: { id: true, reservationNo: true },
+    select: { id: true, reservationNo: true, createdById: true },
   });
 
   if (conflict) {
     const roomLabel = lockedRoom ? `Room ${lockedRoom.number}` : "This room";
+    // Rooms are shared, but another account's reservation number is not.
+    const scope = await requireDataScope();
+    const reference =
+      !isIsolated(scope) || conflict.createdById === scope.ownerId
+        ? `Currently reserved under ${conflict.reservationNo}. `
+        : "";
     throw new ReservationConflictError(
       `${roomLabel} is unavailable for ${formatDateRange(arrivalDate, departureDate)}. ` +
-        `Currently reserved under ${conflict.reservationNo}. ` +
+        reference +
         `Please select another available room or change the dates.`
     );
   }
@@ -113,10 +127,19 @@ const listInclude = {
   room: { select: { id: true, number: true, roomType: { select: { name: true } } } },
 } satisfies Prisma.ReservationInclude;
 
+/** Loads a reservation by a caller-supplied ID and enforces account ownership (404 / 403). */
+export async function assertReservationAccess(id: string, scope?: DataScope) {
+  const resolved = scope ?? (await requireDataScope());
+  const reservation = await prisma.reservation.findUnique({ where: { id }, select: { id: true, createdById: true } });
+  assertOwnedBy(resolved, reservation && { ownerId: reservation.createdById }, "Reservation not found.");
+}
+
 export async function listReservations(pagination: PaginationInput, filters: ReservationListFilters = {}) {
   const { page, pageSize, search, sortBy, sortDir } = pagination;
+  const scope = await requireDataScope();
 
   const where: Prisma.ReservationWhereInput = {
+    ...reservationWhere(scope),
     ...(filters.status
       ? { status: Array.isArray(filters.status) ? { in: filters.status } : filters.status }
       : {}),
@@ -143,7 +166,7 @@ export async function listReservations(pagination: PaginationInput, filters: Res
   const [rows, total] = await Promise.all([
     prisma.reservation.findMany({
       where,
-      include: listInclude,
+      include: { ...listInclude, createdBy: { select: { firstName: true, lastName: true } } },
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -151,16 +174,20 @@ export async function listReservations(pagination: PaginationInput, filters: Res
     prisma.reservation.count({ where }),
   ]);
 
-  return { rows, meta: paginationMeta(total, { page, pageSize }) };
+  return {
+    rows: rows.map(({ createdBy, ...row }) => ({ ...row, ownerName: isIsolated(scope) ? null : ownerLabel(createdBy) })),
+    meta: paginationMeta(total, { page, pageSize }),
+  };
 }
 
 export async function getReservationById(id: string) {
+  const scope = await requireDataScope();
   const reservation = await prisma.reservation.findUnique({
     where: { id },
     include: { ...listInclude, createdBy: { select: { firstName: true, lastName: true } }, checkIn: true, checkOut: true },
   });
-  if (!reservation) throw new NotFoundError("Reservation not found.");
-  return reservation;
+  assertOwnedBy(scope, reservation && { ownerId: reservation.createdById }, "Reservation not found.");
+  return { ...reservation!, ownerName: isIsolated(scope) ? null : ownerLabel(reservation!.createdBy) };
 }
 
 type ActorContext = {
@@ -314,6 +341,7 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
 
   const { reservation, transaction } = await prisma.$transaction(async (tx) => {
     const guest = await tx.guest.findUnique({ where: { id: input.guestId, deletedAt: null } });
+    assertOwnedBy(await requireDataScope(), guest && { ownerId: guest.createdById }, "Guest not found.");
     if (!guest) throw new NotFoundError("Guest not found.");
     // Booking a real Reservation for this person IS a "becomes a legitimate
     // Guest" event for someone who was membership-only — see the identical
@@ -351,6 +379,7 @@ export async function createReservation(input: CreateReservationInput, actor: Ac
 export async function updateReservation(id: string, input: UpdateReservationInput, actor: ActorContext) {
   const updated = await prisma.$transaction(async (tx) => {
     const existing = await tx.reservation.findUnique({ where: { id } });
+    assertOwnedBy(await requireDataScope(), existing && { ownerId: existing.createdById }, "Reservation not found.");
     if (!existing) throw new NotFoundError("Reservation not found.");
     if (existing.status === "CANCELLED" || existing.status === "CHECKED_OUT") {
       throw new AppError(
@@ -415,6 +444,7 @@ export async function setReservationStatus(id: string, status: ReservationStatus
   }
 
   const existing = await prisma.reservation.findUnique({ where: { id } });
+  assertOwnedBy(await requireDataScope(), existing && { ownerId: existing.createdById }, "Reservation not found.");
   if (!existing) throw new NotFoundError("Reservation not found.");
 
   if (existing.status === "CANCELLED" || existing.status === "CHECKED_OUT") {

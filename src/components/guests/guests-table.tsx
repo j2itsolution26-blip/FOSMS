@@ -87,6 +87,8 @@ type GuestRow = {
   emergencyContact: string | null;
   notes: string | null;
   processedBy: string | null;
+  // The Front Desk account that owns this guest — sent to supervisors only.
+  ownerName?: string | null;
   reservations: FolioReservation[];
 };
 
@@ -110,6 +112,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
   const searchParams = useSearchParams();
 
   const [rows, setRows] = useState<GuestRow[]>([]);
+  const showAccount = rows.some((g) => g.ownerName);
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -334,6 +337,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
           <TableHeader className="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-sm">
             <TableRow className="hover:bg-transparent">
               <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Full Name</TableHead>
+              {showAccount ? <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Account</TableHead> : null}
               <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Guest Type</TableHead>
               <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Front Desk Officer</TableHead>
               <TableHead className="h-11 px-4 text-xs font-semibold tracking-wide text-slate-600 uppercase">Room Type</TableHead>
@@ -360,7 +364,7 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
               ))
             ) : rows.length === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={12} className="py-14 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={showAccount ? 13 : 12} className="py-14 text-center text-sm text-muted-foreground">
                   No guests found.
                 </TableCell>
               </TableRow>
@@ -383,6 +387,9 @@ export function GuestsTable({ canManage }: { canManage: boolean }) {
                         {formatGuestFullName(g)}
                       </button>
                     </TableCell>
+                    {showAccount ? (
+                      <TableCell className="px-4 py-3.5 whitespace-nowrap text-slate-700">{g.ownerName ?? "—"}</TableCell>
+                    ) : null}
                     <TableCell className="px-4 py-3.5">
                       {folio ? (
                         <Badge variant="outline" className={guestTypeBadgeClass(folio.guestType)}>

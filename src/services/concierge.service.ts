@@ -2,6 +2,13 @@ import "server-only";
 import type { Prisma, ServiceRequestStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import {
+  assertOwnedBy,
+  ForbiddenError,
+  isIsolated,
+  requireDataScope,
+  serviceRequestWhere,
+} from "@/lib/auth/data-scope";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
 import { nextNumber } from "@/lib/number-sequence";
@@ -24,8 +31,10 @@ const OPEN_STATUSES: ServiceRequestStatus[] = ["PENDING", "ASSIGNED", "IN_PROGRE
 
 /** Lightweight staff list for the "assign to" picker — narrower than full user management. */
 export async function listAssignableStaff() {
+  // An isolated trainee account never sees the other accounts' names.
+  const scope = await requireDataScope();
   return prisma.user.findMany({
-    where: { isActive: true, deletedAt: null },
+    where: { isActive: true, deletedAt: null, ...(isIsolated(scope) ? { id: scope.ownerId } : {}) },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { firstName: "asc" },
   });
@@ -35,12 +44,13 @@ export async function getConciergeKpis() {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  const own = serviceRequestWhere(await requireDataScope());
 
   const [pending, inProgress, completedToday, highPriority] = await Promise.all([
-    prisma.serviceRequest.count({ where: { status: "PENDING" } }),
-    prisma.serviceRequest.count({ where: { status: "IN_PROGRESS" } }),
-    prisma.serviceRequest.count({ where: { status: "COMPLETED", completedAt: { gte: todayStart, lte: todayEnd } } }),
-    prisma.serviceRequest.count({ where: { status: { in: OPEN_STATUSES }, priority: { in: ["HIGH", "URGENT"] } } }),
+    prisma.serviceRequest.count({ where: { ...own, status: "PENDING" } }),
+    prisma.serviceRequest.count({ where: { ...own, status: "IN_PROGRESS" } }),
+    prisma.serviceRequest.count({ where: { ...own, status: "COMPLETED", completedAt: { gte: todayStart, lte: todayEnd } } }),
+    prisma.serviceRequest.count({ where: { ...own, status: { in: OPEN_STATUSES }, priority: { in: ["HIGH", "URGENT"] } } }),
   ]);
 
   return { pending, inProgress, completedToday, highPriority };
@@ -52,7 +62,9 @@ export async function listServiceRequests(search = "") {
   const todayEnd = endOfDay(now);
   const searchLower = search.trim();
 
+  const scope = await requireDataScope();
   const where: Prisma.ServiceRequestWhereInput = {
+    ...serviceRequestWhere(scope),
     OR: [{ status: { in: OPEN_STATUSES } }, { createdAt: { gte: todayStart, lte: todayEnd } }],
     ...(searchLower
       ? {
@@ -83,6 +95,10 @@ export async function listServiceRequests(search = "") {
 }
 
 export async function createServiceRequest(input: CreateServiceRequestInput, actor: ActorContext) {
+  if (input.guestId) {
+    const guest = await prisma.guest.findUnique({ where: { id: input.guestId }, select: { createdById: true } });
+    assertOwnedBy(await requireDataScope(), guest && { ownerId: guest.createdById }, "Guest not found.");
+  }
   const request = await prisma.$transaction(async (tx) => {
     const requestNo = await nextNumber(tx, "service-request", "SR");
     return tx.serviceRequest.create({
@@ -113,10 +129,16 @@ export async function createServiceRequest(input: CreateServiceRequestInput, act
 }
 
 export async function assignServiceRequest(id: string, input: AssignServiceRequestInput, actor: ActorContext) {
+  const scope = await requireDataScope();
   const existing = await prisma.serviceRequest.findUnique({ where: { id } });
+  assertOwnedBy(scope, existing && { ownerId: existing.createdById }, "Service request not found.");
   if (!existing) throw new NotFoundError("Service request not found.");
   if (existing.status === "COMPLETED" || existing.status === "CANCELLED") {
     throw new AppError(`Cannot assign a request that is already ${existing.status.toLowerCase()}.`, "REQUEST_LOCKED", 409);
+  }
+
+  if (isIsolated(scope) && input.assignedToId !== scope.ownerId) {
+    throw new ForbiddenError("You can only assign requests to your own account.");
   }
 
   const request = await prisma.serviceRequest.update({
@@ -140,7 +162,9 @@ export async function assignServiceRequest(id: string, input: AssignServiceReque
 }
 
 export async function updateServiceRequestStatus(id: string, status: ServiceRequestStatus, actor: ActorContext) {
+  const scope = await requireDataScope();
   const existing = await prisma.serviceRequest.findUnique({ where: { id } });
+  assertOwnedBy(scope, existing && { ownerId: existing.createdById }, "Service request not found.");
   if (!existing) throw new NotFoundError("Service request not found.");
   if (existing.status === "COMPLETED" || existing.status === "CANCELLED") {
     throw new AppError(`This request is already ${existing.status.toLowerCase()}.`, "REQUEST_LOCKED", 409);

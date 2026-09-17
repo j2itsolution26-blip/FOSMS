@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { assertOwnedBy, auditLogWhere, clubReceptionWhere, requireDataScope } from "@/lib/auth/data-scope";
 import { recordAudit } from "@/lib/audit";
 import { NotFoundError, AppError } from "@/lib/errors";
 import { countActiveClubMembers } from "@/services/club-membership.service";
@@ -23,6 +24,7 @@ export async function getClubReceptionKpis() {
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
+  const scope = await requireDataScope();
 
   const [todaysVisitorEntries, activeMembers, todaysActivities] = await Promise.all([
     // Visitors who actually signed in at the club TODAY — real ClubReception
@@ -33,7 +35,7 @@ export async function getClubReceptionKpis() {
     // at request time, so it rolls over on its own — no date is ever hardcoded.
     prisma.clubReception.groupBy({
       by: ["guestName", "memberNumber"],
-      where: { isVisitor: true, checkedInAt: { gte: todayStart, lte: todayEnd } },
+      where: { ...clubReceptionWhere(scope), isVisitor: true, checkedInAt: { gte: todayStart, lte: todayEnd } },
     }),
     // Real ACTIVE Club Memberships — the same records (and the same "fee paid
     // and never reversed" rule) the Club Members table lists, so this card can
@@ -51,7 +53,7 @@ export async function getClubReceptionKpis() {
     // The old query counted only ClubReception check-ins, which silently
     // dropped club membership registrations and check-outs done the same day.
     prisma.auditLog.count({
-      where: { module: "club-reception", createdAt: { gte: todayStart, lte: todayEnd } },
+      where: { ...auditLogWhere(scope), module: "club-reception", createdAt: { gte: todayStart, lte: todayEnd } },
     }),
   ]);
 
@@ -84,8 +86,10 @@ export async function listTodayReceptions(search = "") {
   const todayEnd = endOfDay(now);
   const searchLower = search.trim();
 
+  const scope = await requireDataScope();
   return prisma.clubReception.findMany({
     where: {
+      ...clubReceptionWhere(scope),
       checkedInAt: { gte: todayStart, lte: todayEnd },
       ...(searchLower
         ? {
@@ -129,6 +133,7 @@ export async function createReception(input: ClubReceptionInput, actor: ActorCon
 
 export async function checkOutReception(id: string, actor: ActorContext) {
   const existing = await prisma.clubReception.findUnique({ where: { id } });
+  assertOwnedBy(await requireDataScope(), existing && { ownerId: existing.registeredById }, "Reception record not found.");
   if (!existing) throw new NotFoundError("Reception record not found.");
   if (existing.checkedOutAt) {
     throw new AppError("This record is already checked out.", "ALREADY_CHECKED_OUT", 409);

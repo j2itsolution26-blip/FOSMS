@@ -8,6 +8,7 @@ import { storeResetToken, consumeResetToken, invalidateResetTokensForUser } from
 import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
 import { recordAudit } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
+import { ACCOUNT_DEACTIVATED_MESSAGE } from "@/lib/auth/constants";
 
 type RequestMeta = { ipAddress?: string | null; userAgent?: string | null };
 
@@ -46,10 +47,6 @@ export async function login(email: string, password: string, meta: RequestMeta) 
     );
   }
 
-  if (!user.isActive) {
-    throw new AppError("This account has been deactivated. Contact an administrator.", "ACCOUNT_INACTIVE", 403);
-  }
-
   const validPassword = await verifyPassword(password, user.passwordHash);
   if (!validPassword) {
     await registerFailedLogin(user.id);
@@ -62,6 +59,20 @@ export async function login(email: string, password: string, meta: RequestMeta) 
       result: "FAILURE",
     });
     throw new AppError("Invalid email or password.", "INVALID_CREDENTIALS", 401);
+  }
+
+  // Checked after the password so only the account's own credential reveals
+  // that it is deactivated. No session is created for an inactive account.
+  if (!user.isActive) {
+    await recordAudit({
+      userId: user.id,
+      action: "LOGIN_FAILED",
+      module: "auth",
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+      result: "DEACTIVATED",
+    });
+    throw new AppError(ACCOUNT_DEACTIVATED_MESSAGE, "ACCOUNT_DEACTIVATED", 403);
   }
 
   const primaryRole = user.roles[0]?.role.name ?? null;
