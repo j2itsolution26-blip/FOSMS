@@ -4,7 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { AlertTriangle, KeyRound, Loader2, Power, PowerOff, RefreshCw, UserRound } from "lucide-react";
+import {
+  AlertTriangle,
+  FlaskConical,
+  KeyRound,
+  Loader2,
+  MoreHorizontal,
+  Power,
+  PowerOff,
+  RefreshCw,
+  UserRound,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,12 +27,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { resetAccountPasswordSchema, type ResetAccountPasswordInput } from "@/validators/account.schema";
 import { InfoRow, PASSWORD_RULE, PasswordField } from "@/components/admin/password-fields";
+import { AccountLabResetDialog } from "@/components/admin/account-lab-reset-dialog";
 
 type StaffAccountStatus = "ACTIVE" | "DEACTIVATED";
 
@@ -61,35 +79,75 @@ function StatusBadge({ status }: { status: StaffAccountStatus }) {
 function AccountActions({
   account,
   onReset,
+  onLabReset,
   onToggle,
 }: {
   account: StaffAccount;
   onReset: () => void;
+  onLabReset: () => void;
   onToggle: () => void;
 }) {
   const active = account.status === "ACTIVE";
+  const toggleClass = active
+    ? "border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+    : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800";
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onReset}>
-        <KeyRound className="h-3.5 w-3.5" aria-hidden /> Reset Password
-      </Button>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className={cn(
-          "min-w-[7.5rem] gap-1.5",
-          active
-            ? "border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-            : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-        )}
-        onClick={onToggle}
-        aria-label={`${active ? "Deactivate" : "Activate"} ${account.name}`}
-      >
-        {active ? <PowerOff className="h-3.5 w-3.5" aria-hidden /> : <Power className="h-3.5 w-3.5" aria-hidden />}
-        {active ? "Deactivate" : "Activate"}
-      </Button>
-    </div>
+    <>
+      {/* Wide screens: every action inline. */}
+      <div className="hidden flex-nowrap items-center justify-end gap-2 xl:flex">
+        <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onReset}>
+          <KeyRound className="h-3.5 w-3.5" aria-hidden /> Reset Password
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+          onClick={onLabReset}
+          aria-label={`Reset laboratory data for ${account.name}`}
+        >
+          <FlaskConical className="h-3.5 w-3.5" aria-hidden /> Reset Laboratory Data
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={cn("min-w-[7.5rem] gap-1.5", toggleClass)}
+          onClick={onToggle}
+          aria-label={`${active ? "Deactivate" : "Activate"} ${account.name}`}
+        >
+          {active ? <PowerOff className="h-3.5 w-3.5" aria-hidden /> : <Power className="h-3.5 w-3.5" aria-hidden />}
+          {active ? "Deactivate" : "Activate"}
+        </Button>
+      </div>
+
+      {/* Narrower screens: the same three actions in a compact menu. */}
+      <div className="flex justify-end xl:hidden">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" size="sm" variant="outline" className="gap-1.5" aria-label={`Actions for ${account.name}`}>
+              <MoreHorizontal className="h-4 w-4" aria-hidden /> Actions
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={onReset}>
+              <KeyRound className="h-4 w-4" aria-hidden /> Reset Password
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onLabReset} className="text-red-700 focus:bg-red-50 focus:text-red-800">
+              <FlaskConical className="h-4 w-4 text-red-600" aria-hidden /> Reset Laboratory Data
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={onToggle}
+              className={active ? "text-red-700 focus:bg-red-50 focus:text-red-800" : "text-emerald-700 focus:bg-emerald-50 focus:text-emerald-800"}
+            >
+              {active ? <PowerOff className="h-4 w-4" aria-hidden /> : <Power className="h-4 w-4" aria-hidden />}
+              {active ? "Deactivate" : "Activate"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </>
   );
 }
 
@@ -106,6 +164,7 @@ export function StaffAccountsClient() {
   const [statusTarget, setStatusTarget] = useState<StaffAccount | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
   const [resetTarget, setResetTarget] = useState<StaffAccount | null>(null);
+  const [labResetTarget, setLabResetTarget] = useState<StaffAccount | null>(null);
 
   const resetForm = useForm<ResetAccountPasswordInput>({
     resolver: zodResolver(resetAccountPasswordSchema),
@@ -281,7 +340,12 @@ export function StaffAccountsClient() {
                       </TableCell>
                       <TableCell className="text-slate-600">{formatDate(a.lastLoginAt)}</TableCell>
                       <TableCell className="pr-5">
-                        <AccountActions account={a} onReset={() => openReset(a)} onToggle={() => setStatusTarget(a)} />
+                        <AccountActions
+                          account={a}
+                          onReset={() => openReset(a)}
+                          onLabReset={() => setLabResetTarget(a)}
+                          onToggle={() => setStatusTarget(a)}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -303,7 +367,12 @@ export function StaffAccountsClient() {
                     </div>
                     <StatusBadge status={a.status} />
                   </div>
-                  <AccountActions account={a} onReset={() => openReset(a)} onToggle={() => setStatusTarget(a)} />
+                  <AccountActions
+                          account={a}
+                          onReset={() => openReset(a)}
+                          onLabReset={() => setLabResetTarget(a)}
+                          onToggle={() => setStatusTarget(a)}
+                        />
                 </li>
               ))}
             </ul>
@@ -313,8 +382,8 @@ export function StaffAccountsClient() {
 
       <p className="text-xs leading-snug text-slate-500">
         Deactivating an account only blocks sign-in and signs the trainee out. Their guests, reservations, folios,
-        cashiering transactions, special requests, memberships and activity history are kept. Clearing laboratory data is
-        a separate action under Laboratory Data.
+        cashiering transactions, special requests, memberships and activity history are kept. Reset Laboratory Data is a
+        separate action that clears only that account&apos;s test data and never changes the account itself.
       </p>
 
       {/* ---------- Activate / deactivate confirmation ---------- */}
@@ -351,6 +420,9 @@ export function StaffAccountsClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ---------- Reset one account's laboratory data ---------- */}
+      <AccountLabResetDialog account={labResetTarget} onOpenChange={(open) => !open && setLabResetTarget(null)} />
 
       {/* ---------- Reset password ---------- */}
       <Dialog open={!!resetTarget} onOpenChange={handleResetOpenChange}>

@@ -5,6 +5,7 @@ import { recordAudit } from "@/lib/audit";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { revokeAllUserSessions } from "@/lib/auth/session";
 import { applyNewPassword } from "@/services/account.service";
+import { getAccountLabResetPreview, resetAccountLaboratoryData } from "@/services/lab-reset.service";
 import { FRONT_DESK_ACCOUNTS, FRONT_DESK_EMAILS, FRONT_DESK_ROLE } from "@/config/front-desk-accounts";
 import { ROLE_DISPLAY } from "@/config/role-display";
 import type { ResetAccountPasswordInput } from "@/validators/account.schema";
@@ -161,4 +162,29 @@ export async function resetStaffAccountPassword(id: string, input: ResetAccountP
   });
 
   return toStaffAccount(await findRosterAccount(id));
+}
+
+function accountIdentity(u: { id: string; email: string; firstName: string; lastName: string }) {
+  return { id: u.id, name: `${u.firstName} ${u.lastName}`.trim(), email: u.email };
+}
+
+/**
+ * One trainee account's laboratory data, counted straight from the database.
+ * Only Front Desk A–O ids are accepted (findRosterAccount), so this can never
+ * be pointed at a Supervisor's or any other user's records.
+ */
+export async function getStaffAccountLabData(id: string) {
+  const target = await findRosterAccount(id);
+  const preview = await getAccountLabResetPreview(target.id);
+  return { account: accountIdentity(target), ...preview };
+}
+
+/**
+ * Supervisor clears ONE trainee account's laboratory data. The account row
+ * (status, password, role) is never written — see resetAccountLaboratoryData.
+ */
+export async function resetStaffAccountLabData(id: string, actor: ActorContext) {
+  const target = await findRosterAccount(id);
+  const result = await resetAccountLaboratoryData(accountIdentity(target), actor);
+  return { account: accountIdentity(target), ...result };
 }

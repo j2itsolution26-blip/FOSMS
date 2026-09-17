@@ -63,7 +63,7 @@ const EMPTY_COUNTS: LabResetCounts = {
  * `compact` trims each row by a few pixels for the confirmation dialog, where
  * eight of these compete with the viewport — same rows, same numbers, just
  * tighter type. */
-function CountRow({
+export function CountRow({
   icon: Icon,
   label,
   value,
@@ -159,7 +159,7 @@ function CountSummarySkeleton() {
  * sentence is a promise the backend actually keeps — resetLaboratoryData()
  * updates Room.status (and only that column) back to vacant in the same
  * transaction, so keep the two in step if either ever changes. */
-function SafetyBanner() {
+export function SafetyBanner() {
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
@@ -172,7 +172,7 @@ function SafetyBanner() {
 }
 
 /** The one irreversible fact about this page, never softened. */
-function IrreversibleBanner() {
+export function IrreversibleBanner() {
   return (
     <div className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
       <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" aria-hidden />
@@ -181,7 +181,7 @@ function IrreversibleBanner() {
   );
 }
 
-const DESTRUCTIVE_BUTTON =
+export const DESTRUCTIVE_BUTTON =
   "h-10 gap-2 rounded-lg px-4 text-sm font-semibold shadow-sm transition-all hover:shadow focus-visible:ring-2 focus-visible:ring-red-500/40 focus-visible:ring-offset-2 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none disabled:active:scale-100";
 
 /**
