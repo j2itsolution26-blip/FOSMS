@@ -21,6 +21,7 @@ import { apiFetch } from "@/lib/api-client";
 import { guestTypeLabel } from "@/lib/formatters";
 import { TransactionDialog } from "@/components/cashiering/transaction-dialog";
 import { AdditionalChargeDialog } from "@/components/cashiering/additional-charge-dialog";
+import { SpecialRequestsPanel } from "@/components/front-office/special-requests";
 
 type Candidate = {
   id: string;
@@ -300,8 +301,8 @@ export function CheckOutDialog({
                       <span>Special Requests / Charges</span>
                       <span className="font-mono">{currency(summary.folio.specialRequests)}</span>
                     </div>
-                    {/* Read-only: requests are entered at Check-In / Guest Folio and
-                        read here from the charges already saved on the folio. */}
+                    {/* Itemized from the saved charges — managed in the Special
+                        Requests & Additional Charges section below. */}
                     {summary.specialRequestItems.length > 0 ? (
                       <ul className="space-y-0.5 border-l-2 border-slate-200 pl-3 text-xs text-slate-500">
                         {summary.specialRequestItems.map((item) => (
@@ -409,11 +410,22 @@ export function CheckOutDialog({
                   )}
                 </div>
 
-                {/* Damage, lost item, or any other guest-caused charge discovered during
-                    checkout — links to this same reservation and enters the balance above. */}
-                <Button type="button" variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
-                  <ReceiptText className="h-4 w-4" /> Add Additional / Damage Charge
-                </Button>
+                {/* Every add / complete / cancel is saved at once and re-pulls the
+                    folio above, so Subtotal, VAT, Total and Balance always come from
+                    the server's own ledger math — and checkOut() still requires ₱0. */}
+                <SpecialRequestsPanel
+                  compact
+                  reservationId={summary.id}
+                  onChanged={refreshSummary}
+                  refreshKey={summary.folio.paid}
+                  actions={
+                    // Damage, lost item, or any other guest-caused charge discovered during
+                    // checkout — links to this same reservation and enters the balance above.
+                    <Button type="button" variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
+                      <ReceiptText className="h-4 w-4" /> Add Additional / Damage Charge
+                    </Button>
+                  }
+                />
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">

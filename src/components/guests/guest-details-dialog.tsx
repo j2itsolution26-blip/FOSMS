@@ -159,18 +159,18 @@ function PrintSection({ title, children }: { title: string; children: React.Reac
   );
 }
 
-// Signature over Printed Name — the name is always the recorded value (the
-// folio's Front Desk Officer or the guest's own full name); when none was
-// recorded the line is left blank to be filled in by hand.
-function SignatureLine({ role, name, print = false }: { role: string; name: string | null | undefined; print?: boolean }) {
+// One signing slot: the role as a heading, a blank signature line, the
+// signer's recorded name beneath it (the folio's Front Desk Officer or the
+// guest's own full name — left blank to fill in by hand when none was
+// recorded), then the role caption.
+function SignatureLine({ label, name, print = false }: { label: string; name: string | null | undefined; print?: boolean }) {
   const text = print ? "text-black" : "text-slate-800";
   return (
-    <div className="break-inside-avoid">
-      <p className={`text-xs font-bold uppercase tracking-wider ${print ? "text-black" : "text-[#0b1c3f]"}`}>{role}</p>
-      <div className={`mt-10 border-b ${print ? "border-black" : "border-slate-400"} pb-0.5 text-center text-sm font-semibold uppercase ${text}`}>
-        {name || " "}
-      </div>
-      <p className={`mt-1 text-center text-[11px] ${print ? "text-black" : "text-slate-500"}`}>Signature over Printed Name</p>
+    <div className="min-w-0 break-inside-avoid text-center" style={{ pageBreakInside: "avoid" }}>
+      <p className={`text-xs font-bold tracking-wider ${print ? "text-black" : "text-[#0b1c3f]"}`}>{label}</p>
+      <div className={`h-10 border-b ${print ? "border-black" : "border-slate-400"}`} />
+      <p className={`mt-1 break-words text-sm font-semibold ${text}`}>{name || " "}</p>
+      <p className={`mt-0.5 text-[11px] uppercase tracking-wider ${print ? "text-black" : "text-slate-500"}`}>{label}</p>
     </div>
   );
 }
@@ -300,9 +300,10 @@ export function GuestDetailsDialog({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 gap-6 border-t border-slate-200 pt-4 sm:grid-cols-2">
-                <SignatureLine role="Front Desk Officer" name={guest.processedBy} />
-                <SignatureLine role="Guest" name={formatGuestFullName(guest)} />
+              {/* Guest always on the left, Front Desk Officer on the right. */}
+              <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4">
+                <SignatureLine label="Guest Signature" name={formatGuestFullName(guest)} />
+                <SignatureLine label="Front Desk Officer Signature" name={guest.processedBy} />
               </div>
             </>
           )}
@@ -429,9 +430,10 @@ function GuestFolioPrintContent({ guest }: { guest: GuestDetails }) {
       {/* Kept together on one page so the signature lines are never cut off
           at a page break. The officer's name prints on its signature line. */}
       <div className="mt-6 break-inside-avoid" style={{ pageBreakInside: "avoid" }}>
+        {/* Guest always on the left, Front Desk Officer on the right. */}
         <div className="grid grid-cols-2 gap-x-12">
-          <SignatureLine print role="Front Desk Officer" name={guest.processedBy} />
-          <SignatureLine print role="Guest" name={formatGuestFullName(guest)} />
+          <SignatureLine print label="Guest Signature" name={formatGuestFullName(guest)} />
+          <SignatureLine print label="Front Desk Officer Signature" name={guest.processedBy} />
         </div>
       </div>
     </>

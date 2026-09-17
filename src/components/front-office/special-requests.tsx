@@ -406,6 +406,211 @@ export function SpecialRequestsDraftEditor({
 }
 
 // ---------------------------------------------------------------------------
+// Single-request modal (compact Check-Out section)
+// ---------------------------------------------------------------------------
+
+type AddFormState = { itemName: string; quantity: string; unitPrice: string; requestedFor: string; notes: string };
+const EMPTY_ADD_FORM: AddFormState = { itemName: "", quantity: "1", unitPrice: "", requestedFor: "", notes: "" };
+// Room left in the 500-character notes column for the "Requested for" prefix.
+const ADD_NOTES_MAX = 440;
+
+/**
+ * There is no delivery-time column, so an optional requested time is kept
+ * at the front of the request's notes ("Requested for: …"), where every list,
+ * folio and receipt that shows notes already displays it.
+ */
+function composeRequestNotes(requestedFor: string, notes: string) {
+  const when = requestedFor
+    ? new Date(requestedFor).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })
+    : "";
+  const parts = [when ? `Requested for: ${when}` : "", notes.trim()].filter(Boolean);
+  return parts.join(" — ");
+}
+
+function AddSpecialRequestDialog({
+  open,
+  onOpenChange,
+  saving,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  saving: boolean;
+  onSubmit: (item: SpecialRequestItemInput) => void;
+}) {
+  const id = useId();
+  const [form, setForm] = useState<AddFormState>(EMPTY_ADD_FORM);
+  const [errors, setErrors] = useState<Partial<Record<DraftField, string>>>({});
+  // One key per opening: a double click or retried save of this entry is
+  // returned by the server instead of being billed twice.
+  const [requestKey, setRequestKey] = useState(() => nanoid());
+
+  useEffect(() => {
+    if (open) {
+      setForm(EMPTY_ADD_FORM);
+      setErrors({});
+      setRequestKey(nanoid());
+    }
+  }, [open]);
+
+  const set = <K extends keyof AddFormState>(k: K, v: AddFormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const qty = Number(form.quantity);
+  const price = Number(form.unitPrice);
+  const total =
+    Number.isFinite(qty) && Number.isFinite(price) && qty > 0 && price > 0 ? Math.round(qty * price * 100) / 100 : 0;
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const nextErrors: Partial<Record<DraftField, string>> = {};
+    if (form.unitPrice.trim() === "") nextErrors.unitPrice = "Enter a unit price (₱0.00 for a no-charge request).";
+    // ₱0.00 records a no-charge request for staff follow-up only.
+    const isChargeable = price > 0;
+    const parsed = specialRequestItemSchema.safeParse({
+      requestKey,
+      itemName: form.itemName,
+      quantity: form.quantity.trim() === "" ? undefined : form.quantity,
+      unitPrice: form.unitPrice.trim() === "" ? undefined : isChargeable ? form.unitPrice : 0,
+      isChargeable,
+      notes: composeRequestNotes(form.requestedFor, form.notes),
+    });
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const field = issue.path[0] as DraftField;
+        if (!nextErrors[field]) nextErrors[field] = issue.message;
+      }
+    }
+    if (form.unitPrice.trim() !== "" && price < 0) nextErrors.unitPrice = "Unit price cannot be negative.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0 || !parsed.success) return;
+    onSubmit(parsed.data);
+  }
+
+  const inputClass = "h-9 rounded-md border-slate-200 bg-white text-sm";
+  const errorClass = "border-red-400 focus-visible:ring-red-400";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-[#0b1c3f]">
+            <ConciergeBell className="h-4.5 w-4.5" aria-hidden /> Add Special Request
+          </DialogTitle>
+          <DialogDescription>A chargeable request is added to the guest&apos;s balance immediately.</DialogDescription>
+        </DialogHeader>
+
+        <form id={`${id}-form`} onSubmit={submit} className="grid grid-cols-2 gap-3" noValidate>
+          <div className="col-span-2">
+            <Label htmlFor={`${id}-name`} className="mb-1 text-xs font-medium text-slate-700">
+              Request / Item Name <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id={`${id}-name`}
+              autoFocus
+              value={form.itemName}
+              onChange={(e) => set("itemName", e.target.value)}
+              placeholder="e.g. Wine"
+              maxLength={150}
+              aria-invalid={!!errors.itemName}
+              className={cn(inputClass, errors.itemName && errorClass)}
+            />
+            {errors.itemName ? <p className="mt-1 text-xs text-red-600">{errors.itemName}</p> : null}
+          </div>
+          <div>
+            <Label htmlFor={`${id}-qty`} className="mb-1 text-xs font-medium text-slate-700">
+              Quantity <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id={`${id}-qty`}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={999}
+              step={1}
+              value={form.quantity}
+              onChange={(e) => set("quantity", e.target.value)}
+              aria-invalid={!!errors.quantity}
+              className={cn(inputClass, errors.quantity && errorClass)}
+            />
+            {errors.quantity ? <p className="mt-1 text-xs text-red-600">{errors.quantity}</p> : null}
+          </div>
+          <div>
+            <Label htmlFor={`${id}-price`} className="mb-1 text-xs font-medium text-slate-700">
+              Unit Price <span className="text-red-500">*</span>
+            </Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-slate-500">₱</span>
+              <Input
+                id={`${id}-price`}
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                placeholder="0.00"
+                value={form.unitPrice}
+                onChange={(e) => set("unitPrice", e.target.value)}
+                aria-invalid={!!errors.unitPrice}
+                className={cn(inputClass, "pl-6", errors.unitPrice && errorClass)}
+              />
+            </div>
+            {errors.unitPrice ? <p className="mt-1 text-xs text-red-600">{errors.unitPrice}</p> : null}
+          </div>
+          <div className="col-span-2 flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm" aria-live="polite">
+            <span className="text-slate-600">
+              Total
+              {total > 0 ? (
+                <span className="ml-1 text-xs text-muted-foreground">
+                  ({qty} × {currency(price)})
+                </span>
+              ) : form.unitPrice.trim() !== "" && price === 0 ? (
+                <span className="ml-1 text-xs text-muted-foreground">(no charge)</span>
+              ) : null}
+            </span>
+            <span className="font-mono font-semibold text-[#0b1c3f]">{currency(total)}</span>
+          </div>
+          <div className="col-span-2">
+            <Label htmlFor={`${id}-when`} className="mb-1 text-xs font-medium text-slate-700">
+              Delivery / Request Time <span className="font-normal text-slate-400">(optional)</span>
+            </Label>
+            <Input
+              id={`${id}-when`}
+              type="datetime-local"
+              value={form.requestedFor}
+              onChange={(e) => set("requestedFor", e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div className="col-span-2">
+            <Label htmlFor={`${id}-notes`} className="mb-1 text-xs font-medium text-slate-700">
+              Notes <span className="font-normal text-slate-400">(optional)</span>
+            </Label>
+            <Input
+              id={`${id}-notes`}
+              value={form.notes}
+              onChange={(e) => set("notes", e.target.value)}
+              placeholder="e.g. Deliver chilled"
+              maxLength={ADD_NOTES_MAX}
+              aria-invalid={!!errors.notes}
+              className={cn(inputClass, errors.notes && errorClass)}
+            />
+            {errors.notes ? <p className="mt-1 text-xs text-red-600">{errors.notes}</p> : null}
+          </div>
+        </form>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" form={`${id}-form`} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Save Request
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Saved entries on an existing stay (Check-In / Check-Out)
 // ---------------------------------------------------------------------------
 
@@ -477,6 +682,9 @@ export function SpecialRequestsPanel({
   onLoaded,
   readOnly = false,
   bare = false,
+  compact = false,
+  actions,
+  refreshKey,
 }: {
   reservationId: string;
   onChanged?: () => void;
@@ -486,6 +694,13 @@ export function SpecialRequestsPanel({
   readOnly?: boolean;
   // Rendered inside a host that already has its own title (no section card).
   bare?: boolean;
+  // Check-Out: a scrollable list and a single-request modal instead of the
+  // inline multi-entry editor, so the host dialog stays short.
+  compact?: boolean;
+  // Extra header buttons (compact only), e.g. Check-Out's damage charge.
+  actions?: React.ReactNode;
+  // Changing this re-pulls the list (e.g. after a payment on the host).
+  refreshKey?: string | number;
 }) {
   const [list, setList] = useState<SavedList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -500,6 +715,8 @@ export function SpecialRequestsPanel({
   // Entries that match a request already saved on this stay — confirmed
   // before saving so the same request isn't billed twice by accident.
   const [duplicates, setDuplicates] = useState<string[] | null>(null);
+  const [pendingItems, setPendingItems] = useState<SpecialRequestItemInput[] | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const onLoadedRef = useRef(onLoaded);
   useEffect(() => {
     onLoadedRef.current = onLoaded;
@@ -515,7 +732,9 @@ export function SpecialRequestsPanel({
       toast.error(res.message);
     }
     setLoading(false);
-  }, [reservationId]);
+    // refreshKey only exists to trigger a reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reservationId, refreshKey]);
 
   useEffect(() => {
     setDrafts([]);
@@ -523,23 +742,30 @@ export function SpecialRequestsPanel({
     load();
   }, [load]);
 
-  async function save(confirmedDuplicates = false) {
+  function save() {
     const { valid, errors: nextErrors, items } = validateSpecialRequestDrafts(drafts);
     setErrors(nextErrors);
     if (!valid) {
       toast.error("Complete the highlighted special request fields.");
       return;
     }
+    saveItems(items);
+  }
+
+  // Shared by the inline editor and the single-request modal.
+  async function saveItems(items: SpecialRequestItemInput[], confirmedDuplicates = false) {
     if (!confirmedDuplicates) {
       const matches = items.filter((i) =>
         (list?.items ?? []).some((saved) => saved.status !== "CANCELLED" && sameRequest(i, saved))
       );
       if (matches.length > 0) {
+        setPendingItems(items);
         setDuplicates(matches.map((m) => m.itemName));
         return;
       }
     }
     setDuplicates(null);
+    setPendingItems(null);
     setSaving(true);
     const res = await apiFetch<SavedList>(`/api/front-office/special-requests/${reservationId}`, {
       method: "POST",
@@ -553,6 +779,7 @@ export function SpecialRequestsPanel({
     setList(res.data);
     setDrafts([]);
     setErrors({});
+    setAddOpen(false);
     const charged = items.filter((i) => i.isChargeable).length;
     toast.success(
       charged > 0 ? "Special requests saved and charges added to the guest folio." : "Special requests saved."
@@ -606,7 +833,13 @@ export function SpecialRequestsPanel({
       ) : items.length === 0 ? (
         drafts.length === 0 ? <p className="text-xs text-muted-foreground">No special requests on this stay.</p> : null
       ) : (
-        <ul className="divide-y divide-slate-200 overflow-hidden rounded-md border border-slate-200 bg-white">
+        <ul
+          className={cn(
+            "divide-y divide-slate-200 rounded-md border border-slate-200 bg-white",
+            // Only the list scrolls, so the host dialog stays usable.
+            compact ? "max-h-60 overflow-y-auto overscroll-contain" : "overflow-hidden"
+          )}
+        >
           {items.map((r) => {
             const statusMeta = SAVED_STATUS_META[r.status];
             const chip = paymentChip(r);
@@ -661,7 +894,7 @@ export function SpecialRequestsPanel({
                       )}
                     </span>
                     {/* Cancelled requests stay as history — no removal. */}
-                    {editable && !cancelled ? (
+                    {editable && !cancelled && !compact ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -720,9 +953,11 @@ export function SpecialRequestsPanel({
         </p>
       ) : null}
 
-      {editable ? <SpecialRequestsDraftEditor value={drafts} onChange={setDrafts} errors={errors} embedded /> : null}
+      {editable && !compact ? (
+        <SpecialRequestsDraftEditor value={drafts} onChange={setDrafts} errors={errors} embedded />
+      ) : null}
 
-      {editable && drafts.length > 0 ? (
+      {editable && !compact && drafts.length > 0 ? (
         <div className="flex justify-end gap-2">
           <Button
             type="button"
@@ -736,7 +971,7 @@ export function SpecialRequestsPanel({
           >
             Discard
           </Button>
-          <Button type="button" size="sm" onClick={() => save()} disabled={saving}>
+          <Button type="button" size="sm" onClick={save} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save {drafts.length === 1 ? "Request" : `${drafts.length} Requests`}
           </Button>
@@ -776,6 +1011,15 @@ export function SpecialRequestsPanel({
         </DialogContent>
       </Dialog>
 
+      {compact ? (
+        <AddSpecialRequestDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          saving={saving}
+          onSubmit={(item) => saveItems([item])}
+        />
+      ) : null}
+
       <Dialog open={!!duplicates} onOpenChange={(o) => !o && setDuplicates(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -796,7 +1040,7 @@ export function SpecialRequestsPanel({
             <Button type="button" variant="outline" onClick={() => setDuplicates(null)}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => save(true)} disabled={saving}>
+            <Button type="button" onClick={() => pendingItems && saveItems(pendingItems, true)} disabled={saving}>
               Save Anyway
             </Button>
           </DialogFooter>
@@ -805,6 +1049,38 @@ export function SpecialRequestsPanel({
     </>
   );
 
+  if (compact) {
+    const active = items.filter((r) => r.status !== "CANCELLED").length;
+    return (
+      <section aria-label="Special Requests and Additional Charges" className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-1.5 text-xs font-bold tracking-wider text-[#0b1c3f] uppercase">
+              <ConciergeBell className="h-3.5 w-3.5" aria-hidden /> Special Requests &amp; Additional Charges
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {items.length === 0
+                ? "Chargeable requests are added to the balance above."
+                : `${active} active request${active === 1 ? "" : "s"} · cancelled requests are not charged.`}
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2.5">
+          {content}
+          {editable || actions ? (
+            <div className="flex flex-wrap gap-2">
+              {editable ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+                  <Plus className="h-4 w-4" /> Add Special Request
+                </Button>
+              ) : null}
+              {actions}
+            </div>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
   if (bare) return <div className="space-y-3">{content}</div>;
   return (
     <SectionShell description="Chargeable requests are added to this stay's balance right away. No-charge requests are kept for staff follow-up only.">

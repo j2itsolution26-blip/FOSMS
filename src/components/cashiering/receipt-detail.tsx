@@ -95,15 +95,16 @@ function LineItem({
 }
 
 /**
- * One signing slot — a blank line tall enough for a handwritten signature,
- * the role label directly beneath it, then the signer's recorded name.
+ * One signing slot — the role as a heading, a blank line tall enough for a
+ * handwritten signature, the signer's recorded name, then the role caption.
  */
 function SignatureBlock({ label, name }: { label: string; name: string }) {
   return (
-    <div className="min-w-0 text-center">
+    <div className="min-w-0 break-inside-avoid text-center">
+      <p className="text-xs font-medium tracking-wide text-slate-600">{label}</p>
       <div className="h-12 border-b border-slate-900 print:h-16" />
-      <p className="mt-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
-      <p className="mt-0.5 break-words text-sm font-semibold text-slate-900">{name}</p>
+      <p className="mt-1.5 break-words text-sm font-semibold text-slate-900">{name}</p>
+      <p className="mt-0.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
     </div>
   );
 }
@@ -341,12 +342,14 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
               <p className="text-2xl font-bold text-slate-900">{currency(amountPaid)}</p>
             </div>
 
+            {/* Guest always on the left, Front Desk Officer on the right —
+                two fixed equal columns, on screen and in print. */}
             <div className="grid grid-cols-2 gap-8 border-t border-dashed pt-6 sm:gap-12 print:gap-16 print:pt-10">
-              <SignatureBlock label="Front Desk Officer Signature" name={receipt.processedBy || "Not recorded"} />
               <SignatureBlock
                 label={receipt.membership ? "Member Signature" : "Guest Signature"}
                 name={receipt.guestName ?? "—"}
               />
+              <SignatureBlock label="Front Desk Officer Signature" name={receipt.processedBy || "Not recorded"} />
             </div>
           </div>
         </CardContent>
