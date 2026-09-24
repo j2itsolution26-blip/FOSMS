@@ -202,6 +202,12 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
   const statusMeta = STATUS_META[receipt.status];
   const hasFolioBreakdown = receipt.subtotal !== null;
   const amountPaid = Number(receipt.amount);
+  // "Amount Paid" is what the guest has paid on this folio IN TOTAL — every
+  // payment on the stay up to this receipt, net of refunds (folio.paid, the
+  // same figure the breakdown above shows) — never just this one payment's
+  // amount. A refund receipt still shows its own amount refunded, and a Club
+  // Membership fee receipt its one-time fee (neither carries a folio).
+  const totalPaid = receipt.folio ? receipt.folio.paid : amountPaid;
   const bedCharge = receipt.bedCharge ? Number(receipt.bedCharge) : 0;
   const roomPrice = hasFolioBreakdown ? Number(receipt.subtotal) - bedCharge : 0;
   const vatAmount = Number(receipt.vatAmount ?? 0);
@@ -339,7 +345,7 @@ export function ReceiptDetail({ receipt, orgName }: { receipt: ReceiptDetailData
           <div className="space-y-6 break-inside-avoid">
             <div className="flex items-center justify-between border-t pt-4">
               <p className="text-sm font-medium text-slate-700">{receipt.type === "REFUND" ? "Amount Refunded" : "Amount Paid"}</p>
-              <p className="text-2xl font-bold text-slate-900">{currency(amountPaid)}</p>
+              <p className="text-2xl font-bold text-slate-900">{currency(totalPaid)}</p>
             </div>
 
             {/* Guest always on the left, Front Desk Officer on the right —
